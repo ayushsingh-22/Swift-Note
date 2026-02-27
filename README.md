@@ -1,4 +1,6 @@
-# SwiftNote - Smart Note Taking App
+# [SwiftNote - Smart Note Taking App](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
+
+[![Get it on Google Play](https://img.shields.io/badge/Get%20it%20on-Google%20Play-green?logo=google-play)](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
 
 **SwiftNote** is a modern, intelligent, and offline-first note-taking Android application built with **Jetpack Compose**. It combines clean UI/UX with powerful AI-driven reminders, making note-taking not just easier but smarter. Whether you’re writing down quick thoughts, managing tasks, or setting time-sensitive reminders, SwiftNote ensures everything stays organized and accessible anytime, even without an internet connection.
 
