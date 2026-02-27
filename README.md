@@ -233,8 +233,8 @@ Contributions are welcome! Here’s how you can help:
 ## 📞 Contact
 
 * Author: [**Ayush Kumar**](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
-* Project Repository: [Repository](https://github.com/ayushsingh-22/SwiftNote.git)
-* LinkedIn: [Ayush Kumar](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
+* Project Repository: [**Repository**](https://github.com/ayushsingh-22/Swift-Note)
+* LinkedIn: [**Ayush Kumar**](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
 
 ---
 
