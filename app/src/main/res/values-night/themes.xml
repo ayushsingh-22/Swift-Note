@@ -54,5 +54,5 @@
     <style name="Theme.SelfNote" parent="Base.Theme.SelfNote" />
 
     <!-- Alternative theme name for compatibility -->
-    <style name="Theme.QuickNote" parent="Base.Theme.SelfNote" />
+    <style name="Theme.SwiftNote" parent="Base.Theme.SelfNote" />
 </resources>

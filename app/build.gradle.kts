@@ -3,35 +3,40 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.firebase.crashlytics)
     id("kotlin-kapt")
 }
 
+
 android {
-    namespace = "com.amvarpvtltd.selfnote"
-    compileSdk = 35
+    namespace = "com.amvarpvtltd.swiftNote"
+    compileSdk = 36 // Updated from 35 to 36 to support pdf-viewer library
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("debug.keystore")
+            storePassword = "#HareRam@2205#"
+            keyAlias = "Key0"
+            keyPassword = "#HareRam@2205#"
+        }
+    }
 
     defaultConfig {
         applicationId = "com.amvarpvtltd.selfnote"
-        minSdk = 26
-        targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.6"
+        minSdk = 31
+        targetSdk = 36
+        versionCode = 9
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
 
-        // Add 16KB page size testing support
-        testInstrumentationRunnerArguments["androidx.benchmark.suppressErrors"] = "EMULATOR,LOW-BATTERY"
+        vectorDrawables.useSupportLibrary = true
 
-        // Add Room schema export directory
         javaCompileOptions {
             annotationProcessorOptions {
                 arguments += mapOf(
                     "room.schemaLocation" to "$projectDir/schemas",
-                    "room.incremental" to "true",
-                    "room.expandProjection" to "true"
+                    "room.incremental" to "true"
                 )
             }
         }
@@ -40,21 +45,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Enable 16KB page size optimizations in release builds
-            ndk {
-                debugSymbolLevel = "NONE"
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
-        debug {
-            // Debug configuration
-            ndk {
-                debugSymbolLevel = "SYMBOL_TABLE"
-            }
-        }
+        debug { }
     }
 
     compileOptions {
@@ -62,110 +60,34 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = "11"
-    }
+    kotlinOptions { jvmTarget = "11" }
 
     buildFeatures {
         compose = true
         buildConfig = true
     }
 
-    // Configure KAPT properly
     kapt {
         correctErrorTypes = true
         useBuildCache = true
-        mapDiagnosticLocations = true
-        javacOptions {
-            this.option("-Xmaxerrs".toString(), 500.toString())
-            this.option("-Xmaxwarns".toString(), 500.toString())
-        }
-        arguments {
-            arg("room.schemaLocation", "$projectDir/schemas")
-            arg("room.incremental", "true")
-            arg("room.expandProjection", "true")
-        }
     }
 
-    // Comprehensive packaging configuration for 16KB page size compatibility
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            excludes += "/META-INF/DEPENDENCIES"
-            excludes += "/META-INF/LICENSE"
-            excludes += "/META-INF/LICENSE.txt"
-            excludes += "/META-INF/NOTICE"
-            excludes += "/META-INF/NOTICE.txt"
-            // Exclude problematic native debug symbols
-            excludes += "**/dump_syms/**"
-            excludes += "**/dump_syms.bin"
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*"
+            )
         }
-
-        // Critical: JNI library configuration for 16KB alignment
         jniLibs {
             useLegacyPackaging = false
-            // Enable 16KB alignment for all native libraries
-            keepDebugSymbols += listOf("**/*.so")
-            pickFirsts += listOf(
-                "**/libc++_shared.so",
-                "**/libjsc.so",
-                "**/libfbjni.so",
-                "**/libreactnativejni.so",
-                "**/libhermes.so"
-            )
-            // Exclude debug symbols that cause alignment issues
-            excludes += listOf(
-                "**/dump_syms.bin",
-                "**/dump_syms/**",
-                "**/libcrashlytics.so"
-            )
-        }
-
-        // Ensure proper DEX alignment
-        dex {
-            useLegacyPackaging = false
-        }
-    }
-
-    // Remove problematic splits configuration and replace with proper one
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            // Only include ABIs that support 16KB page size properly
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = false
-        }
-        // Remove density splits completely as they're deprecated
-    }
-
-    // Add lint configuration to catch 16KB compatibility issues
-    lint {
-        checkReleaseBuilds = true
-        abortOnError = false
-        warningsAsErrors = false
-        // Enable 16KB page size checks
-        enable += listOf("Instantiatable", "UnsafeNativeCodeLocation")
-        // Add 16KB specific lint checks
-        enable += listOf("NewerVersionAvailable", "GradleDependency")
-    }
-
-    // Add bundle configuration for Play Store (preferred over APK splits)
-    bundle {
-        abi {
-            enableSplit = true
-        }
-        density {
-            enableSplit = true  // Use bundles for density instead of deprecated splits
-        }
-        language {
-            enableSplit = false
         }
     }
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -174,36 +96,30 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-
-    // Add Android Material library for XML themes
     implementation(libs.androidx.material)
 
-    // Firebase BOM - MUST be added as platform dependency
+    // Firebase BOM
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.database)
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.firebase.auth.ktx)
-    implementation(libs.firebase.crashlytics.buildtools)
+    implementation("com.google.firebase:firebase-crashlytics-ktx") // ✅ runtime Crashlytics
 
     implementation(libs.androidx.tv.material)
-
-    // Use version catalog dependencies where possible
     implementation(libs.gson)
 
-    // Room components with proper versions from catalog
+    // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.compose.foundation)
     kapt(libs.androidx.room.compiler)
 
-    // ML Kit Entity Extraction for Smart Reminders
-    implementation(libs.mlkit.entity.extraction)
-
-    // Additional dependencies for Smart Reminders
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.pdf.viewer)
+    implementation("com.google.mlkit:entity-extraction:16.0.0-beta6")
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-    // CameraX + ML Kit Barcode scanning for QR scanner
+    // CameraX + ML Kit
     implementation(libs.camerax.core)
     implementation(libs.camerax.camera2)
     implementation(libs.camerax.lifecycle)
@@ -211,9 +127,10 @@ dependencies {
     implementation(libs.play.services.mlkit.barcode.scanning)
     implementation(libs.androidx.concurrent.futures.ktx)
 
-    // ZXing for QR code generation
+    // QR
     implementation(libs.zxing.core)
 
+    // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -221,11 +138,12 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
 
     // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
 }

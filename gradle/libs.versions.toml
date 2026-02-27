@@ -1,5 +1,5 @@
 [versions]
-agp = "8.7.3"
+agp = "8.9.1"
 # Downgrade Kotlin to version compatible with Room 2.6.1
 kotlin = "2.0.21"
 coreKtx = "1.15.0"
@@ -29,6 +29,9 @@ playServicesMlkitBarcode = "18.3.1"
 zxing = "3.5.1"
 concurrentFutures = "1.2.0"
 foundation = "1.9.0"
+pdfViewer = "1.0.0-alpha10"
+# Firebase Crashlytics plugin
+crashlytics = "2.9.8"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -85,9 +88,12 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
+androidx-pdf-viewer = { group = "androidx.pdf", name = "pdf-viewer", version.ref = "pdfViewer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-gms-google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+# Add Firebase Crashlytics plugin
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlytics" }

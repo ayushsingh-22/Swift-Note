@@ -90,9 +90,6 @@
 -adaptresourcefilenames **.properties,**.gif,**.jpg,**.png
 -adaptresourcefilecontents **.properties,META-INF/MANIFEST.MF
 
-# Remove unused resources to reduce memory footprint
--optimizeresources
-
 # Ensure proper initialization order for 16KB compatibility
 -keepclassmembers class * extends android.app.Application {
     public void onCreate();

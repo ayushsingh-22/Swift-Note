@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">QuickNote</string>
+    <string name="app_name">SwiftNote</string>
     <string name="create_note">Create Note</string>
     <string name="edit_note">Edit Note</string>
     <string name="save_note">Save Note</string>
