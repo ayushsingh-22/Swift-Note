@@ -109,6 +109,22 @@ class MainActivity : ComponentActivity() {
         }
 
         checkAndRequestNotificationPermission()
+        checkAndRequestExactAlarmPermission()
+    }
+
+    private fun checkAndRequestExactAlarmPermission() {
+        // For Android 12+ (API 31+), check exact alarm permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (!permissionManager.canScheduleExactAlarms()) {
+                // Only prompt once per app lifecycle to avoid being annoying
+                val prefs = getSharedPreferences("permission_prefs", MODE_PRIVATE)
+                val hasPromptedExactAlarm = prefs.getBoolean("exact_alarm_prompted", false)
+                if (!hasPromptedExactAlarm) {
+                    prefs.edit().putBoolean("exact_alarm_prompted", true).apply()
+                    permissionManager.requestExactAlarmPermission()
+                }
+            }
+        }
     }
 
     private fun checkAndRequestNotificationPermission() {

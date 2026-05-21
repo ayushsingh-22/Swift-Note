@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
@@ -130,7 +130,7 @@ fun ViewModeToggleButton(
             Icon(
                 imageVector = ViewModeManager.getViewModeIcon(currentViewMode),
                 contentDescription = ViewModeManager.getViewModeLabel(currentViewMode),
-                tint = Color.Black,
+                tint = NoteTheme.OnSurface,
                 modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
             )
         }
@@ -325,7 +325,7 @@ private fun NoteCardItem(
     )
 
     val cardColorPair = noteCardColors[index % noteCardColors.size]
-    val backgroundColor = cardColorPair.first
+    // backgroundColor removed - using NoteTheme.Surface for premium white cards
     val accentColor = cardColorPair.second
 
     AnimatedVisibility(
@@ -350,56 +350,48 @@ private fun NoteCardItem(
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     onView(note)
                 },
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = backgroundColor),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
             elevation = CardDefaults.cardElevation(
-                defaultElevation = if (isPressed) 8.dp else 4.dp
-            )
+                defaultElevation = 0.dp
+            ),
+            border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
-            Box {
-                // Accent gradient overlay
+            Row {
+                // Left accent stripe (3dp width)
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    accentColor.copy(alpha = 0.8f),
-                                    accentColor.copy(alpha = 0.4f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .background(accentColor)
                 )
 
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Text(
                         text = note.title,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontSize = 20.sp,
-                            lineHeight = 28.sp
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 18.sp,
+                            lineHeight = 24.sp,
+                            letterSpacing = 0.sp
                         ),
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NoteTheme.OnSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
 
                     if (note.description.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = note.description,
-                            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
-                            color = Color.Black.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = NoteTheme.OnSurfaceVariant,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -520,9 +512,10 @@ private fun NoteListItem(
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onView(note)
                 },
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
+            shape = RoundedCornerShape(NoteTheme.Radius.md.dp),
             colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
             Row(
                 modifier = Modifier
@@ -667,7 +660,7 @@ private fun NoteGridItem(
     )
 
     val cardColorPair = noteCardColors[index % noteCardColors.size]
-    val backgroundColor = cardColorPair.first
+    // backgroundColor removed - using NoteTheme.Surface for premium white cards
     val accentColor = cardColorPair.second
 
     AnimatedVisibility(
@@ -690,16 +683,17 @@ private fun NoteGridItem(
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onView(note)
                 },
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
-            colors = CardDefaults.cardColors(containerColor = backgroundColor),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
+            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
             Box {
-                // Accent line at top
+                // Left accent stripe
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
+                        .width(3.dp)
+                        .fillMaxHeight()
                         .background(accentColor)
                 )
 
@@ -718,8 +712,8 @@ private fun NoteGridItem(
                         Text(
                             text = note.title,
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Black,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NoteTheme.OnSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -729,7 +723,7 @@ private fun NoteGridItem(
                             Text(
                                 text = note.description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.Black.copy(alpha = 0.7f),
+                                color = NoteTheme.OnSurfaceVariant,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -782,7 +776,7 @@ private fun NoteGridItem(
                             Icon(
                                 Icons.Outlined.Delete,
                                 contentDescription = "Delete",
-                                tint = Color.Red.copy(alpha = 0.8f),
+                                tint = NoteTheme.Error,
                                 modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
                             )
                         }
@@ -827,16 +821,12 @@ private fun NoteGridItem(
     }
 }
 
-// Define note card colors for compatibility
+// Premium note card accent palette — white surface + colored left accent stripe
 val noteCardColors = listOf(
-    Color(0xFFFFFBEB) to Color(0xFFF59E0B), // Soft Amber
-    Color(0xFFF0F9FF) to Color(0xFF0284C7), // Soft Blue
-    Color(0xFFF0FDF4) to Color(0xFF059669), // Soft Green
-    Color(0xFFFDF2F8) to Color(0xFFDB2777), // Soft Pink
-    Color(0xFFF3E8FF) to Color(0xFF7C3AED), // Soft Purple
-    Color(0xFFFFF1F2) to Color(0xFFDC2626), // Soft Red
-    Color(0xFFF0F4FF) to Color(0xFF4F46E5), // Soft Indigo
-    Color(0xFFECFDF5) to Color(0xFF047857), // Soft Emerald
-    Color(0xFFFFF7ED) to Color(0xFFEA580C), // Soft Orange
-    Color(0xFFEFFAFD) to Color(0xFF0EA5E9)  // Soft Cyan
+    Color(0xFFFFFFFF) to Color(0xFF0D9488), // Surface + Teal
+    Color(0xFFFFFFFF) to Color(0xFFD97706), // Surface + Amber
+    Color(0xFFFFFFFF) to Color(0xFFE11D48), // Surface + Rose
+    Color(0xFFFFFFFF) to Color(0xFF4F46E5), // Surface + Indigo
+    Color(0xFFFFFFFF) to Color(0xFF059669), // Surface + Emerald
+    Color(0xFFFFFFFF) to Color(0xFF0284C7), // Surface + Sky
 )

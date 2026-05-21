@@ -44,8 +44,8 @@ fun OnboardingScreen(
         DeviceManager.markFirstLaunchComplete(context)
     }
 
-    // Background gradient consistent with other screens (shared random palette)
-    val backgroundBrush = BackgroundProvider.getBrush()
+    // Performance: remember brush to avoid recreating gradient on every recomposition
+    val backgroundBrush = remember { BackgroundProvider.getBrush() }
 
     Scaffold { paddingValues ->
         Box(
@@ -94,8 +94,8 @@ fun OnboardingScreen(
 
                     Text(
                         text = "Welcome to SwiftNote",
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.SemiBold,
                         color = NoteTheme.OnBackground,
                         textAlign = TextAlign.Center
                     )
@@ -106,7 +106,7 @@ fun OnboardingScreen(
                         text = "Your secure, private note-taking companion.\nChoose how you'd like to get started:",
                         style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
-                        color = NoteTheme.OnSurface.copy(alpha = 0.8f),
+                        color = NoteTheme.OnSurfaceVariant,
                         lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * 1.2
                     )
                 }
@@ -116,7 +116,7 @@ fun OnboardingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Start Fresh card - enhanced design
+                    // Start Fresh card - premium design with left accent stripe
                     ElevatedCard(
                         onClick = {
                             scope.launch {
@@ -152,8 +152,8 @@ fun OnboardingScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp)),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
+                            .clip(RoundedCornerShape(NoteTheme.Radius.lg.dp)),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
                         colors = CardDefaults.elevatedCardColors(
                             containerColor = NoteTheme.Surface
                         )
@@ -211,13 +211,13 @@ fun OnboardingScreen(
                         }
                     }
 
-                    // Restore Existing (QR) - enhanced design
+                    // Restore Existing (QR) - premium design
                     ElevatedCard(
                         onClick = { showQRScanner = true },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp)),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
+                            .clip(RoundedCornerShape(NoteTheme.Radius.lg.dp)),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
                         colors = CardDefaults.elevatedCardColors(
                             containerColor = NoteTheme.Surface
                         )

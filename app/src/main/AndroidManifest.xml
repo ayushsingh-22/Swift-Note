@@ -72,25 +72,29 @@
             android:name=".reminders.BootReceiver"
             android:enabled="true"
             android:exported="true">
+            <!-- Intent-filter for actions without scheme -->
             <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+            <!-- Intent-filter for package changes with scheme -->
+            <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_REPLACED" />
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
 
-        <!-- Data cleanup receiver for app uninstall -->
+        <!-- Android 12+: Reschedule alarms when exact alarm permission is granted/revoked -->
         <receiver
-            android:name=".cleanup.UninstallCleanupReceiver"
+            android:name=".reminders.ExactAlarmPermissionReceiver"
             android:enabled="true"
-            android:exported="true">
-            <intent-filter android:priority="1000">
-                <action android:name="android.intent.action.PACKAGE_DATA_CLEARED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <data android:scheme="package" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+
 
         <!-- ML Kit metadata for Entity Extraction -->
         <meta-data

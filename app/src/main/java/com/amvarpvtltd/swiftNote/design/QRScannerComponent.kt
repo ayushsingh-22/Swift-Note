@@ -131,11 +131,13 @@ fun QRScannerDialog(
             usePlatformDefaultWidth = false
         )
     ) {
+        // Performance: remember brush to avoid recreating gradient on every recomposition
+        val backgroundBrush = remember { BackgroundProvider.getBrush() }
         // Use the shared background so dialog feels part of the app
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = BackgroundProvider.getBrush()),
+                .background(brush = backgroundBrush),
             contentAlignment = Alignment.Center
         ) {
             Card(

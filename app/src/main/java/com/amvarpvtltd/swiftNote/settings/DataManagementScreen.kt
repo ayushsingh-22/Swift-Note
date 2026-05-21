@@ -37,6 +37,9 @@ fun DataManagementScreen(navController: NavController) {
     var showClearAllDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // Performance: remember brush to avoid recreating gradient on every recomposition
+    val backgroundBrush = remember { BackgroundProvider.getBrush() }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,7 +74,7 @@ fun DataManagementScreen(navController: NavController) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = BackgroundProvider.getBrush())
+                .background(brush = backgroundBrush)
                 .padding(paddingValues)
         ) {
             Column(

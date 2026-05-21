@@ -505,9 +505,9 @@ fun ReminderBottomSheet(
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             Text(
-                                text = formatDateTime(
-                                    customDateTime!!
-                                ),
+                                text = customDateTime?.let {
+                                    formatDateTime(it)
+                                } ?: "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = NoteTheme.Secondary
                             )
@@ -572,14 +572,15 @@ fun ReminderBottomSheet(
                                 ReminderPreset.ONE_HOUR -> calendar.apply { add(Calendar.HOUR, 1) }
                                 ReminderPreset.ONE_DAY -> calendar.apply { add(Calendar.DAY_OF_MONTH, 1) }
                                 ReminderPreset.CUSTOM -> calendar.apply {
-                                    if (customDateTime != null) {
-                                        timeInMillis = customDateTime!!
+                                    customDateTime?.let {
+                                        timeInMillis = it
                                     }
                                 }
                                  else -> calendar // This branch is needed for exhaustive when expression
                             }.timeInMillis
                         }
-                        customDateTime != null -> customDateTime!!
+                        customDateTime != null -> customDateTime
+
                         else -> null
                     }
 
@@ -801,7 +802,12 @@ private fun PresetButton(
             )
             .height(84.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = containerColor
+            containerColor = containerColor,
+            contentColor = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurface
+        ),
+        border = BorderStroke(
+            if (isSelected) 2.dp else 1.dp,
+            if (isSelected) NoteTheme.Primary else NoteTheme.Outline
         )
     ) {
         Column(
@@ -833,6 +839,7 @@ private fun PresetButton(
                 Icon(
                     icon,
                     contentDescription = null,
+                    tint = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
                     modifier = Modifier.size(
                         if (isSelected) 18.dp else 16.dp
                     )
@@ -842,6 +849,7 @@ private fun PresetButton(
                 text = preset.label,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -852,12 +860,11 @@ private fun PresetButton(
 private fun formatDateTime(
     timestamp: Long
 ): String {
-    val formatter =
-        SimpleDateFormat(
-            "MMM dd, HH:mm",
-            Locale.getDefault()
-        )
-    return formatter.format(
+    // Performance: companion-level formatter avoids creating SimpleDateFormat objects per call
+    return dateTimeFormatter.format(
         Date(timestamp)
     )
 }
+
+// Performance: single reusable formatter instance
+private val dateTimeFormatter = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())

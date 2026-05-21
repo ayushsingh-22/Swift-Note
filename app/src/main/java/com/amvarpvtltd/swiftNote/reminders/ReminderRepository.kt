@@ -4,10 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.amvarpvtltd.swiftNote.notifications.ReminderScheduler
 import com.amvarpvtltd.swiftNote.room.AppDatabase
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.util.*
 
@@ -15,7 +14,6 @@ class ReminderRepository(private val context: Context) {
 
     private val reminderDao = AppDatabase.getInstance(context).reminderDao()
     private val reminderScheduler = ReminderScheduler(context)
-    private val scope = CoroutineScope(Dispatchers.IO)
 
     suspend fun createReminder(request: ReminderRequest): Result<String> {
         return try {
@@ -79,8 +77,9 @@ class ReminderRepository(private val context: Context) {
         }
     }
 
+    // BUG-031 FIX: Proper suspend function instead of launching unscoped coroutine
     suspend fun cleanupOldReminders() {
-        scope.launch {
+        withContext(Dispatchers.IO) {
             try {
                 val currentTime = System.currentTimeMillis()
                 reminderDao.cleanupOldReminders(currentTime)
@@ -93,12 +92,11 @@ class ReminderRepository(private val context: Context) {
     suspend fun rescheduleAllReminders() {
         try {
             withContext(Dispatchers.IO) {
-                // Get all active reminders by collecting the Flow
-                getAllActiveReminders().collect { reminders ->
-                    val currentTime = System.currentTimeMillis()
-                    val futureReminders = reminders.filter { it.reminderTime > currentTime }
-                    reminderScheduler.rescheduleAllReminders(futureReminders)
-                }
+                // Get all active reminders by retrieving the first snapshot of the Flow
+                val reminders = getAllActiveReminders().first()
+                val currentTime = System.currentTimeMillis()
+                val futureReminders = reminders.filter { it.reminderTime > currentTime }
+                reminderScheduler.rescheduleAllReminders(futureReminders)
             }
         } catch (e: Exception) {
             Log.e("ReminderRepository", "Error rescheduling reminders", e)

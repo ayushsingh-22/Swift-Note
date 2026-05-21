@@ -11,257 +11,256 @@ import com.amvarpvtltd.swiftNote.security.EncryptionUtil
 import com.amvarpvtltd.swiftNote.myGlobalMobileDeviceId
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 object SyncManager {
     private const val TAG = "SyncManager"
 
+    // Mutex to prevent concurrent sync operations — ensures only one sync runs at a time
+    private val syncMutex = Mutex()
+    // Separate mutex for upload operations
+    private val uploadMutex = Mutex()
+
     /**
      * Sync data from another device's passphrase to current device
-     * This is a one-time copy operation, not continuous sync
+     * This is a one-time copy operation, not continuous sync.
+     * Protected by syncMutex to prevent concurrent syncs causing data races.
      */
     suspend fun syncDataFromPassphrase(
         context: Context,
         sourcePassphrase: String,
         currentPassphrase: String
     ): Result<SyncResult> = withContext(Dispatchers.IO) {
-        // Ensure app is authenticated before accessing Firebase
-        val authResult = PassphraseManager.ensureAuthenticated()
-        if (authResult.isFailure) {
-            val ex = authResult.exceptionOrNull()
-            Log.e(TAG, "Auth failed before sync: ${ex?.message}")
-            return@withContext Result.failure(Exception("Authentication failed: ${ex?.message ?: "unknown"}"))
-        }
+        // Acquire mutex — if another sync is running, this coroutine suspends until it finishes
+        syncMutex.withLock {
+            // Ensure app is authenticated before accessing Firebase
+            val authResult = PassphraseManager.ensureAuthenticated()
+            if (authResult.isFailure) {
+                val ex = authResult.exceptionOrNull()
+                Log.e(TAG, "Auth failed before sync: ${ex?.message}")
+                return@withContext Result.failure(Exception("Authentication failed: ${ex?.message ?: "unknown"}"))
+            }
 
-        return@withContext try {
-            val database = FirebaseDatabase.getInstance()
-            val sourceRef = database.getReference("users").child(sourcePassphrase)
+            return@withContext try {
+                val database = FirebaseDatabase.getInstance()
+                val sourceRef = database.getReference("users").child(sourcePassphrase)
 
-            // Fetch all notes from source device
-            val notesSnapshot = sourceRef.child("notes").get().await()
-            val remindersSnapshot = sourceRef.child("reminders").get().await()
+                // Fetch all notes from source device
+                val notesSnapshot = sourceRef.child("notes").get().await()
+                val remindersSnapshot = sourceRef.child("reminders").get().await()
 
-            val syncedNotes = mutableListOf<dataclass>()
-            // Keep reminder processing but no longer collect counts for stats
+                val syncedNotes = mutableListOf<dataclass>()
 
-            // Get local database
-            val db = AppDatabase.getInstance(context)
-            val noteDao = db.noteDao()
-            val reminderDao = db.reminderDao()
+                // Get local database
+                val db = AppDatabase.getInstance(context)
+                val noteDao = db.noteDao()
+                val reminderDao = db.reminderDao()
 
-            // Helper to attempt decryption with candidate keys
-            fun tryDecryptWithCandidates(encrypted: dataclass, candidates: List<String>): dataclass? {
-                // If the title/description don't look encrypted, treat as plaintext
-                val looksEncrypted = EncryptionUtil.isPotentiallyEncrypted(encrypted.title) || EncryptionUtil.isPotentiallyEncrypted(encrypted.description)
+                // Helper to attempt decryption with candidate keys
+                fun tryDecryptWithCandidates(encrypted: dataclass, candidates: List<String>): dataclass? {
+                    // If the title/description don't look encrypted, treat as plaintext
+                    val looksEncrypted = EncryptionUtil.isPotentiallyEncrypted(encrypted.title) || EncryptionUtil.isPotentiallyEncrypted(encrypted.description)
 
-                if (!looksEncrypted) {
-                    // Already plaintext
-                    return dataclass(
-                        title = encrypted.title,
-                        description = encrypted.description,
-                        id = encrypted.id,
-                        mymobiledeviceid = encrypted.mymobiledeviceid,
-                        timestamp = encrypted.timestamp
-                    )
-                }
-
-                for (key in candidates) {
-                    try {
-                        val t = EncryptionUtil.decrypt(encrypted.title, key)
-                        val d = EncryptionUtil.decrypt(encrypted.description, key)
-                        if (t != null && d != null) {
-                            Log.d(TAG, "Decryption successful for note ${encrypted.id} using key candidate: ${key.take(20)}")
-                            return dataclass(title = t, description = d, id = encrypted.id, mymobiledeviceid = encrypted.mymobiledeviceid, timestamp = encrypted.timestamp)
-                        }
-                    } catch (e: Exception) {
-                        Log.d(TAG, "Candidate key decryption failed for note ${encrypted.id}", e)
+                    if (!looksEncrypted) {
+                        return dataclass(
+                            title = encrypted.title,
+                            description = encrypted.description,
+                            id = encrypted.id,
+                            mymobiledeviceid = encrypted.mymobiledeviceid,
+                            timestamp = encrypted.timestamp
+                        )
                     }
-                }
 
-                // For each candidate key, try many normalized variants to tolerate formatting/truncation differences
-                for (rawKey in candidates) {
-                    if (rawKey.isBlank()) continue
-                    val vset = mutableSetOf<String>()
-                    val k = rawKey.trim()
-                    vset.add(k)
-                    vset.add(k.lowercase())
-                    vset.add(k.uppercase())
-                    vset.add(k.replace("-", ""))
-                    vset.add(k.replace(Regex("[^A-Za-z0-9]"), ""))
-
-                    // try substrings/prefixes commonly used (16, 20, 32 chars)
-                    val cleaned = k.replace(Regex("[^A-Za-z0-9]"), "")
-                    listOf(16, 20, 32).forEach { n -> if (cleaned.length >= n) vset.add(cleaned.substring(0, n)) }
-
-                    // URL-decoded variant
-                    try { vset.add(java.net.URLDecoder.decode(k, "UTF-8").trim()) } catch (_: Exception) {}
-
-                    // base64-decoded candidate if it looks like base64
-                    try {
-                        if (k.matches(Regex("^[A-Za-z0-9+/=]+$") )) {
-                            val decoded = String(java.util.Base64.getDecoder().decode(k))
-                            vset.add(decoded)
-                        }
-                    } catch (_: Exception) {}
-
-                    // Now try each variant
-                    for (variant in vset) {
+                    for (key in candidates) {
                         try {
-                            val preview = EncryptionUtil.getKeyPreview(variant)
-                            Log.d(TAG, "Attempting decryption for note ${encrypted.id} using key variant preview=$preview (len=${variant.length})")
-                            val t = EncryptionUtil.decrypt(encrypted.title, variant)
-                            val d = EncryptionUtil.decrypt(encrypted.description, variant)
+                            val t = EncryptionUtil.decrypt(encrypted.title, key)
+                            val d = EncryptionUtil.decrypt(encrypted.description, key)
                             if (t != null && d != null) {
-                                Log.i(TAG, "Decryption successful for note ${encrypted.id} using key preview=$preview")
+                                Log.d(TAG, "Decryption successful for note ${encrypted.id}")
                                 return dataclass(title = t, description = d, id = encrypted.id, mymobiledeviceid = encrypted.mymobiledeviceid, timestamp = encrypted.timestamp)
                             }
                         } catch (e: Exception) {
-                            Log.d(TAG, "Decryption attempt failed for variant (note=${encrypted.id})", e)
+                            // Don't log key details — security sensitive
+                            Log.d(TAG, "Candidate key decryption failed for note ${encrypted.id}")
                         }
                     }
+
+                    for (rawKey in candidates) {
+                        if (rawKey.isBlank()) continue
+                        val vset = mutableSetOf<String>()
+                        val k = rawKey.trim()
+                        vset.add(k)
+                        vset.add(k.lowercase())
+                        vset.add(k.uppercase())
+                        vset.add(k.replace("-", ""))
+                        vset.add(k.replace(Regex("[^A-Za-z0-9]"), ""))
+
+                        val cleaned = k.replace(Regex("[^A-Za-z0-9]"), "")
+                        listOf(16, 20, 32).forEach { n -> if (cleaned.length >= n) vset.add(cleaned.substring(0, n)) }
+
+                        try { vset.add(java.net.URLDecoder.decode(k, "UTF-8").trim()) } catch (_: Exception) {}
+
+                        try {
+                            if (k.matches(Regex("^[A-Za-z0-9+/=]+$") )) {
+                                val decoded = String(java.util.Base64.getDecoder().decode(k))
+                                vset.add(decoded)
+                            }
+                        } catch (_: Exception) {}
+
+                        for (variant in vset) {
+                            try {
+                                val t = EncryptionUtil.decrypt(encrypted.title, variant)
+                                val d = EncryptionUtil.decrypt(encrypted.description, variant)
+                                if (t != null && d != null) {
+                                    Log.d(TAG, "Decryption successful for note ${encrypted.id} using key variant")
+                                    return dataclass(title = t, description = d, id = encrypted.id, mymobiledeviceid = encrypted.mymobiledeviceid, timestamp = encrypted.timestamp)
+                                }
+                            } catch (e: Exception) {
+                                // Don't log exception details — may contain key material
+                                Log.d(TAG, "Decryption variant attempt failed for note ${encrypted.id}")
+                            }
+                        }
+                    }
+
+                    Log.e(TAG, "All decryption attempts failed for note ${encrypted.id}")
+                    return null
                 }
 
-                Log.e(TAG, "All decryption attempts failed for note ${encrypted.id}")
-                return null
-            }
-
-            // Process notes
-            if (notesSnapshot.exists()) {
-                for (firstLevelChild in notesSnapshot.children) {
-                    try {
-                        if (firstLevelChild.child("title").exists() || firstLevelChild.child("description").exists()) {
-                            val noteData = firstLevelChild.getValue(dataclass::class.java)
-                            if (noteData != null) {
-                                val candidates = listOfNotNull(currentPassphrase, noteData.mymobiledeviceid, sourcePassphrase, myGlobalMobileDeviceId).distinct()
-                                val decrypted = tryDecryptWithCandidates(noteData, candidates)
-                                if (decrypted == null) {
-                                    Log.w(TAG, "Skipping note ${noteData.id} because decryption failed for all keys")
-                                } else {
-                                    val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
-                                    val entity = NoteEntityMapper.toEntity(localNote, synced = false)
-                                    noteDao.insert(entity)
-                                    syncedNotes.add(localNote)
-                                    Log.d(TAG, "Synced note: ${localNote.title}")
-                                }
-                            }
-                        } else {
-                            // device grouped nodes
-                            for (noteChild in firstLevelChild.children) {
-                                try {
-                                    val noteData = noteChild.getValue(dataclass::class.java)
-                                    if (noteData != null) {
-                                        val candidates = listOfNotNull(currentPassphrase, noteData.mymobiledeviceid, sourcePassphrase, myGlobalMobileDeviceId).distinct()
-                                        val decrypted = tryDecryptWithCandidates(noteData, candidates)
-                                        if (decrypted == null) {
-                                            Log.w(TAG, "Skipping nested note ${noteData.id} because decryption failed for all keys")
-                                        } else {
-                                            val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
-                                            val entity = NoteEntityMapper.toEntity(localNote, synced = false)
-                                            noteDao.insert(entity)
-                                            syncedNotes.add(localNote)
-                                            Log.d(TAG, "Synced note: ${localNote.title}")
-                                        }
+                // Process notes
+                if (notesSnapshot.exists()) {
+                    for (firstLevelChild in notesSnapshot.children) {
+                        try {
+                            if (firstLevelChild.child("title").exists() || firstLevelChild.child("description").exists()) {
+                                val noteData = firstLevelChild.getValue(dataclass::class.java)
+                                if (noteData != null) {
+                                    val candidates = listOfNotNull(currentPassphrase, noteData.mymobiledeviceid, sourcePassphrase, myGlobalMobileDeviceId).distinct()
+                                    val decrypted = tryDecryptWithCandidates(noteData, candidates)
+                                    if (decrypted == null) {
+                                        Log.w(TAG, "Skipping note ${noteData.id} because decryption failed for all keys")
+                                    } else {
+                                        val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
+                                        val entity = NoteEntityMapper.toEntity(localNote, synced = false)
+                                        noteDao.insert(entity)
+                                        syncedNotes.add(localNote)
+                                        Log.d(TAG, "Synced note: ${localNote.title}")
                                     }
-                                } catch (ie: Exception) {
-                                    Log.w(TAG, "Failed to sync nested note: ${noteChild.key}", ie)
+                                }
+                            } else {
+                                for (noteChild in firstLevelChild.children) {
+                                    try {
+                                        val noteData = noteChild.getValue(dataclass::class.java)
+                                        if (noteData != null) {
+                                            val candidates = listOfNotNull(currentPassphrase, noteData.mymobiledeviceid, sourcePassphrase, myGlobalMobileDeviceId).distinct()
+                                            val decrypted = tryDecryptWithCandidates(noteData, candidates)
+                                            if (decrypted == null) {
+                                                Log.w(TAG, "Skipping nested note ${noteData.id} because decryption failed for all keys")
+                                            } else {
+                                                val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
+                                                val entity = NoteEntityMapper.toEntity(localNote, synced = false)
+                                                noteDao.insert(entity)
+                                                syncedNotes.add(localNote)
+                                                Log.d(TAG, "Synced note: ${localNote.title}")
+                                            }
+                                        }
+                                    } catch (ie: Exception) {
+                                        Log.w(TAG, "Failed to sync nested note: ${noteChild.key}", ie)
+                                    }
                                 }
                             }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to sync note node: ${firstLevelChild.key}", e)
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to sync note node: ${firstLevelChild.key}", e)
                     }
                 }
-            }
 
-            // Process reminders (keep functionality but don't count them for stats)
-            if (remindersSnapshot.exists()) {
-                for (reminderChild in remindersSnapshot.children) {
-                    try {
-                        val reminderData = reminderChild.getValue(ReminderEntity::class.java)
-                        if (reminderData != null) {
-                            // Save to local database
-                            reminderDao.insertReminder(reminderData)
-                            Log.d(TAG, "Synced reminder: ${reminderData.noteTitle}")
+                // Process reminders
+                if (remindersSnapshot.exists()) {
+                    for (reminderChild in remindersSnapshot.children) {
+                        try {
+                            val reminderData = reminderChild.getValue(ReminderEntity::class.java)
+                            if (reminderData != null) {
+                                reminderDao.insertReminder(reminderData)
+                                Log.d(TAG, "Synced reminder: ${reminderData.noteTitle}")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to sync reminder: ${reminderChild.key}", e)
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to sync reminder: ${reminderChild.key}", e)
                     }
                 }
+
+                // Now upload the synced data to current device's Firebase node
+                uploadLocalDataToFirebase(context, currentPassphrase)
+
+                val result = SyncResult(
+                    syncedNotesCount = syncedNotes.size,
+                    sourcePassphrase = sourcePassphrase,
+                    targetPassphrase = currentPassphrase
+                )
+
+                Log.d(TAG, "Sync completed: $result")
+                Result.success(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Sync failed", e)
+                Result.failure(e)
             }
-
-            // Now upload the synced data to current device's Firebase node
-            uploadLocalDataToFirebase(context, currentPassphrase)
-
-            val result = SyncResult(
-                syncedNotesCount = syncedNotes.size,
-                sourcePassphrase = sourcePassphrase,
-                targetPassphrase = currentPassphrase
-            )
-
-            Log.d(TAG, "Sync completed: $result")
-            Result.success(result)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Sync failed", e)
-            Result.failure(e)
         }
     }
 
     /**
-     * Upload all local data to Firebase under current device's passphrase
+     * Upload all local data to Firebase under current device's passphrase.
+     * Protected by uploadMutex to prevent concurrent uploads corrupting remote state.
      */
     suspend fun uploadLocalDataToFirebase(
         context: Context,
         passphrase: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        // Ensure app is authenticated before uploading
-        val authResult = PassphraseManager.ensureAuthenticated()
-        if (authResult.isFailure) {
-            val ex = authResult.exceptionOrNull()
-            Log.e(TAG, "Auth failed before upload: ${ex?.message}")
-            return@withContext Result.failure(Exception("Authentication failed: ${ex?.message ?: "unknown"}"))
-        }
-
-        return@withContext try {
-            val database = FirebaseDatabase.getInstance()
-            val userRef = database.getReference("users").child(passphrase)
-
-            val db = AppDatabase.getInstance(context)
-            val noteDao = db.noteDao()
-            val reminderDao = db.reminderDao()
-
-            // Get all local notes
-            val localNotes = noteDao.getAllNotes()
-            val localReminders = reminderDao.getAllReminders()
-
-            // Upload notes
-            val notesRef = userRef.child("notes")
-            for (noteEntity in localNotes) {
-                val note = NoteEntityMapper.toDomain(noteEntity)
-                val encryptedNote = note.toEncryptedData()
-                // Use the note's device id if present, otherwise fall back to the account passphrase
-                val deviceId = if (encryptedNote.mymobiledeviceid.isNotEmpty()) encryptedNote.mymobiledeviceid else passphrase
-                notesRef.child(deviceId).child(note.id).setValue(encryptedNote).await()
+        uploadMutex.withLock {
+            // Ensure app is authenticated before uploading
+            val authResult = PassphraseManager.ensureAuthenticated()
+            if (authResult.isFailure) {
+                val ex = authResult.exceptionOrNull()
+                Log.e(TAG, "Auth failed before upload: ${ex?.message}")
+                return@withContext Result.failure(Exception("Authentication failed: ${ex?.message ?: "unknown"}"))
             }
 
-            // Upload reminders
-            val remindersRef = userRef.child("reminders")
-            for (reminder in localReminders) {
-                remindersRef.child(reminder.id).setValue(reminder).await()
+            return@withContext try {
+                val database = FirebaseDatabase.getInstance()
+                val userRef = database.getReference("users").child(passphrase)
+
+                val db = AppDatabase.getInstance(context)
+                val noteDao = db.noteDao()
+                val reminderDao = db.reminderDao()
+
+                val localNotes = noteDao.getAllNotes()
+                val localReminders = reminderDao.getAllReminders()
+
+                val notesRef = userRef.child("notes")
+                for (noteEntity in localNotes) {
+                    val note = NoteEntityMapper.toDomain(noteEntity)
+                    val encryptedNote = note.toEncryptedData()
+                    val deviceId = if (encryptedNote.mymobiledeviceid.isNotEmpty()) encryptedNote.mymobiledeviceid else passphrase
+                    notesRef.child(deviceId).child(note.id).setValue(encryptedNote).await()
+                }
+
+                val remindersRef = userRef.child("reminders")
+                for (reminder in localReminders) {
+                    remindersRef.child(reminder.id).setValue(reminder).await()
+                }
+
+                userRef.child("lastSyncAt").setValue(System.currentTimeMillis()).await()
+                userRef.child("totalNotes").setValue(localNotes.size).await()
+
+                Log.d(TAG, "Uploaded ${localNotes.size} notes and ${localReminders.size} reminders to Firebase")
+                Result.success(Unit)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to upload data to Firebase", e)
+                Result.failure(e)
             }
-
-            // Update sync metadata
-            userRef.child("lastSyncAt").setValue(System.currentTimeMillis()).await()
-            userRef.child("totalNotes").setValue(localNotes.size).await()
-            // Do not write totalReminders metadata anymore to avoid showing reminders in stats
-
-            Log.d(TAG, "Uploaded ${localNotes.size} notes and ${localReminders.size} reminders to Firebase")
-            Result.success(Unit)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to upload data to Firebase", e)
-            Result.failure(e)
         }
     }
 

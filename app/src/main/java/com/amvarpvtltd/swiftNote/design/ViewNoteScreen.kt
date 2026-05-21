@@ -1,6 +1,5 @@
 package com.amvarpvtltd.swiftNote.design
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,12 +36,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,117 +59,69 @@ import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
-import com.amvarpvtltd.swiftNote.dataclass
-import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
-    var note by remember { mutableStateOf<dataclass?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    // ViewModel handles business logic (load, delete)
+    val viewModel: ViewNoteViewModel = viewModel()
+
+    val note by viewModel.note.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
-    val noteRepository = remember { NoteRepository(context) }
-    val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
 
     // Network management
     val networkManager = remember { NetworkManager.getInstance(context) }
-    val isOnline by networkManager.isOnline.collectAsState()
+    val isOnline by networkManager.isOnline.collectAsStateWithLifecycle()
 
-    // OFFLINE FIRST: Load note data from Room database first
+    // Load note via ViewModel
     LaunchedEffect(noteId) {
-        if (noteId != null) {
-            isLoading = true
-            errorMessage = null
-
-            try {
-                Log.d("ViewNoteScreen", "Loading note: $noteId (Online: $isOnline)")
-
-                // ALWAYS try to load from offline storage first (Room database)
-                val result = noteRepository.loadNote(noteId, context)
-
-                if (result.isSuccess) {
-                    val loadedNote = result.getOrNull()
-                    if (loadedNote != null) {
-                        note = loadedNote
-                        Log.d("ViewNoteScreen", "Note loaded successfully from offline storage: ${loadedNote.title}")
-                    } else {
-                        errorMessage = "Note data is empty"
-                        Log.w("ViewNoteScreen", "Note loaded but data is null")
-                    }
-                } else {
-                    val error = result.exceptionOrNull()?.message ?: "Unknown error"
-                    errorMessage = "Failed to load note: $error"
-                    Log.e("ViewNoteScreen", "Failed to load note: $error")
-                }
-            } catch (e: Exception) {
-                errorMessage = "Error loading note: ${e.message}"
-                Log.e("ViewNoteScreen", "Exception loading note", e)
-            } finally {
-                isLoading = false
-            }
-        } else {
-            Log.w("ViewNoteScreen", "No noteId provided")
-            isLoading = false
-            errorMessage = "No note ID provided"
-        }
+        viewModel.loadNote(noteId)
     }
 
-    // Delete note function - OFFLINE FIRST
-    fun deleteNote() {
-        if (noteId == null) return
-        scope.launch(Dispatchers.IO) {
-            try {
-                Log.d("ViewNoteScreen", "Deleting note: $noteId (Online: $isOnline)")
-                val result = noteRepository.deleteNote(noteId, context)
-                if (result.isSuccess) {
-                    withContext(Dispatchers.Main) {
-                        val message = if (!isOnline) {
-                            "📱 Note deleted offline. Will sync when online."
-                        } else {
-                            "✅ Note deleted successfully"
-                        }
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                        navController.navigate("main") {
-                            popUpTo("main") { inclusive = false }
-                        }
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "❌ Error deleting note", Toast.LENGTH_SHORT).show()
+    // Collect one-shot UI events
+    LaunchedEffect(Unit) {
+        viewModel.uiEvent.collect { event ->
+            when (event) {
+                is ViewNoteViewModel.UiEvent.ShowToast -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+                }
+                is ViewNoteViewModel.UiEvent.NavigateToMain -> {
+                    navController.navigate("main") {
+                        popUpTo("main") { inclusive = false }
                     }
                 }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "❌ Error deleting note: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-                Log.e("ViewNoteScreen", "Error deleting note", e)
             }
         }
     }
 
-    // Share note function
+    // Delete note delegates to ViewModel
+    fun deleteNote() { viewModel.deleteNote(noteId) }
+
+    // Share note function (UI-only)
     fun shareNote() {
-        note?.let { currentNote ->
-            ShareUtils.shareNote(context, currentNote)
-        }
+        note?.let { currentNote -> ShareUtils.shareNote(context, currentNote) }
     }
 
-    // Copy note function
+    // Copy note function (UI-only)
     fun copyNote() {
-        note?.let { currentNote ->
-            ShareUtils.copyNoteToClipboard(context, currentNote)
-        }
+        note?.let { currentNote -> ShareUtils.copyNoteToClipboard(context, currentNote) }
+    }
+
+    // Performance: remember SimpleDateFormat to avoid recreating on every recomposition
+    val dateFormatter = remember {
+        java.text.SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", java.util.Locale.getDefault())
     }
 
     DeleteConfirmationDialog(
@@ -204,7 +154,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                             isLoading -> "Loading..."
                                             errorMessage != null -> "Error"
                                             note != null -> {
-                                                val title = note!!.title
+                                                val title = note?.title ?: ""
                                                 if (title.length > 25) "${title.take(25)}..." else title
                                             }
                                             else -> "Note"
@@ -486,8 +436,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                     )
                                     Text(
                                         text = note?.let {
-                                            java.text.SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", java.util.Locale.getDefault())
-                                                .format(java.util.Date(it.timestamp))
+                                            dateFormatter.format(java.util.Date(it.timestamp))
                                         } ?: "",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NoteTheme.OnSurface,

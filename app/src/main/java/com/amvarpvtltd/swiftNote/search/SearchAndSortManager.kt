@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.outlined.Subject
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.runtime.*
 import com.amvarpvtltd.swiftNote.dataclass
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import com.amvarpvtltd.swiftNote.utils.Constants
@@ -30,7 +31,8 @@ data class SearchAndSortState(
     val isSearchActive: Boolean = false
 )
 
-class SearchAndSortManager {
+// BUG-033 FIX: Accept external lifecycle-aware CoroutineScope to prevent leaks
+class SearchAndSortManager(private val scope: CoroutineScope) {
     private val _searchQuery = MutableStateFlow("")
     private val _sortOption = MutableStateFlow(SortOption.DATE_CREATED_DESC)
     private val _allNotes = MutableStateFlow<List<dataclass>>(emptyList())
@@ -60,7 +62,7 @@ class SearchAndSortManager {
             isSearchActive = query.isNotBlank()
         )
     }.stateIn(
-        scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
+        scope = scope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SearchAndSortState()
     )
@@ -174,5 +176,6 @@ class SearchAndSortManager {
 
 @Composable
 fun rememberSearchAndSortManager(): SearchAndSortManager {
-    return remember { SearchAndSortManager() }
+    val scope = rememberCoroutineScope()
+    return remember { SearchAndSortManager(scope) }
 }

@@ -20,70 +20,174 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# Keep Firebase classes
+# ===============================
+# FIREBASE
+# ===============================
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
 
-# Keep Gson classes
+# Firebase Realtime Database serialization
 -keepattributes Signature
 -keepattributes *Annotation*
+-keepclassmembers class com.amvarpvtltd.swiftNote.** {
+    public <init>();
+}
+
+# Firebase Crashlytics
+-keep class com.google.firebase.crashlytics.** { *; }
+-dontwarn com.google.firebase.crashlytics.**
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception
+
+# ===============================
+# GSON
+# ===============================
 -dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }
 -keep class * implements com.google.gson.TypeAdapterFactory
 -keep class * implements com.google.gson.JsonSerializer
 -keep class * implements com.google.gson.JsonDeserializer
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
 
-# Keep your data classes for serialization
--keep class dataclass { *; }
+# ===============================
+# ROOM DATABASE
+# ===============================
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keepclassmembers @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface *
+-keep class * extends androidx.room.RoomDatabase$Callback
+-dontwarn androidx.room.paging.**
 
-# Preserve native method names for 16KB compatibility
+# Room generated implementations
+-keep class com.amvarpvtltd.swiftNote.room.** { *; }
+-keepclassmembers class com.amvarpvtltd.swiftNote.room.** { *; }
+
+# ===============================
+# APP DATA CLASSES & ENTITIES
+# ===============================
+# Note class (formerly named "dataclass") — keep both names for Firebase serialization compatibility
+-keep class com.amvarpvtltd.swiftNote.Note { *; }
+-keepclassmembers class com.amvarpvtltd.swiftNote.Note { *; }
+-keep class com.amvarpvtltd.swiftNote.dataclass { *; }
+-keepclassmembers class com.amvarpvtltd.swiftNote.dataclass { *; }
+-keep class com.amvarpvtltd.swiftNote.room.NoteEntity { *; }
+-keep class com.amvarpvtltd.swiftNote.room.PendingDeletionEntity { *; }
+-keep class com.amvarpvtltd.swiftNote.reminders.ReminderEntity { *; }
+-keep class com.amvarpvtltd.swiftNote.sync.SyncResult { *; }
+-keep class com.amvarpvtltd.swiftNote.sync.SyncStats { *; }
+-keep class com.amvarpvtltd.swiftNote.ai.DetectedReminder { *; }
+
+# ===============================
+# ML KIT
+# ===============================
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+-keep class com.google.android.gms.internal.mlkit_entity_extraction.** { *; }
+-dontwarn com.google.android.gms.internal.mlkit_entity_extraction.**
+
+# ML Kit Entity Extraction model classes
+-keepclassmembers class * implements com.google.mlkit.common.model.DownloadConditions { *; }
+
+# ===============================
+# WORKMANAGER
+# ===============================
+-keep class * extends androidx.work.Worker
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class com.amvarpvtltd.swiftNote.notifications.ReminderWorker { *; }
+
+# ===============================
+# CAMERAX & BARCODE SCANNING
+# ===============================
+-keep class androidx.camera.** { *; }
+-dontwarn androidx.camera.**
+-keep class com.google.mlkit.vision.barcode.** { *; }
+-dontwarn com.google.mlkit.vision.barcode.**
+
+# ===============================
+# ZXING (QR Code generation)
+# ===============================
+-keep class com.google.zxing.** { *; }
+-dontwarn com.google.zxing.**
+
+# ===============================
+# BROADCAST RECEIVERS
+# ===============================
+-keep class com.amvarpvtltd.swiftNote.reminders.ReminderReceiver { *; }
+-keep class com.amvarpvtltd.swiftNote.reminders.BootReceiver { *; }
+-keep class com.amvarpvtltd.swiftNote.reminders.ExactAlarmPermissionReceiver { *; }
+-keep class com.amvarpvtltd.swiftNote.notifications.NotificationActionReceiver { *; }
+
+# ===============================
+# KOTLIN & COROUTINES
+# ===============================
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
+-dontwarn kotlinx.coroutines.**
+
+# ===============================
+# NATIVE METHODS & JNI
+# ===============================
 -keepclasseswithmembernames class * {
     native <methods>;
 }
-
-# Keep annotation classes
--keepattributes *Annotation*,Signature,Exception
-
-# Preserve line numbers for better crash reports
--keepattributes SourceFile,LineNumberTable
-
-# ===============================
-# 16KB PAGE SIZE COMPATIBILITY RULES
-# ===============================
-
-# Optimize for 16KB page size devices - reduce memory fragmentation
--optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
-
-# Remove debug symbols that cause alignment issues
--assumenosideeffects class android.util.Log {
-    public static boolean isLoggable(java.lang.String, int);
-    public static int v(...);
-    public static int i(...);
-    public static int w(...);
-    public static int d(...);
-    public static int e(...);
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
 }
 
-# Optimize native library loading for 16KB alignment
+# Preserve native method names for 16KB compatibility
 -keep class java.lang.System {
     public static void loadLibrary(java.lang.String);
     public static void load(java.lang.String);
 }
 
-# Keep classes that might be accessed via reflection to prevent runtime issues
+# ===============================
+# ANNOTATIONS & REFLECTION
+# ===============================
+-keepattributes *Annotation*,Signature,Exception
+
+# Keep classes that might be accessed via reflection
 -keepclassmembers class * {
     @androidx.annotation.Keep <methods>;
     @androidx.annotation.Keep <fields>;
     @androidx.annotation.Keep <init>(...);
 }
 
-# Optimize memory usage for Compose (important for 16KB devices)
+# ===============================
+# JETPACK COMPOSE
+# ===============================
 -keep class androidx.compose.** { *; }
 -dontwarn androidx.compose.**
 
-# Preserve essential JNI functions for proper alignment
--keepclasseswithmembernames,includedescriptorclasses class * {
-    native <methods>;
+# ===============================
+# WORKMANAGER
+# ===============================
+-keep class androidx.work.** { *; }
+-dontwarn androidx.work.**
+# Keep our SyncWorker — WorkManager instantiates it by class name via reflection
+-keep class com.amvarpvtltd.swiftNote.utils.SyncWorker { *; }
+-keep class com.amvarpvtltd.swiftNote.notifications.ReminderWorker { *; }
+
+# ===============================
+# 16KB PAGE SIZE COMPATIBILITY RULES
+# ===============================
+-optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
+
+# Strip verbose and debug logs in release builds (security: removes any residual sensitive data)
+# Keep warn/error so Crashlytics can capture meaningful crash context
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
 }
 
 # Optimize string resources for memory efficiency
@@ -94,10 +198,6 @@
 -keepclassmembers class * extends android.app.Application {
     public void onCreate();
 }
-
-# Keep Crashlytics classes but optimize for 16KB
--keep class com.google.firebase.crashlytics.** { *; }
--dontwarn com.google.firebase.crashlytics.**
 
 # Optimize for better memory alignment
 -allowaccessmodification

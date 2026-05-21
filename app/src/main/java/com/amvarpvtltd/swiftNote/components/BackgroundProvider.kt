@@ -3,26 +3,29 @@ package com.amvarpvtltd.swiftNote.components
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.amvarpvtltd.swiftNote.design.NoteTheme
-import java.security.SecureRandom
+
+/**
+ * Premium background provider — subtle, barely-there vertical gradients.
+ * No oversaturated gradients. Warm-mist to snow-canvas transitions only.
+ */
 object BackgroundProvider {
     private var chosenIndex: Int? = null
 
-    private val random = SecureRandom()
-
     // Palettes are functions so they read NoteTheme values at call-time (theme-aware)
     private val palettes: List<() -> List<Color>> = listOf(
-        { listOf(NoteTheme.Background, NoteTheme.SurfaceVariant.copy(alpha = 0.3f), NoteTheme.Background) },
-        { listOf(NoteTheme.PrimaryContainer.copy(alpha = 0.12f), NoteTheme.Primary.copy(alpha = 0.06f), NoteTheme.Background) },
-        { listOf(NoteTheme.Surface.copy(alpha = 0.06f), NoteTheme.PrimaryContainer.copy(alpha = 0.15f), NoteTheme.Background) },
-        { listOf(NoteTheme.Background, NoteTheme.Primary.copy(alpha = 0.06f), NoteTheme.SurfaceVariant.copy(alpha = 0.2f)) }
+        { listOf(NoteTheme.Background, NoteTheme.Background) }, // Pure clean canvas
+        { listOf(NoteTheme.Background, NoteTheme.SurfaceVariant.copy(alpha = 0.15f)) }, // Subtle warm mist fade
+        { listOf(NoteTheme.SurfaceVariant.copy(alpha = 0.08f), NoteTheme.Background) }, // Light top-down whisper
     )
 
     fun getBrush(): Brush {
-        if (chosenIndex == null) {
-            chosenIndex = random.nextInt(palettes.size)
+        var index = chosenIndex
+        if (index == null) {
+            index = 0 // Default to clean canvas for premium feel
+            chosenIndex = index
         }
-        val colors = palettes[chosenIndex!!].invoke()
+        val safeIndex = index.coerceIn(0, palettes.lastIndex)
+        val colors = palettes[safeIndex].invoke()
         return Brush.verticalGradient(colors = colors)
     }
 }
-

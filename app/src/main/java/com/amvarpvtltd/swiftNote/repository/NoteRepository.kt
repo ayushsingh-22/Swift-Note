@@ -9,13 +9,31 @@ import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class NoteRepository(val context: Context? = null) {
     private val database = FirebaseDatabase.getInstance()
+    // BUG-018 FIX: Cache OfflineNoteManager instance — avoids re-creating per call
+    private val offlineManager: OfflineNoteManager? = context?.let { OfflineNoteManager(it) }
 
     companion object {
         private const val TAG = "NoteRepository"
+        // Mutex to prevent concurrent sync operations from colliding
+        private val syncMutex = Mutex()
+
+        // BUG-040 FIX: Singleton instance to avoid redundant repository/manager creation
+        @Volatile
+        private var INSTANCE: NoteRepository? = null
+
+        fun getInstance(context: Context): NoteRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: NoteRepository(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 
     /**
@@ -49,8 +67,8 @@ class NoteRepository(val context: Context? = null) {
         }
 
         // ALWAYS save to Room database first (offline-first)
-        val offlineManager = OfflineNoteManager(context)
-        val offlineResult = offlineManager.saveNoteOffline(note)
+        val manager = offlineManager ?: return Result.failure(Exception("No context available"))
+        val offlineResult = manager.saveNoteOffline(note)
 
         if (offlineResult.isFailure) {
             Log.e(TAG, "Failed to save note offline: ${offlineResult.exceptionOrNull()?.message}")
@@ -88,32 +106,27 @@ class NoteRepository(val context: Context? = null) {
         Log.d(TAG, "Loading note with ID: $noteId")
 
         // Always try offline storage first (offline-first)
-        context?.let { ctx ->
+        val manager = offlineManager
+        if (manager != null) {
             try {
-                val offlineManager = OfflineNoteManager(ctx)
                 Log.d(TAG, "Attempting to load note from offline storage: $noteId")
-
-                val offlineNote = offlineManager.getNoteById(noteId)
+                val offlineNote = manager.getNoteById(noteId)
                 if (offlineNote != null) {
-                    Log.d(TAG, "✅ Note loaded successfully from offline storage: $noteId")
-                    Log.d(TAG, "Note title: ${offlineNote.title}")
-                    Log.d(TAG, "Note description length: ${offlineNote.description.length}")
+                    Log.d(TAG, "Note loaded successfully from offline storage: $noteId")
                     return Result.success(offlineNote)
                 } else {
-                    Log.w(TAG, "❌ Note NOT found in offline storage: $noteId")
+                    Log.w(TAG, "Note NOT found in offline storage: $noteId")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error accessing offline storage for note: $noteId", e)
+                Log.e(TAG, "Error accessing offline storage for note: $noteId", e)
             }
-        } ?: run {
-            Log.w(TAG, "❌ No context provided for offline storage access")
+        } else {
+            Log.w(TAG, "No context/offlineManager available for offline storage access")
         }
 
         // Fallback to online storage only if not found offline and online
         val networkManager = context?.let { NetworkManager.getInstance(it) }
         val isOnline = networkManager?.isConnected() == true
-
-        Log.d(TAG, "Offline search failed. Network status: ${if (isOnline) "ONLINE" else "OFFLINE"}")
 
         if (isOnline) {
             Log.d(TAG, "Attempting to load note from cloud: $noteId")
@@ -123,34 +136,27 @@ class NoteRepository(val context: Context? = null) {
                     val encryptedNote = snapshot.getValue(dataclass::class.java)
                     if (encryptedNote != null) {
                         val decryptedNote = dataclass.fromEncryptedData(encryptedNote)
-                        Log.d(TAG, "✅ Note loaded from cloud: $noteId")
+                        Log.d(TAG, "Note loaded from cloud: $noteId")
 
                         // Save to offline storage for future access
-                        context?.let { ctx ->
-                            try {
-                                val offlineManager = OfflineNoteManager(ctx)
-                                offlineManager.saveNoteOffline(decryptedNote, synced = true)
-                                Log.d(TAG, "✅ Note cached offline for future access: $noteId")
-                            } catch (e: Exception) {
-                                Log.w(TAG, "⚠️ Failed to cache note offline: ${e.message}")
-                            }
+                        try {
+                            offlineManager?.saveNoteOffline(decryptedNote, synced = true)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to cache note offline: ${e.message}")
                         }
 
                         Result.success(decryptedNote)
                     } else {
-                        Log.e(TAG, "❌ Note data is null for ID: $noteId")
                         Result.failure(Exception("Note data is null"))
                     }
                 } else {
-                    Log.e(TAG, "❌ Note not found in cloud: $noteId")
                     Result.failure(Exception("Note not found in cloud"))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to load note from cloud: ${e.message}", e)
+                Log.e(TAG, "Failed to load note from cloud: ${e.message}", e)
                 Result.failure(e)
             }
         } else {
-            Log.e(TAG, "❌ Note not found offline and device is offline")
             return Result.failure(Exception("Note not found offline and device is offline. Please check your internet connection or ensure the note exists locally."))
         }
     }
@@ -160,8 +166,8 @@ class NoteRepository(val context: Context? = null) {
      */
     suspend fun deleteNote(noteId: String, context: Context): Result<String> {
         // Always delete from offline storage first
-        val offlineManager = OfflineNoteManager(context)
-        val offlineResult = offlineManager.deleteNoteOffline(noteId)
+        val manager = offlineManager ?: return Result.failure(Exception("No context available"))
+        val offlineResult = manager.deleteNoteOffline(noteId)
 
         if (offlineResult.isFailure) {
             Log.e(TAG, "Failed to delete note offline: ${offlineResult.exceptionOrNull()?.message}")
@@ -197,19 +203,26 @@ class NoteRepository(val context: Context? = null) {
     suspend fun fetchNotes(): Result<List<dataclass>> {
         return try {
             // ALWAYS load from offline storage first for immediate display
-            context?.let { ctx ->
-                val offlineManager = OfflineNoteManager(ctx)
-                val offlineNotes = offlineManager.getAllNotes()
+            val manager = offlineManager
+            if (manager != null) {
+                val offlineNotes = manager.getAllNotes()
                 Log.d(TAG, "Loaded ${offlineNotes.size} notes from offline storage")
 
                 // Background sync from cloud if online
+                val ctx = context!!
                 val networkManager = NetworkManager.getInstance(ctx)
                 if (networkManager.isConnected()) {
-                    syncFromCloudInBackground(offlineManager)
+                    try {
+                        syncFromCloudInBackground(manager)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in background cloud sync", e)
+                    }
                 }
 
                 Result.success(offlineNotes)
-            } ?: Result.failure(Exception("No context available"))
+            } else {
+                Result.failure(Exception("No context available"))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch notes: ${e.message}", e)
             Result.failure(e)
@@ -217,8 +230,9 @@ class NoteRepository(val context: Context? = null) {
     }
 
     /**
-     * Background sync from cloud to update local database
-     * Now handles pending deletions properly
+     * Background sync from cloud to update local database.
+     * Handles pending deletions first, then downloads cloud data.
+     * Uses timestamp-based conflict resolution: local edits (newer) win over cloud (older).
      */
     private suspend fun syncFromCloudInBackground(offlineManager: OfflineNoteManager) {
         try {
@@ -230,19 +244,22 @@ class NoteRepository(val context: Context? = null) {
 
             pendingDeletions.forEach { pendingDeletion ->
                 try {
-                    Log.d(TAG, "Processing pending deletion: ${pendingDeletion.noteId}")
                     resolveNotesRef().child(pendingDeletion.noteId).removeValue().await()
                     offlineManager.markDeletionAsSynced(pendingDeletion.noteId)
-                    Log.d(TAG, "✅ Successfully deleted from Firebase: ${pendingDeletion.noteId}")
+                    Log.d(TAG, "Successfully deleted from Firebase: ${pendingDeletion.noteId}")
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Failed to delete from Firebase: ${pendingDeletion.noteId}", e)
+                    Log.e(TAG, "Failed to delete from Firebase: ${pendingDeletion.noteId}", e)
                 }
             }
 
-            // SECOND: Get current local notes to avoid overriding deletions
+            // SECOND: Get current local notes to check for conflicts
             val localNotes = offlineManager.getAllNotes()
-            val localNoteIds = localNotes.map { it.id }.toSet()
+            val localNoteMap = localNotes.associateBy { it.id }
             val pendingDeletionIds = pendingDeletions.map { it.noteId }.toSet()
+
+            // Also get pending (unsynced) note IDs — these represent local edits that should NOT be overwritten
+            val pendingSyncNotes = offlineManager.getPendingSyncNotes()
+            val pendingSyncIds = pendingSyncNotes.map { it.id }.toSet()
 
             // THIRD: Download from Firebase
             val snapshot = resolveNotesRef().get().await()
@@ -254,24 +271,38 @@ class NoteRepository(val context: Context? = null) {
                     if (encryptedNote != null) {
                         val decryptedNote = dataclass.fromEncryptedData(encryptedNote)
 
-                        // Only add cloud notes that aren't pending deletion and aren't already deleted locally
-                        if (!pendingDeletionIds.contains(decryptedNote.id)) {
-                            cloudNotes.add(decryptedNote)
-                        } else {
+                        // Skip cloud notes that are pending local deletion
+                        if (pendingDeletionIds.contains(decryptedNote.id)) {
                             Log.d(TAG, "Skipping cloud note ${decryptedNote.id} - pending deletion")
+                            return@forEach
                         }
+
+                        // CONFLICT RESOLUTION: If note exists locally with pending changes,
+                        // keep the local version (last-write-wins by user intent).
+                        // The local pending change will be uploaded on next sync.
+                        if (pendingSyncIds.contains(decryptedNote.id)) {
+                            Log.d(TAG, "Skipping cloud note ${decryptedNote.id} - local pending edit takes priority")
+                            return@forEach
+                        }
+
+                        // Timestamp-based conflict resolution for synced notes:
+                        // Only overwrite if cloud is newer than local
+                        val localNote = localNoteMap[decryptedNote.id]
+                        if (localNote != null && localNote.timestamp > decryptedNote.timestamp) {
+                            Log.d(TAG, "Skipping cloud note ${decryptedNote.id} - local is newer (${localNote.timestamp} > ${decryptedNote.timestamp})")
+                            return@forEach
+                        }
+
+                        cloudNotes.add(decryptedNote)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error decrypting note: ${childSnapshot.key}", e)
                 }
             }
 
-            // FOURTH: Update local database with cloud notes (excluding deleted ones)
+            // FOURTH: Update local database with cloud notes that passed conflict checks
             cloudNotes.forEach { note ->
-                // Only save if not in pending deletions
-                if (!pendingDeletionIds.contains(note.id)) {
-                    offlineManager.saveNoteOffline(note, synced = true)
-                }
+                offlineManager.saveNoteOffline(note, synced = true)
             }
 
             Log.d(TAG, "Background sync completed: ${cloudNotes.size} notes from cloud, ${pendingDeletions.size} deletions processed")
@@ -281,61 +312,71 @@ class NoteRepository(val context: Context? = null) {
     }
 
     /**
-     * Sync offline notes and deletions to Firebase
+     * Sync offline notes and deletions to Firebase.
+     * Protected by syncMutex to prevent concurrent sync operations.
+     * Each item is synced individually — if app crashes mid-sync, already-synced items
+     * are safely marked, and remaining items will retry on next sync (idempotent).
      */
-    suspend fun syncOfflineNotes(context: Context): Result<String> {
-        val offlineManager = OfflineNoteManager(context)
-        val pendingNotes = offlineManager.getPendingSyncNotes()
-        val pendingDeletions = offlineManager.getPendingDeletions()
+    suspend fun syncOfflineNotes(context: Context): Result<String> = withContext(Dispatchers.IO) {
+        syncMutex.withLock {
+            val manager = offlineManager ?: return@withContext Result.failure(Exception("No context"))
+            val pendingNotes = manager.getPendingSyncNotes()
+            val pendingDeletions = manager.getPendingDeletions()
 
-        if (pendingNotes.isEmpty() && pendingDeletions.isEmpty()) {
-            return Result.success("No changes to sync")
-        }
-
-        return try {
-            var syncedNotesCount = 0
-            var syncedDeletionsCount = 0
-
-            // Sync pending note additions/updates
-            pendingNotes.forEach { note ->
-                try {
-                    val encryptedNote = note.toEncryptedData()
-                    resolveNotesRef().child(note.id).setValue(encryptedNote).await()
-                    offlineManager.markNoteAsSynced(note.id)
-                    syncedNotesCount++
-                    Log.d(TAG, "✅ Synced note to cloud: ${note.id}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Failed to sync note: ${note.id}", e)
-                }
+            if (pendingNotes.isEmpty() && pendingDeletions.isEmpty()) {
+                return@withContext Result.success("No changes to sync")
             }
 
-            // Sync pending deletions
-            pendingDeletions.forEach { pendingDeletion ->
-                try {
-                    resolveNotesRef().child(pendingDeletion.noteId).removeValue().await()
-                    offlineManager.markDeletionAsSynced(pendingDeletion.noteId)
-                    syncedDeletionsCount++
-                    Log.d(TAG, "✅ Synced deletion to cloud: ${pendingDeletion.noteId}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Failed to sync deletion: ${pendingDeletion.noteId}", e)
-                }
-            }
+            return@withContext try {
+                var syncedNotesCount = 0
+                var syncedDeletionsCount = 0
 
-            val resultMessage = buildString {
-                if (syncedNotesCount > 0) {
-                    append("Synced $syncedNotesCount note${if (syncedNotesCount != 1) "s" else ""}")
+                // Sync pending note additions/updates — each marked as synced immediately after success
+                // This ensures crash between items doesn't re-sync already completed ones
+                pendingNotes.forEach { note ->
+                    try {
+                        val encryptedNote = note.toEncryptedData()
+                        resolveNotesRef().child(note.id).setValue(encryptedNote).await()
+                        // Mark immediately after successful upload — crash-safe
+                        offlineManager.markNoteAsSynced(note.id)
+                        syncedNotesCount++
+                        Log.d(TAG, "Synced note to cloud: ${note.id}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to sync note: ${note.id}", e)
+                        // Continue with next note — don't fail entire batch
+                    }
                 }
-                if (syncedDeletionsCount > 0) {
-                    if (syncedNotesCount > 0) append(" and ")
-                    append("deleted $syncedDeletionsCount note${if (syncedDeletionsCount != 1) "s" else ""}")
-                }
-            }
 
-            Log.d(TAG, "Sync completed: $resultMessage")
-            Result.success(resultMessage)
-        } catch (e: Exception) {
-            Log.e(TAG, "Sync failed: ${e.message}", e)
-            Result.failure(e)
+                // Sync pending deletions — each cleared immediately after success
+                pendingDeletions.forEach { pendingDeletion ->
+                    try {
+                        resolveNotesRef().child(pendingDeletion.noteId).removeValue().await()
+                        // Mark immediately after successful deletion — crash-safe
+                        offlineManager.markDeletionAsSynced(pendingDeletion.noteId)
+                        syncedDeletionsCount++
+                        Log.d(TAG, "Synced deletion to cloud: ${pendingDeletion.noteId}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to sync deletion: ${pendingDeletion.noteId}", e)
+                        // Continue with next deletion — don't fail entire batch
+                    }
+                }
+
+                val resultMessage = buildString {
+                    if (syncedNotesCount > 0) {
+                        append("Synced $syncedNotesCount note${if (syncedNotesCount != 1) "s" else ""}")
+                    }
+                    if (syncedDeletionsCount > 0) {
+                        if (syncedNotesCount > 0) append(" and ")
+                        append("deleted $syncedDeletionsCount note${if (syncedDeletionsCount != 1) "s" else ""}")
+                    }
+                }
+
+                Log.d(TAG, "Sync completed: $resultMessage")
+                Result.success(resultMessage)
+            } catch (e: Exception) {
+                Log.e(TAG, "Sync failed: ${e.message}", e)
+                Result.failure(e)
+            }
         }
     }
 }

@@ -15,10 +15,44 @@ object PassphraseManager {
     private const val TAG = "PassphraseManager"
     private const val PREFS = "passphrase_prefs"
     private const val KEY_PASSPHRASE = "device_passphrase"
+    private const val KEY_PASSPHRASE_ENCRYPTED = "device_passphrase_enc"
+    private const val KEY_MIGRATED = "passphrase_migrated_v2"
 
+    /**
+     * Retrieve the stored passphrase.
+     * Reads from Keystore-encrypted storage (v2) or migrates from legacy plaintext.
+     */
     fun getStoredPassphrase(context: Context): String? {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_PASSPHRASE, null)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        // Try encrypted storage first (v2)
+        val encrypted = prefs.getString(KEY_PASSPHRASE_ENCRYPTED, null)
+        if (!encrypted.isNullOrEmpty()) {
+            return try {
+                com.amvarpvtltd.swiftNote.security.EncryptionUtil.decryptWithKeystore(encrypted)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to decrypt stored passphrase from Keystore")
+                // Fall through to legacy
+                prefs.getString(KEY_PASSPHRASE, null)
+            }
+        }
+
+        // Legacy plaintext migration: read, re-store encrypted, then clear plaintext
+        val legacyPlaintext = prefs.getString(KEY_PASSPHRASE, null)
+        if (!legacyPlaintext.isNullOrEmpty() && !prefs.getBoolean(KEY_MIGRATED, false)) {
+            try {
+                val encValue = com.amvarpvtltd.swiftNote.security.EncryptionUtil.encryptWithKeystore(legacyPlaintext)
+                prefs.edit {
+                    putString(KEY_PASSPHRASE_ENCRYPTED, encValue)
+                    remove(KEY_PASSPHRASE) // Remove plaintext
+                    putBoolean(KEY_MIGRATED, true)
+                }
+                Log.d(TAG, "Migrated passphrase to encrypted storage")
+            } catch (e: Exception) {
+                Log.e(TAG, "Migration to encrypted storage failed — keeping legacy")
+            }
+        }
+        return legacyPlaintext
     }
 
 
@@ -32,10 +66,13 @@ object PassphraseManager {
         }
 
         return@withContext try {
-            // Store locally
+            // Store locally using Android Keystore encryption
+            val encryptedPassphrase = com.amvarpvtltd.swiftNote.security.EncryptionUtil.encryptWithKeystore(passphrase)
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit {
-                    putString(KEY_PASSPHRASE, passphrase)
+                    putString(KEY_PASSPHRASE_ENCRYPTED, encryptedPassphrase)
+                    remove(KEY_PASSPHRASE) // Ensure no plaintext lingers
+                    putBoolean(KEY_MIGRATED, true)
                 }
 
             // Store in Firebase under the passphrase node
@@ -43,7 +80,6 @@ object PassphraseManager {
             val userRef = database.getReference("users").child(passphrase)
 
             val userData = mapOf(
-                "passphrase" to passphrase,
                 "createdAt" to System.currentTimeMillis(),
                 "deviceType" to "android",
                 "lastActiveAt" to System.currentTimeMillis()
@@ -51,7 +87,7 @@ object PassphraseManager {
 
             userRef.updateChildren(userData).await()
 
-            Log.d(TAG, "Passphrase stored successfully: $passphrase")
+            Log.d(TAG, "Passphrase stored successfully (length=${passphrase.length})")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store passphrase", e)
@@ -95,7 +131,7 @@ object PassphraseManager {
             val snapshot = userRef.get().await()
 
             val exists = snapshot.exists()
-            Log.d(TAG, "Passphrase verification: $passphrase exists: $exists")
+            Log.d(TAG, "Passphrase verification result: exists=$exists")
             Result.success(exists)
         } catch (e: Exception) {
             // Map permission denied errors to clearer messages for the UI
@@ -121,7 +157,7 @@ object PassphraseManager {
 
     fun extractPassphraseFromQR(qrContent: String): String? {
         try {
-            Log.d(TAG, "Processing QR content: $qrContent")
+            Log.d(TAG, "Processing QR content (length=${qrContent.length})")
 
             // Basic normalization: trim, remove control characters and surrounding quotes
             var content = qrContent.trim().replace("\n", "").replace("\r", "").trim()
@@ -158,7 +194,7 @@ object PassphraseManager {
                     val substr = content.substring(idx)
                     val extracted = substr.substringAfter("passphrase=", "").substringBefore("&").trim()
                     if (extracted.isNotEmpty()) {
-                        Log.d(TAG, "Extracted passphrase from embedded SwiftNote link: $extracted")
+                        Log.d(TAG, "Extracted passphrase from embedded SwiftNote link (length=${extracted.length})")
                         return extracted
                     }
                 }
@@ -170,7 +206,7 @@ object PassphraseManager {
                         val dec = java.net.URLDecoder.decode(after, "UTF-8")
                         val extracted = dec.substringAfter("passphrase=", "").substringBefore("&").trim()
                         if (extracted.isNotEmpty()) {
-                            Log.d(TAG, "Extracted passphrase from percent-encoded SwiftNote link: $extracted")
+                            Log.d(TAG, "Extracted passphrase from percent-encoded SwiftNote link (length=${extracted.length})")
                             return extracted
                         }
                     } catch (e: Exception) {
@@ -221,13 +257,13 @@ object PassphraseManager {
                             val value = parts.subList(1, parts.size).joinToString("=")
                             if (key.equals("passphrase", ignoreCase = true)) {
                                 val candidate = value.trim()
-                                Log.d(TAG, "Found passphrase param in URI: $candidate")
+                                Log.d(TAG, "Found passphrase param in URI (length=${candidate.length})")
                                 if (isValidPassphraseFormat(candidate)) return candidate
                                 if (candidate.isNotEmpty()) return candidate
                             }
                             if (key.equals("deviceId", ignoreCase = true)) {
                                 val candidate = value.trim()
-                                Log.d(TAG, "Found deviceId param in URI: $candidate")
+                                Log.d(TAG, "Found deviceId param in URI (length=${candidate.length})")
                                 if (candidate.isNotEmpty()) return candidate
                             }
                         }
@@ -241,21 +277,21 @@ object PassphraseManager {
             if (content.contains("passphrase=", ignoreCase = true)) {
                 val extracted = content.substringAfter("passphrase=", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted passphrase by marker: $extracted")
+                    Log.d(TAG, "Extracted passphrase by marker (length=${extracted.length})")
                     return extracted
                 }
             }
             if (content.contains("deviceId=", ignoreCase = true)) {
                 val extracted = content.substringAfter("deviceId=", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted deviceId by marker: $extracted")
+                    Log.d(TAG, "Extracted deviceId by marker (length=${extracted.length})")
                     return extracted
                 }
             }
 
             // Direct passphrase (adjective-noun-number)
             if (isValidPassphraseFormat(content)) {
-                Log.d(TAG, "QR content is a direct passphrase: $content")
+                Log.d(TAG, "QR content matches direct passphrase format")
                 return content
             }
 
@@ -271,7 +307,7 @@ object PassphraseManager {
                 val found = passRegex.find(content)
                 if (found != null) {
                     val candidate = found.value.trim()
-                    Log.d(TAG, "Found passphrase pattern inside content: $candidate")
+                    Log.d(TAG, "Found passphrase pattern inside content")
                     return candidate
                 }
             } catch (e: Exception) {
@@ -282,7 +318,7 @@ object PassphraseManager {
             if (content.contains("passphrase:", ignoreCase = true)) {
                 val extracted = content.substringAfter("passphrase:", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted passphrase by colon marker: $extracted")
+                    Log.d(TAG, "Extracted passphrase by colon marker (length=${extracted.length})")
                     return extracted
                 }
             }
@@ -290,14 +326,14 @@ object PassphraseManager {
             // Conservative final fallback: if the content is a single token (no whitespace), reasonable length, accept it
             val singleToken = content.trim()
             if (!singleToken.contains(Regex("\\s")) && singleToken.length in 8..128) {
-                Log.d(TAG, "Fallback accepting single-token QR content as passphrase/deviceId: ${singleToken.take(60)}")
+                Log.d(TAG, "Fallback accepting single-token QR content (length=${singleToken.length})")
                 return singleToken
             }
 
-            Log.w(TAG, "Unknown QR format after heuristics: $content")
+            Log.w(TAG, "Unknown QR format after heuristics (length=${content.length})")
              return null
          } catch (e: Exception) {
-             Log.e(TAG, "Failed to extract passphrase from QR: $qrContent", e)
+             Log.e(TAG, "Failed to extract passphrase from QR content", e)
              return null
          }
      }
@@ -313,6 +349,8 @@ object PassphraseManager {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit {
                 remove(KEY_PASSPHRASE)
+                remove(KEY_PASSPHRASE_ENCRYPTED)
+                remove(KEY_MIGRATED)
             }
     }
 }

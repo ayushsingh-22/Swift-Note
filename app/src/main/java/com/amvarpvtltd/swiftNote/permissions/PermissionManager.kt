@@ -1,9 +1,13 @@
 package com.amvarpvtltd.swiftNote.permissions
 
 import android.Manifest
+import android.app.AlarmManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
@@ -163,6 +167,41 @@ class PermissionManager(
      */
     fun canSendNotifications(): Boolean {
         return isNotificationPermissionGranted()
+    }
+
+    /**
+     * Check if the app can schedule exact alarms (Android 12+)
+     */
+    fun canScheduleExactAlarms(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = activity.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Request exact alarm permission by opening system settings (Android 12+).
+     * Unlike POST_NOTIFICATIONS, exact alarm permission cannot be requested via a dialog;
+     * the user must toggle it in Settings.
+     */
+    fun requestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !canScheduleExactAlarms()) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:${activity.packageName}")
+                )
+                activity.startActivity(intent)
+            } catch (e: Exception) {
+                // Fallback to app settings if the specific intent is unavailable
+                val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", activity.packageName, null)
+                }
+                activity.startActivity(fallbackIntent)
+            }
+        }
     }
 
     override fun onDestroy(owner: LifecycleOwner) {

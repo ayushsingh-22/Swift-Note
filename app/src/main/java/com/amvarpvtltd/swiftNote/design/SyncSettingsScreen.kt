@@ -65,9 +65,18 @@ fun SyncSettingsScreen(navController: NavController) {
     var statsVisible by remember { mutableStateOf(false) }
     var cardsVisible by remember { mutableStateOf(false) }
 
+    // Performance: remember brush to avoid recreating gradient on every recomposition
+    val backgroundBrush = remember { BackgroundProvider.getBrush() }
+
     // Load current passphrase on screen load
     LaunchedEffect(Unit) {
-        currentPassphrase = PassphraseManager.getStoredPassphrase(context) ?: myGlobalMobileDeviceId
+        // BUG-026 FIX: Never use empty string as Firebase path — always fallback to deviceId
+        val stored = PassphraseManager.getStoredPassphrase(context)
+        val deviceId = com.amvarpvtltd.swiftNote.auth.DeviceManager.getOrCreateDeviceId(context)
+        currentPassphrase = stored ?: deviceId
+        if (myGlobalMobileDeviceId.isEmpty()) {
+            myGlobalMobileDeviceId = currentPassphrase
+        }
         if (currentPassphrase.isNotEmpty()) {
             // Load sync stats with animation
             scope.launch {
@@ -119,7 +128,7 @@ fun SyncSettingsScreen(navController: NavController) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = BackgroundProvider.getBrush())
+                .background(brush = backgroundBrush)
                 .padding(paddingValues)
         ) {
             // Enhanced animated layout with improved visual hierarchy
@@ -182,9 +191,10 @@ fun SyncSettingsScreen(navController: NavController) {
     }
 
     // Enhanced QR Code Dialog
-    if (showQRCode && qrCodeBitmap != null) {
+    val bitmap = qrCodeBitmap
+    if (showQRCode && bitmap != null) {
         EnhancedQRCodeDialog(
-            bitmap = qrCodeBitmap!!,
+            bitmap = bitmap,
             passphrase = currentPassphrase,
             onDismiss = { showQRCode = false }
         )

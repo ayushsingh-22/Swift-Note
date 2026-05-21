@@ -9,89 +9,125 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
 object NoteTheme {
-    // Primary colors with improved contrast
-    var Primary by mutableStateOf(Color(0xFF6750A4))
-    var PrimaryVariant by mutableStateOf(Color(0xFF4F46E5))
+    // ─── Premium Palette: Light Theme ───────────────────────────────────
+    // Primary accent — Teal (controlled saturation, no purple/neon)
+    var Primary by mutableStateOf(Color(0xFF0D9488))
+    var PrimaryVariant by mutableStateOf(Color(0xFF0F766E))
     var OnPrimary by mutableStateOf(Color(0xFFFFFFFF))
-    var PrimaryContainer by mutableStateOf(Color(0xFFEADDFF))
-    var OnPrimaryContainer by mutableStateOf(Color(0xFF21005D))
+    var PrimaryContainer by mutableStateOf(Color(0xFFCCFBF1))
+    var OnPrimaryContainer by mutableStateOf(Color(0xFF042F2E))
 
-    // Secondary colors with better visibility
-    var Secondary by mutableStateOf(Color(0xFF625B71))
-    var SecondaryVariant by mutableStateOf(Color(0xFF0891B2))
+    // Secondary — Slate neutrals for UI chrome
+    var Secondary by mutableStateOf(Color(0xFF4A5568))
+    var SecondaryVariant by mutableStateOf(Color(0xFF334155))
     var OnSecondary by mutableStateOf(Color(0xFFFFFFFF))
-    var SecondaryContainer by mutableStateOf(Color(0xFFE8DEF8))
-    var OnSecondaryContainer by mutableStateOf(Color(0xFF1D192B))
+    var SecondaryContainer by mutableStateOf(Color(0xFFF1F5F9))
+    var OnSecondaryContainer by mutableStateOf(Color(0xFF1E293B))
 
-    // Surface colors with improved contrast
-    var Surface by mutableStateOf(Color(0xFFFEF7FF))
-    var OnSurface by mutableStateOf(Color(0xFF1D1B20))
-    var SurfaceVariant by mutableStateOf(Color(0xFFE7E0EC))
-    var OnSurfaceVariant by mutableStateOf(Color(0xFF49454F))
+    // Surface — Snow Canvas / Pure Surface
+    var Surface by mutableStateOf(Color(0xFFFFFFFF))
+    var OnSurface by mutableStateOf(Color(0xFF1A1D23))
+    var SurfaceVariant by mutableStateOf(Color(0xFFF8F9FA))
+    var OnSurfaceVariant by mutableStateOf(Color(0xFF4A5568))
 
-    // Background colors
-    var Background by mutableStateOf(Color(0xFFFEF7FF))
-    var OnBackground by mutableStateOf(Color(0xFF1D1B20))
+    // Background — Snow Canvas
+    var Background by mutableStateOf(Color(0xFFFAFBFC))
+    var OnBackground by mutableStateOf(Color(0xFF1A1D23))
 
-    // Error colors with better visibility
-    var Error by mutableStateOf(Color(0xFFB3261E))
+    // Error — Danger Crimson
+    var Error by mutableStateOf(Color(0xFFDC2626))
     var OnError by mutableStateOf(Color(0xFFFFFFFF))
-    var ErrorContainer by mutableStateOf(Color(0xFFF9DEDC))
-    var OnErrorContainer by mutableStateOf(Color(0xFF410E0B))
+    var ErrorContainer by mutableStateOf(Color(0xFFFEE2E2))
+    var OnErrorContainer by mutableStateOf(Color(0xFF7F1D1D))
 
-    // Warning colors with improved contrast
-    var Warning by mutableStateOf(Color(0xFFEE8B22))
+    // Warning — Caution Amber
+    var Warning by mutableStateOf(Color(0xFFD97706))
     var OnWarning by mutableStateOf(Color(0xFFFFFFFF))
-    var WarningContainer by mutableStateOf(Color(0xFFFFEDD9))
-    var OnWarningContainer by mutableStateOf(Color(0xFF2E1500))
+    var WarningContainer by mutableStateOf(Color(0xFFFEF3C7))
+    var OnWarningContainer by mutableStateOf(Color(0xFF78350F))
 
-    // Success colors with better visibility
-    var Success by mutableStateOf(Color(0xFF146C2E))
+    // Success — Verdant Green
+    var Success by mutableStateOf(Color(0xFF059669))
     var OnSuccess by mutableStateOf(Color(0xFFFFFFFF))
-    var SuccessContainer by mutableStateOf(Color(0xFFAEF0BE))
-    var OnSuccessContainer by mutableStateOf(Color(0xFF002108))
+    var SuccessContainer by mutableStateOf(Color(0xFFD1FAE5))
+    var OnSuccessContainer by mutableStateOf(Color(0xFF064E3B))
 
-    // Outline colors
-    var Outline by mutableStateOf(Color(0xFF79747E))
-    var OutlineVariant by mutableStateOf(Color(0xFFCAC4D0))
+    // Outline — Whisper Border
+    var Outline by mutableStateOf(Color(0xFFE2E8F0))
+    var OutlineVariant by mutableStateOf(Color(0xFFCBD5E1))
 
-    // Dark theme colors with enhanced contrast
+    // ─── Premium Palette: Dark Theme ────────────────────────────────────
     object Dark {
-        var Primary by mutableStateOf(Color(0xFFD0BCFF))
-        var OnPrimary by mutableStateOf(Color(0xFF381E72))
-        var PrimaryContainer by mutableStateOf(Color(0xFF4F378B))
-        var OnPrimaryContainer by mutableStateOf(Color(0xFFEADDFF))
+        var Primary by mutableStateOf(Color(0xFF2DD4BF))
+        var OnPrimary by mutableStateOf(Color(0xFF042F2E))
+        var PrimaryContainer by mutableStateOf(Color(0xFF0F766E))
+        var OnPrimaryContainer by mutableStateOf(Color(0xFFCCFBF1))
 
-        var Secondary by mutableStateOf(Color(0xFFCCC2DC))
-        var OnSecondary by mutableStateOf(Color(0xFF332D41))
-        var SecondaryContainer by mutableStateOf(Color(0xFF4A4458))
-        var OnSecondaryContainer by mutableStateOf(Color(0xFFE8DEF8))
+        var Secondary by mutableStateOf(Color(0xFF94A3B8))
+        var OnSecondary by mutableStateOf(Color(0xFF1E293B))
+        var SecondaryContainer by mutableStateOf(Color(0xFF334155))
+        var OnSecondaryContainer by mutableStateOf(Color(0xFFF1F5F9))
 
-        var Surface by mutableStateOf(Color(0xFF1C1B1F))
-        var OnSurface by mutableStateOf(Color(0xFFE6E1E5))
-        var SurfaceVariant by mutableStateOf(Color(0xFF49454F))
-        var OnSurfaceVariant by mutableStateOf(Color(0xFFCAC4D0))
+        var Surface by mutableStateOf(Color(0xFF1C2128))
+        var OnSurface by mutableStateOf(Color(0xFFF0F4F8))
+        var SurfaceVariant by mutableStateOf(Color(0xFF282E36))
+        var OnSurfaceVariant by mutableStateOf(Color(0xFF94A3B8))
 
-        var Background by mutableStateOf(Color(0xFF1C1B1F))
-        var OnBackground by mutableStateOf(Color(0xFFE6E1E5))
+        var Background by mutableStateOf(Color(0xFF0F1419))
+        var OnBackground by mutableStateOf(Color(0xFFF0F4F8))
 
-        var Error by mutableStateOf(Color(0xFFF2B8B5))
-        var OnError by mutableStateOf(Color(0xFF601410))
-        var ErrorContainer by mutableStateOf(Color(0xFF8C1D18))
-        var OnErrorContainer by mutableStateOf(Color(0xFFF9DEDC))
+        var Error by mutableStateOf(Color(0xFFF87171))
+        var OnError by mutableStateOf(Color(0xFF7F1D1D))
+        var ErrorContainer by mutableStateOf(Color(0xFF991B1B))
+        var OnErrorContainer by mutableStateOf(Color(0xFFFECACA))
 
-        var Warning by mutableStateOf(Color(0xFFFFB86C))
-        var OnWarning by mutableStateOf(Color(0xFF432B00))
-        var WarningContainer by mutableStateOf(Color(0xFF5C3F00))
-        var OnWarningContainer by mutableStateOf(Color(0xFFFFDDB3))
+        var Warning by mutableStateOf(Color(0xFFFBBF24))
+        var OnWarning by mutableStateOf(Color(0xFF78350F))
+        var WarningContainer by mutableStateOf(Color(0xFF92400E))
+        var OnWarningContainer by mutableStateOf(Color(0xFFFEF3C7))
 
-        var Success by mutableStateOf(Color(0xFF67DD8B))
-        var OnSuccess by mutableStateOf(Color(0xFF003912))
-        var SuccessContainer by mutableStateOf(Color(0xFF00531C))
-        var OnSuccessContainer by mutableStateOf(Color(0xFF89F8A5))
+        var Success by mutableStateOf(Color(0xFF34D399))
+        var OnSuccess by mutableStateOf(Color(0xFF064E3B))
+        var SuccessContainer by mutableStateOf(Color(0xFF065F46))
+        var OnSuccessContainer by mutableStateOf(Color(0xFFA7F3D0))
 
-        var Outline by mutableStateOf(Color(0xFF938F99))
-        var OutlineVariant by mutableStateOf(Color(0xFF49454F))
+        var Outline by mutableStateOf(Color(0xFF334155))
+        var OutlineVariant by mutableStateOf(Color(0xFF475569))
+    }
+
+    // ─── Note Card Accent Rotation ──────────────────────────────────────
+    val NoteAccentColors = listOf(
+        Color(0xFF0D9488), // Teal
+        Color(0xFFD97706), // Amber
+        Color(0xFFE11D48), // Rose
+        Color(0xFF4F46E5), // Indigo
+        Color(0xFF059669), // Emerald
+        Color(0xFF0284C7), // Sky
+    )
+
+    fun getNoteAccentColor(index: Int): Color {
+        return NoteAccentColors[index % NoteAccentColors.size]
+    }
+
+    // ─── Spacing Scale (4dp base) ───────────────────────────────────────
+    object Spacing {
+        const val xs = 4
+        const val sm = 8
+        const val md = 12
+        const val base = 16
+        const val lg = 20
+        const val xl = 24
+        const val xxl = 32
+        const val xxxl = 48
+    }
+
+    // ─── Corner Radii ───────────────────────────────────────────────────
+    object Radius {
+        const val sm = 8
+        const val md = 12
+        const val lg = 16
+        const val xl = 24
+        const val full = 100
     }
 
     // Update colors based on the current theme
@@ -143,10 +179,8 @@ object NoteTheme {
         if (contrast >= minRatio) return foreground
 
         return if (background.luminance() > 0.5f) {
-            // Dark text on light background
             foreground.copy(alpha = 1f).darker(steps = ((minRatio - contrast) * 2).toInt())
         } else {
-            // Light text on dark background
             foreground.copy(alpha = 1f).lighter(steps = ((minRatio - contrast) * 2).toInt())
         }
     }

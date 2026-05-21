@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.outlined.Note
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -47,10 +48,11 @@ fun OfflineSyncScreen(
     val noteRepository = remember { NoteRepository(context) }
     val autoSyncManager = remember { AutoSyncManager.getInstance(context, noteRepository) }
 
-    val isOnline by networkManager.isOnline.collectAsState()
-    val isSyncing by autoSyncManager.isSyncing.collectAsState()
-    val syncStatus by autoSyncManager.lastSyncStatus.collectAsState()
-    val pendingNotes by offlineManager.pendingSyncNotes.collectAsState()
+    // Performance: lifecycle-aware collection prevents recomposition when app is in background
+    val isOnline by networkManager.isOnline.collectAsStateWithLifecycle()
+    val isSyncing by autoSyncManager.isSyncing.collectAsStateWithLifecycle()
+    val syncStatus by autoSyncManager.lastSyncStatus.collectAsStateWithLifecycle()
+    val pendingNotes by offlineManager.pendingSyncNotes.collectAsStateWithLifecycle()
 
     // Manual sync function
     fun startManualSync() {

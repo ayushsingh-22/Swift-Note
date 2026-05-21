@@ -87,16 +87,15 @@ fun ActionButton(
 
 fun adaptiveIconColors(background: Color, accent: Color): Pair<Color, Color> {
     val bgIsLight = background.luminance() > 0.5f
-    // Slightly stronger container on dark backgrounds to improve visibility
-    val containerAlpha = if (bgIsLight) 0.10f else 0.16f
+    val containerAlpha = if (bgIsLight) 0.08f else 0.14f
     val container = accent.copy(alpha = containerAlpha)
 
-    // Content color: prefer accent when it contrasts enough, otherwise use white/black
+    // Content color: prefer accent when it contrasts enough
     val accentIsContrasting = if (bgIsLight) accent.luminance() < 0.6f else accent.luminance() > 0.4f
     val content = when {
         accentIsContrasting -> accent
-        bgIsLight -> Color.Black.copy(alpha = 0.9f)
-        else -> Color.White.copy(alpha = 0.95f)
+        bgIsLight -> NoteTheme.OnSurface
+        else -> NoteTheme.Dark.OnSurface
     }
 
     return Pair(container, content)
@@ -118,7 +117,7 @@ fun IconActionButton(
         ) { onClick() },
         shape = CircleShape,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp) // Removed shadow
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Box(
             modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
@@ -127,7 +126,7 @@ fun IconActionButton(
             Icon(
                 icon,
                 contentDescription = contentDescription,
-                tint = Color.Black,
+                tint = contentColor,
                 modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
             )
         }

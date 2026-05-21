@@ -3,18 +3,13 @@ package com.amvarpvtltd.swiftNote.reminders
 import androidx.room.*
 
 /**
- * Room entity for storing reminder data
+ * Room entity for storing reminder data.
+ * BUG-013 FIX: Removed ForeignKey constraint on noteId.
+ * FK caused SQLiteConstraintException when syncing reminders before their parent notes.
+ * Orphan cleanup is handled in deleteNoteOffline() instead.
  */
 @Entity(
     tableName = "reminders",
-    foreignKeys = [
-        ForeignKey(
-            entity = com.amvarpvtltd.swiftNote.room.NoteEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["noteId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index(value = ["noteId"]), Index(value = ["reminderTime"])]
 )
 data class ReminderEntity(

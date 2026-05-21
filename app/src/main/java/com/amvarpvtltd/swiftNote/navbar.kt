@@ -40,6 +40,7 @@ import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun MyApp(modifier: Modifier = Modifier) {
@@ -108,31 +109,36 @@ fun MyApp(modifier: Modifier = Modifier) {
             }
 
             // No local data and no stored credentials: check if this device id has data on Firebase (reinstall case)
+            // BUG-004 FIX: Wrap in withTimeoutOrNull to prevent indefinite blocking on slow/unreachable networks
             try {
                 val deviceId = DeviceManager.getOrCreateDeviceId(context)
                 Log.d("MyApp", "No local notes — checking remote for deviceId: $deviceId")
-                val db = FirebaseDatabase.getInstance()
-                val userRef = db.getReference("users").child(deviceId)
-                val snapshot = withContext(Dispatchers.IO) { userRef.get().await() }
-                if (snapshot.exists()) {
-                    // If there are notes/reminders for this device, import them into local DB
-                    Log.d("MyApp", "Remote data found for deviceId: $deviceId — importing to local DB")
-                    try {
-                        // Use SyncManager to import notes from this passphrase/deviceId into local DB
-                        val syncResult = withContext(Dispatchers.IO) { SyncManager.syncDataFromPassphrase(context, deviceId, deviceId) }
-                        if (syncResult.isSuccess) {
-                            Log.d("MyApp", "Imported remote notes for deviceId: $deviceId")
-                            myGlobalMobileDeviceId = deviceId
-                            startDestination = "main"
+
+                val remoteImportSuccess = withContext(Dispatchers.IO) {
+                    withTimeoutOrNull(5_000L) { // 5-second timeout — never block app startup
+                        val db = FirebaseDatabase.getInstance()
+                        val userRef = db.getReference("users").child(deviceId)
+                        val snapshot = userRef.get().await()
+                        if (snapshot.exists()) {
+                            Log.d("MyApp", "Remote data found for deviceId: $deviceId — importing to local DB")
+                            val syncResult = SyncManager.syncDataFromPassphrase(context, deviceId, deviceId)
+                            syncResult.isSuccess
                         } else {
-                            Log.w("MyApp", "Failed to import remote notes for deviceId: $deviceId: ${syncResult.exceptionOrNull()?.message}")
+                            false
                         }
-                    } catch (e: Exception) {
-                        Log.e("MyApp", "Error importing remote notes for deviceId: $deviceId", e)
                     }
+                } ?: false // null means timeout — treat as no remote data
+
+                if (remoteImportSuccess) {
+                    val deviceId2 = DeviceManager.getOrCreateDeviceId(context)
+                    Log.d("MyApp", "Imported remote notes for deviceId: $deviceId2")
+                    myGlobalMobileDeviceId = deviceId2
+                    startDestination = "main"
+                    isInitializing = false
+                    return@LaunchedEffect
                 }
             } catch (e: Exception) {
-                Log.d("MyApp", "Remote device check failed", e)
+                Log.d("MyApp", "Remote device check failed or timed out", e)
             }
 
             // No data found anywhere: show onboarding

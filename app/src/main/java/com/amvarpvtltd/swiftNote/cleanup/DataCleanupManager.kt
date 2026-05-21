@@ -66,6 +66,7 @@ object DataCleanupManager {
 
             // Close database
             db.close()
+            AppDatabase.resetInstance()
 
             // Delete database files
             val dbPath = context.getDatabasePath("notes_database")

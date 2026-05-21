@@ -14,17 +14,24 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.room.AppDatabase
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * Manages reminders with persistent alarms that survive device reboots
@@ -35,6 +42,11 @@ class ReminderManager private constructor(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val database = AppDatabase.getInstance(context)
     private val reminderDao = database.reminderDao()
+
+    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+        Log.e(TAG, "Uncaught exception in ReminderManager scope", exception)
+    }
+    private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
     companion object {
         @SuppressLint("StaticFieldLeak")
@@ -80,22 +92,18 @@ class ReminderManager private constructor(private val context: Context) {
     }
 
     /**
-     * Schedule a reminder alarm
+     * Schedule a reminder alarm with Android 12-15 compliance.
+     * Strategy:
+     *  1. Try setExactAndAllowWhileIdle (requires SCHEDULE_EXACT_ALARM or USE_EXACT_ALARM)
+     *  2. Fallback: setAndAllowWhileIdle (inexact but still fires during Doze)
+     *  3. Final fallback: WorkManager OneTimeWorkRequest (guaranteed execution)
      */
     suspend fun scheduleReminder(
         reminder: DetectedReminder,
         noteId: String
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
-            // Check if we can schedule exact alarms
-            if (!canScheduleExactAlarms()) {
-                // Don't fail hard if exact alarm permission isn't granted. Persist the reminder
-                // and schedule a best-effort alarm. This ensures reminders are created even when
-                // the system restricts exact alarms (app may request permission separately).
-                Log.w(TAG, "⚠️ Exact alarm permission not granted — falling back to best-effort scheduling")
-            }
-
-            // Save reminder to database - Fixed field names to match ReminderEntity
+            // Save reminder to database first (always persisted regardless of alarm success)
             val reminderEntity = ReminderEntity(
                 id = reminder.id,
                 noteId = noteId,
@@ -106,7 +114,7 @@ class ReminderManager private constructor(private val context: Context) {
                 createdAt = System.currentTimeMillis()
             )
 
-            reminderDao.insertReminder(reminderEntity) // Fixed method name
+            reminderDao.insertReminder(reminderEntity)
             Log.d(TAG, "💾 Reminder saved to database: ${reminder.title}")
 
             // Schedule the alarm
@@ -124,25 +132,14 @@ class ReminderManager private constructor(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Schedule exact alarm if possible, otherwise schedule a best-effort alarm
-            try {
-                if (canScheduleExactAlarms()) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        reminder.reminderDateTime,
-                        pendingIntent
-                    )
-                } else {
-                    // Best-effort fallback using set which may be inexact but still fires
-                    alarmManager.set(
-                        AlarmManager.RTC_WAKEUP,
-                        reminder.reminderDateTime,
-                        pendingIntent
-                    )
-                }
-            } catch (e: SecurityException) {
-                Log.w(TAG, "⚠️ SecurityException scheduling alarm, skipping alarm scheduling: ${e.message}")
-            }
+            scheduleAlarmWithFallback(
+                triggerAtMillis = reminder.reminderDateTime,
+                pendingIntent = pendingIntent,
+                reminderId = reminder.id,
+                noteId = noteId,
+                title = reminder.title,
+                description = reminder.description
+            )
 
             val formatter = SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", Locale.getDefault())
             val dateTime = formatter.format(Date(reminder.reminderDateTime))
@@ -157,16 +154,89 @@ class ReminderManager private constructor(private val context: Context) {
     }
 
     /**
+     * Android 12-15 compliant alarm scheduling with graceful degradation:
+     * 1. Exact alarm (best precision)
+     * 2. Inexact setAndAllowWhileIdle (fires during Doze, may be delayed ~minutes)
+     * 3. WorkManager fallback (guaranteed but may delay up to 15min in worst case)
+     */
+    private fun scheduleAlarmWithFallback(
+        triggerAtMillis: Long,
+        pendingIntent: PendingIntent,
+        reminderId: String,
+        noteId: String,
+        title: String,
+        description: String
+    ) {
+        val delay = triggerAtMillis - System.currentTimeMillis()
+        if (delay <= 0) {
+            Log.w(TAG, "Reminder time is in the past, skipping alarm scheduling")
+            return
+        }
+
+        try {
+            if (canScheduleExactAlarms()) {
+                // Best case: exact alarm fires at the precise time
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+                Log.d(TAG, "Scheduled exact alarm for $reminderId")
+                return
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "SecurityException on exact alarm: ${e.message}")
+        }
+
+        // Fallback 1: setAndAllowWhileIdle (inexact but fires during Doze)
+        try {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
+            Log.d(TAG, "Scheduled inexact (setAndAllowWhileIdle) alarm for $reminderId")
+            return
+        } catch (e: SecurityException) {
+            Log.w(TAG, "SecurityException on setAndAllowWhileIdle: ${e.message}")
+        }
+
+        // Fallback 2: WorkManager — guaranteed execution, respects system constraints
+        scheduleWorkManagerFallback(delay, reminderId, noteId, title, description)
+    }
+
+    /**
+     * WorkManager-based reminder fallback for when AlarmManager is completely restricted.
+     */
+    private fun scheduleWorkManagerFallback(
+        delayMs: Long,
+        reminderId: String,
+        noteId: String,
+        title: String,
+        description: String
+    ) {
+        val workRequest = OneTimeWorkRequestBuilder<com.amvarpvtltd.swiftNote.notifications.ReminderWorker>()
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .setInputData(workDataOf(
+                "reminderId" to reminderId,
+                "noteId" to noteId,
+                "noteTitle" to title,
+                "noteDescription" to description,
+                "isSmartReminder" to true
+            ))
+            .addTag("reminder_fallback_$reminderId")
+            .build()
+
+        WorkManager.getInstance(context).enqueue(workRequest)
+        Log.d(TAG, "Scheduled WorkManager fallback for reminder $reminderId (delay: ${delayMs / 1000}s)")
+    }
+
+    /**
      * Get all active reminders
      */
     suspend fun getAllActiveReminders(): List<ReminderEntity> = withContext(Dispatchers.IO) {
         return@withContext try {
-            // Fixed: Collect the Flow to get the actual list
-            val reminders = mutableListOf<ReminderEntity>()
-            reminderDao.getAllActiveReminders().collect { reminderList ->
-                reminders.addAll(reminderList)
-            }
-            reminders
+            reminderDao.getAllActiveReminders().first()
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error getting all active reminders", e)
             emptyList()
@@ -174,21 +244,21 @@ class ReminderManager private constructor(private val context: Context) {
     }
 
     /**
-     * Reschedule all active reminders (called after device reboot)
+     * Reschedule all active reminders (called after device reboot or permission grant)
      */
     suspend fun rescheduleAllReminders(): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val activeReminders = getAllActiveReminders() // Use the corrected method
+            val activeReminders = getAllActiveReminders()
             val currentTime = System.currentTimeMillis()
             var rescheduledCount = 0
 
             activeReminders.forEach { reminder ->
-                if (reminder.reminderTime > currentTime) { // Fixed field name
+                if (reminder.reminderTime > currentTime) {
                     // Reschedule future reminders
                     val intent = Intent(context, ReminderReceiver::class.java).apply {
                         putExtra(EXTRA_REMINDER_ID, reminder.id)
-                        putExtra(EXTRA_REMINDER_TITLE, reminder.noteTitle) // Fixed field name
-                        putExtra(EXTRA_REMINDER_DESCRIPTION, reminder.noteDescription) // Fixed field name
+                        putExtra(EXTRA_REMINDER_TITLE, reminder.noteTitle)
+                        putExtra(EXTRA_REMINDER_DESCRIPTION, reminder.noteDescription)
                         putExtra(EXTRA_NOTE_ID, reminder.noteId)
                     }
 
@@ -199,14 +269,18 @@ class ReminderManager private constructor(private val context: Context) {
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                     )
 
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        reminder.reminderTime, // Fixed field name
-                        pendingIntent
+                    // Use the same graduated fallback as scheduleReminder
+                    scheduleAlarmWithFallback(
+                        triggerAtMillis = reminder.reminderTime,
+                        pendingIntent = pendingIntent,
+                        reminderId = reminder.id,
+                        noteId = reminder.noteId,
+                        title = reminder.noteTitle,
+                        description = reminder.noteDescription
                     )
                     rescheduledCount++
                 } else {
-                    // Mark expired reminders as inactive - Fixed using deactivateReminder
+                    // Mark expired reminders as inactive
                     reminderDao.deactivateReminder(reminder.id)
                 }
             }
@@ -246,6 +320,28 @@ class ReminderManager private constructor(private val context: Context) {
         } else {
             true
         }
+    }
+
+    /**
+     * Open system settings to allow the user to grant exact alarm permission (Android 12+).
+     * Returns true if the intent was launched, false if not needed or not applicable.
+     */
+    fun requestExactAlarmPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !canScheduleExactAlarms()) {
+            try {
+                val intent = Intent(
+                    android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    android.net.Uri.parse("package:${context.packageName}")
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error opening exact alarm settings", e)
+            }
+        }
+        return false
     }
 
     /**
@@ -300,7 +396,7 @@ class ReminderManager private constructor(private val context: Context) {
                 Log.d(TAG, "📱 Reminder notification shown: $title")
 
                 // Mark reminder as completed in database - Fixed using deactivateReminder
-                CoroutineScope(Dispatchers.IO).launch {
+                managerScope.launch {
                     try {
                         reminderDao.deactivateReminder(reminderId)
                         Log.d(TAG, "✅ Reminder marked as completed: $title")
@@ -346,10 +442,37 @@ class BootReceiver : BroadcastReceiver() {
 
             Log.d("BootReceiver", "📱 Device booted, rescheduling reminders...")
 
-            CoroutineScope(Dispatchers.IO).launch {
+            val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+                Log.e("BootReceiver", "Uncaught exception in BootReceiver scope", exception)
+            }
+            CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler).launch {
                 val reminderManager = ReminderManager.getInstance(context)
                 reminderManager.rescheduleAllReminders()
             }
         }
     }
 }
+
+/**
+ * BroadcastReceiver for ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED (Android 12+).
+ * When the user grants or revokes exact alarm permission from system settings,
+ * reschedule all active reminders to use the best available alarm type.
+ */
+class ExactAlarmPermissionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            intent.action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED) {
+
+            Log.d("ExactAlarmPermReceiver", "Exact alarm permission state changed — rescheduling reminders")
+
+            val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+                Log.e("ExactAlarmPermReceiver", "Error rescheduling after permission change", exception)
+            }
+            CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler).launch {
+                val reminderManager = ReminderManager.getInstance(context)
+                reminderManager.rescheduleAllReminders()
+            }
+        }
+    }
+}
+

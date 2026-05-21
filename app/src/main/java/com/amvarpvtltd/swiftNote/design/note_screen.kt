@@ -1,6 +1,5 @@
 package com.amvarpvtltd.swiftNote.design
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +28,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,8 +44,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import com.amvarpvtltd.swiftNote.auth.DeviceManager
-import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.components.AnimatedFloatingActionButton
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
@@ -62,14 +59,14 @@ import com.amvarpvtltd.swiftNote.components.ThemeToggleButton
 import com.amvarpvtltd.swiftNote.components.ViewModeToggleButton
 import com.amvarpvtltd.swiftNote.components.rememberViewModeState
 import com.amvarpvtltd.swiftNote.dataclass
-import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.search.rememberSearchAndSortManager
-import com.amvarpvtltd.swiftNote.sync.SyncManager
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.amvarpvtltd.swiftNote.theme.rememberThemeState
 import com.amvarpvtltd.swiftNote.utils.AutoSyncManager
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
+import com.amvarpvtltd.swiftNote.viewmodel.NotesViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,26 +75,26 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NotesScreen(navController: NavHostController) {
-    val notesState = remember { mutableStateOf<List<dataclass>>(emptyList()) }
-    val isLoadingState = remember { mutableStateOf(true) }
-    val isRefreshingState = remember { mutableStateOf(false) }
+    // ViewModel handles business logic (fetch, delete, sync)
+    val viewModel: NotesViewModel = viewModel()
+
+    val notes by viewModel.notes.collectAsStateWithLifecycle()
+    val isLoadingState by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isRefreshingState by viewModel.isRefreshing.collectAsStateWithLifecycle()
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
-    val noteRepository = remember { NoteRepository(context) }
 
-    // Network and sync management
-    val networkManager = remember { com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(context) }
-    val autoSyncManager = remember { AutoSyncManager.getInstance(context, noteRepository) }
-
-    val isOnline by networkManager.isOnline.collectAsState()
-    val isSyncing by autoSyncManager.isSyncing.collectAsState()
-    val syncStatus by autoSyncManager.lastSyncStatus.collectAsState()
-    val hasPendingSync by autoSyncManager.hasPendingSync.collectAsState()
+    // Network and sync state from ViewModel
+    val isOnline by viewModel.networkManager.isOnline.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.autoSyncManager.isSyncing.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.autoSyncManager.lastSyncStatus.collectAsStateWithLifecycle()
+    val hasPendingSync by viewModel.autoSyncManager.hasPendingSync.collectAsStateWithLifecycle()
 
     // Search and Sort functionality - Fixed implementation
     val searchAndSortManager = rememberSearchAndSortManager()
-    val searchAndSortState by searchAndSortManager.searchAndSortState.collectAsState()
+    val searchAndSortState by searchAndSortManager.searchAndSortState.collectAsStateWithLifecycle()
     var showSortSheet by remember { mutableStateOf(false) }
 
     // Local search state for immediate UI updates
@@ -121,7 +118,7 @@ fun NotesScreen(navController: NavHostController) {
     val reminderRepository = remember { com.amvarpvtltd.swiftNote.reminders.ReminderRepository(context) }
 
     // Monitor offline state - show offline banner but don't redirect
-    LaunchedEffect(isOnline, notesState.value) {
+    LaunchedEffect(isOnline, notes) {
         if (!isOnline) {
             showOfflineBanner = true
         } else {
@@ -137,8 +134,8 @@ fun NotesScreen(navController: NavHostController) {
     }
 
     // Update notes in search manager when notes change
-    LaunchedEffect(notesState.value) {
-        searchAndSortManager.updateNotes(notesState.value)
+    LaunchedEffect(notes) {
+        searchAndSortManager.updateNotes(notes)
     }
 
     // Save view mode when it changes
@@ -146,110 +143,38 @@ fun NotesScreen(navController: NavHostController) {
         com.amvarpvtltd.swiftNote.components.ViewModeManager.setViewMode(context, currentViewMode)
     }
 
-    // Refresh functionality - ALWAYS loads from Room database first
-    fun refreshNotes() {
-        scope.launch(Dispatchers.IO) {
-            isRefreshingState.value = true
-            try {
-                delay(Constants.REFRESH_DELAY)
-                // OFFLINE FIRST: Always load from Room database
-                val result = noteRepository.fetchNotes()
-                if (result.isSuccess) {
-                    val notes = result.getOrNull() ?: emptyList()
-                    withContext(Dispatchers.Main) {
-                        notesState.value = notes
-                        searchAndSortManager.updateNotes(notes)
-                    }
+    // Collect one-shot UI events from ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.uiEvent.collect { event ->
+            when (event) {
+                is NotesViewModel.UiEvent.ShowToast -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
-            } finally {
-                isRefreshingState.value = false
-                if (isLoadingState.value) isLoadingState.value = false
+                is NotesViewModel.UiEvent.NavigateToMain -> { /* already on main */ }
             }
         }
     }
 
-    // Delete note function
-    fun deleteNote(noteId: String) {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val result = noteRepository.deleteNote(noteId, context)
-                if (result.isSuccess) {
-                    withContext(Dispatchers.Main) {
-                        refreshNotes()
-                        // Show appropriate message based on online status
-                        if (!isOnline) {
-                            Toast.makeText(context, "📱 Note deleted offline. Will sync when online.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, Constants.ERROR_DELETING_MESSAGE, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
+    // Refresh functionality delegates to ViewModel
+    fun refreshNotes() { viewModel.refreshNotes() }
 
-    // Share note function
+    // Delete note delegates to ViewModel
+    fun deleteNote(noteId: String) { viewModel.deleteNote(noteId) }
+
+    // Share note function (UI-only — no business logic)
     fun shareNote(note: dataclass) {
         ShareUtils.shareNote(context, note)
     }
 
-    // Sync function
-    fun syncNotes() {
-        if (!isOnline) {
-            Toast.makeText(context, "❌ Can't sync while offline", Toast.LENGTH_SHORT).show()
-            return
-        }
+    // Sync function delegates to ViewModel
+    fun syncNotes() { viewModel.syncNotes() }
 
-        scope.launch(Dispatchers.IO) {
-            try {
-                val result = noteRepository.syncOfflineNotes(context)
-                if (result.isSuccess) {
-                    withContext(Dispatchers.Main) {
-                        refreshNotes()
-                        Toast.makeText(context, "✅ Sync completed", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "❌ Sync failed", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    // Initial load - ALWAYS from Room database
-    LaunchedEffect(Unit) {
-        refreshNotes()
-        // Start automatic sync monitoring
-        autoSyncManager.startAutoSync()
-        // One-time attempt: if online, import any remote notes that exist for this device/account so user sees remote notes immediately
-        if (networkManager.isConnected()) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val accountId = PassphraseManager.getStoredPassphrase(context)
-                        ?: DeviceManager.getOrCreateDeviceId(context)
-                    // Use accountId as both source and target to import notes stored under users/{accountId}/notes/{deviceId}
-                    val res = SyncManager.syncDataFromPassphrase(context, accountId, accountId)
-                    if (res.isSuccess) {
-                        // Refresh UI after import
-                        withContext(Dispatchers.Main) { refreshNotes() }
-                    } else {
-                        // ignore failures; AutoSync will handle retries
-                        Log.d("NotesScreen", "One-time remote import returned failure: ${res.exceptionOrNull()?.message}")
-                    }
-                } catch (e: Exception) {
-                    Log.d("NotesScreen", "One-time remote import failed", e)
-                }
-            }
-        }
-    }
+    // Initial load handled by ViewModel init{}
 
     // Cleanup when screen is disposed
     DisposableEffect(Unit) {
         onDispose {
-            autoSyncManager.stopAutoSync()
+            viewModel.stopAutoSync()
         }
     }
 
@@ -257,15 +182,11 @@ fun NotesScreen(navController: NavHostController) {
     LaunchedEffect(syncStatus) {
         when (syncStatus) {
             is AutoSyncManager.SyncStatus.Success -> {
-                withContext(Dispatchers.Main) {
-                    refreshNotes()
-                    Toast.makeText(context, Constants.SYNC_SUCCESS_MESSAGE, Toast.LENGTH_SHORT).show()
-                }
+                refreshNotes()
+                Toast.makeText(context, Constants.SYNC_SUCCESS_MESSAGE, Toast.LENGTH_SHORT).show()
             }
             is AutoSyncManager.SyncStatus.Failed -> {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, Constants.SYNC_FAILED_MESSAGE, Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(context, Constants.SYNC_FAILED_MESSAGE, Toast.LENGTH_SHORT).show()
             }
             else -> { /* No action needed for None and InProgress */ }
         }
@@ -303,13 +224,14 @@ fun NotesScreen(navController: NavHostController) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = "My Notes",
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = FontWeight.SemiBold,
                                             color = NoteTheme.OnSurface,
                                             style = MaterialTheme.typography.titleLarge,
-                                            fontSize = 28.sp
+                                            fontSize = 28.sp,
+                                            letterSpacing = (-0.5).sp
                                         )
 
-                                        if (isRefreshingState.value) {
+                                        if (isRefreshingState) {
                                             Spacer(modifier = Modifier.width(Constants.CORNER_RADIUS_SMALL.dp))
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp),
@@ -437,7 +359,7 @@ fun NotesScreen(navController: NavHostController) {
                         .padding(paddingValues)
                 ) {
                     when {
-                        isLoadingState.value -> {
+                        isLoadingState -> {
                             LoadingCard("Loading your notes...", "Please wait a moment")
                         }
 
@@ -506,12 +428,13 @@ fun NotesScreen(navController: NavHostController) {
         }
 
         // Reminder sheet
-        if (showReminderSheet && selectedNoteForReminder != null) {
+        val noteForReminder = selectedNoteForReminder
+        if (showReminderSheet && noteForReminder != null) {
             com.amvarpvtltd.swiftNote.components.ReminderBottomSheet(
                 isVisible = showReminderSheet,
-                noteId = selectedNoteForReminder!!.id,
-                noteTitle = selectedNoteForReminder!!.title,
-                noteDescription = selectedNoteForReminder!!.description,
+                noteId = noteForReminder.id,
+                noteTitle = noteForReminder.title,
+                noteDescription = noteForReminder.description,
                 onDismiss = {
                     showReminderSheet = false
                     selectedNoteForReminder = null

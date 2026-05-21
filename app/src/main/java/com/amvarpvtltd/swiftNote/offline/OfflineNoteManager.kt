@@ -6,8 +6,11 @@ import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import com.amvarpvtltd.swiftNote.room.PendingDeletionEntity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +22,7 @@ class OfflineNoteManager(context: Context) {
     private val db = AppDatabase.getInstance(context.applicationContext)
     private val noteDao = db.noteDao()
     private val pendingDeletionDao = db.pendingDeletionDao()
+    private val reminderDao = db.reminderDao()
 
     private val _offlineNotes = MutableStateFlow<List<dataclass>>(emptyList())
     val offlineNotes: StateFlow<List<dataclass>> = _offlineNotes.asStateFlow()
@@ -29,14 +33,26 @@ class OfflineNoteManager(context: Context) {
     private val _pendingDeletions = MutableStateFlow<List<PendingDeletionEntity>>(emptyList())
     val pendingDeletions: StateFlow<List<PendingDeletionEntity>> = _pendingDeletions.asStateFlow()
 
+    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+        Log.e(TAG, "Uncaught exception in OfflineNoteManager scope", exception)
+    }
+    // BUG-014 FIX: Named scope with SupervisorJob — can be cancelled via close()
+    private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
+
     init {
-        // Load data from DB
-        // initial load
-        CoroutineScope(Dispatchers.IO).launch {
+        managerScope.launch {
             refreshLocalNotes()
             refreshPendingNotes()
             refreshPendingDeletions()
         }
+    }
+
+    /**
+     * BUG-014 FIX: Cancel the internal scope to prevent coroutine leaks.
+     * Call this when the manager is no longer needed.
+     */
+    fun close() {
+        managerScope.cancel()
     }
 
     suspend fun saveNoteOffline(note: dataclass, synced: Boolean = false): Result<String> {
@@ -58,22 +74,32 @@ class OfflineNoteManager(context: Context) {
     suspend fun deleteNoteOffline(noteId: String): Result<String> {
         return try {
             withContext(Dispatchers.IO) {
-                // First, check if the note exists and get its device ID
-                val noteEntity = noteDao.getNoteById(noteId)
-                if (noteEntity != null) {
-                    // Delete the note from local storage
-                    noteDao.delete(noteEntity)
+                // BUG-039 FIX: Use Room transaction to atomically delete note + record pending deletion
+                // Prevents race where note is deleted but pending deletion is not recorded
+                db.runInTransaction {
+                    val noteEntity = noteDao.getNoteById(noteId)
+                    if (noteEntity != null) {
+                        // Delete the note from local storage
+                        noteDao.delete(noteEntity)
 
-                    // Add to pending deletions for Firebase sync
-                    val pendingDeletion = PendingDeletionEntity(
-                        noteId = noteId,
-                        mymobiledeviceid = noteEntity.mymobiledeviceid
-                    )
-                    pendingDeletionDao.insert(pendingDeletion)
+                        // Add to pending deletions for Firebase sync (atomic with delete)
+                        val pendingDeletion = PendingDeletionEntity(
+                            noteId = noteId,
+                            mymobiledeviceid = noteEntity.mymobiledeviceid
+                        )
+                        pendingDeletionDao.insert(pendingDeletion)
 
-                    Log.d(TAG, "Note deleted offline and marked for Firebase deletion: $noteId")
-                } else {
-                    Log.w(TAG, "Note not found for deletion: $noteId")
+                        Log.d(TAG, "Note deleted offline and marked for Firebase deletion: $noteId")
+                    } else {
+                        Log.w(TAG, "Note not found for deletion: $noteId")
+                    }
+                }
+
+                // BUG-013 FIX: Clean up orphan reminders (outside transaction — suspend function)
+                try {
+                    reminderDao.deleteRemindersForNote(noteId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clean up reminders for note: $noteId", e)
                 }
             }
             refreshLocalNotes()
@@ -233,7 +259,7 @@ class OfflineNoteManager(context: Context) {
     }
 
     fun clearSyncedNotes() {
-        CoroutineScope(Dispatchers.IO).launch {
+        managerScope.launch {
             try {
                 val pending = noteDao.getPendingNotes()
                 pending.forEach { noteDao.update(it.copy(synced = true)) }

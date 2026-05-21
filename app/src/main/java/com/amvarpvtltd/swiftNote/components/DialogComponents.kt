@@ -123,7 +123,7 @@ fun DeleteConfirmationDialog(
                     Text("Cancel", fontWeight = FontWeight.Medium)
                 }
             },
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
+            shape = RoundedCornerShape(NoteTheme.Radius.xl.dp),
             containerColor = NoteTheme.Surface
         )
     }
@@ -138,34 +138,29 @@ fun LoadingCard(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Card(
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
-            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(NoteTheme.Spacing.xxl.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(Constants.PADDING_XL.dp)
-            ) {
-                CircularProgressIndicator(
-                    color = NoteTheme.Primary,
-                    strokeWidth = 4.dp
-                )
-                Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
+            CircularProgressIndicator(
+                color = NoteTheme.Primary,
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(40.dp)
+            )
+            Spacer(modifier = Modifier.height(NoteTheme.Spacing.lg.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.titleMedium,
+                color = NoteTheme.OnSurface,
+                fontWeight = FontWeight.Medium
+            )
+            if (subMessage.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    message,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = NoteTheme.OnSurface,
-                    fontWeight = FontWeight.Medium
+                    subMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NoteTheme.OnSurfaceVariant
                 )
-                if (subMessage.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        subMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NoteTheme.OnSurfaceVariant
-                    )
-                }
             }
         }
     }

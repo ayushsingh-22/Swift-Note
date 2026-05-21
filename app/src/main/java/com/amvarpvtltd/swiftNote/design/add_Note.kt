@@ -71,6 +71,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,20 +146,22 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     val hapticFeedback = LocalHapticFeedback.current
 
     val isEditing = noteId != null
-    val canSave = ValidationUtils.canSaveNote(title, description)
-    val hasContent = title.trim().isNotEmpty() || description.trim().isNotEmpty()
+    // Performance: derivedStateOf prevents recomposition unless the derived value actually changes
+    val canSave by remember { derivedStateOf { ValidationUtils.canSaveNote(title, description) } }
+    val hasContent by remember { derivedStateOf { title.trim().isNotEmpty() || description.trim().isNotEmpty() } }
 
     // Theme management
     val themeState = com.amvarpvtltd.swiftNote.theme.rememberThemeState()
     var currentTheme by themeState
 
-    val titleProgress = UIUtils.calculateProgress(title.length, Constants.TITLE_MAX_LENGTH)
+    // Performance: derivedStateOf for progress calculations - only recomputes when title/description length changes
+    val titleProgress by remember { derivedStateOf { UIUtils.calculateProgress(title.length, Constants.TITLE_MAX_LENGTH) } }
 
     // Clamp lengths to the respective max to avoid incorrect thresholds for extremely large inputs
-    val safeTitleLength = title.length.coerceAtMost(Constants.TITLE_MAX_LENGTH)
-    val safeDescriptionLength = description.length.coerceAtMost(Constants.DESCRIPTION_MAX_LENGTH)
+    val safeTitleLength by remember { derivedStateOf { title.length.coerceAtMost(Constants.TITLE_MAX_LENGTH) } }
+    val safeDescriptionLength by remember { derivedStateOf { description.length.coerceAtMost(Constants.DESCRIPTION_MAX_LENGTH) } }
 
-    val descriptionProgress = UIUtils.calculateProgress(safeDescriptionLength, Constants.DESCRIPTION_MAX_LENGTH)
+    val descriptionProgress by remember { derivedStateOf { UIUtils.calculateProgress(safeDescriptionLength, Constants.DESCRIPTION_MAX_LENGTH) } }
 
     val titleCountColor by animateColorAsState(
         targetValue = UIUtils.getProgressColor(safeTitleLength, Constants.TITLE_MAX_LENGTH),
@@ -179,11 +182,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // Automatically analyze text for reminders but store them as pending until note is saved
-    LaunchedEffect(title, description) {
-        val combinedText = "$title. $description".trim()
-
-        // Detect HTML in clipboard and show formatted preview if user just pasted rich text
+    // BUG-015 FIX: Separate clipboard detection — only once on composition mount, not every keystroke
+    LaunchedEffect(Unit) {
         try {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = clipboard.primaryClip
@@ -191,8 +191,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             val htmlText = item?.htmlText
             val plain = item?.coerceToText(context)?.toString()
 
-            // If clipboard has HTML and the recent field change matches the plain text -> user pasted
-            if (!htmlText.isNullOrBlank() && !plain.isNullOrBlank() && (plain.trim() == title.trim() || plain.trim() == description.trim())) {
+            if (!htmlText.isNullOrBlank() && !plain.isNullOrBlank()) {
                 val spanned: Spanned = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                     fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY)
                 } else {
@@ -201,11 +200,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 }
 
                 val annotated = spannedToAnnotatedString(spanned)
-                if (plain.trim() == title.trim()) {
+                if (plain.trim() == title.trim() && title.isNotBlank()) {
                     titleFormatted = annotated
                     titleHtml = htmlText
                 }
-                if (plain.trim() == description.trim()) {
+                if (plain.trim() == description.trim() && description.isNotBlank()) {
                     descriptionFormatted = annotated
                     descriptionHtml = htmlText
                 }
@@ -213,8 +212,30 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         } catch (e: Exception) {
             Log.d("AddScreen", "Clipboard HTML detection skipped: ${e.message}")
         }
+    }
 
-        // Run minute-pattern fallback first (don't depend on hasReminderKeywords)
+    // BUG-015 FIX: Debounced reminder analysis — only after user stops typing (800ms)
+    // BUG-006 FIX: All Toast calls wrapped in withContext(Dispatchers.Main)
+    LaunchedEffect(title, description) {
+        val combinedText = "$title. $description".trim()
+
+        // Fast exit: skip all processing for very short input
+        if (combinedText.length < 3) return@LaunchedEffect
+
+        // Debounce ALL processing — wait 800ms after last keystroke
+        delay(800)
+
+        // Clear formatted previews if text diverged from clipboard paste
+        if (titleFormatted != null && titleFormatted?.text != title) {
+            titleFormatted = null
+            titleHtml = null
+        }
+        if (descriptionFormatted != null && descriptionFormatted?.text != description) {
+            descriptionFormatted = null
+            descriptionHtml = null
+        }
+
+        // Run minute-pattern fallback first (lightweight regex — OK after debounce)
         try {
             val minuteRegex = Regex("\\b(\\d{1,3})\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b", RegexOption.IGNORE_CASE)
             val match = minuteRegex.find(combinedText)
@@ -228,8 +249,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     val userTitle = title.ifBlank { "Untitled" }
                     val detected = DetectedReminder(
                         id = java.util.UUID.randomUUID().toString(),
-                        title = userTitle,  // Using user's title instead of auto-generated
-                        description = description,  // Using user's description instead of auto-detected snippet
+                        title = userTitle,
+                        description = description,
                         extractedText = snippet,
                         reminderDateTime = ts,
                         confidence = 0.8f,
@@ -238,9 +259,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     )
 
                     if (isEditing) {
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch {
                             try {
-                                val success = reminderManager.createReminderFromDetection(detected, noteId)
+                                val success = withContext(Dispatchers.IO) {
+                                    reminderManager.createReminderFromDetection(detected, noteId)
+                                }
                                 if (success) {
                                     detectedReminders = listOf(detected)
                                     withContext(Dispatchers.Main) {
@@ -254,9 +277,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     } else {
                         pendingReminders = listOf(detected)
                         detectedReminders = listOf(detected)
-                        Toast.makeText(context, "🤖 Suggestion: reminder in $n min", Toast.LENGTH_SHORT).show()
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "🤖 Suggestion: reminder in $n min", Toast.LENGTH_SHORT).show()
+                        }
                         Log.d("AddScreen", "Minute-fallback pending reminder stored: $n minutes")
-                        Log.d("AddScreen", "📝 Stored 1 pending minute-fallback reminder for new note")
                     }
 
                     return@LaunchedEffect
@@ -266,75 +290,64 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             Log.e("AddScreen", "Error in minute fallback detection (pre-check)", e)
         }
 
-        // If no formatted HTML matched, clear any previous formatted preview when text diverges
-        if (titleFormatted != null && titleFormatted?.text != title) {
-            titleFormatted = null
-            titleHtml = null
-        }
-        if (descriptionFormatted != null && descriptionFormatted?.text != description) {
-            descriptionFormatted = null
-            descriptionHtml = null
-        }
-
-        // Only run analysis when the AI's keyword detector finds relevant English/Hinglish keywords
+        // Only run AI analysis when relevant keywords found
         if (smartReminderAI.hasReminderKeywords(combinedText)) {
 
-            scope.launch {
-                delay(1500) // Debounce to avoid excessive API calls
+            // Additional debounce for AI (heavy operation)
+            delay(700)
 
-                isAnalyzingText = true
-                try {
-                    val result = smartReminderAI.analyzeTextForReminders(combinedText, title)
-                    if (result.isSuccess) {
-                        val reminders = result.getOrNull() ?: emptyList()
-                        if (reminders.isNotEmpty()) {
-                            // For existing notes, create reminders immediately
-                            if (isEditing) {
-                                var createdCount = 0
-                                reminders.forEach { reminder ->
-                                    if (reminder.confidence >= 0.6f) {
-                                        try {
-                                            val success = reminderManager.createReminderFromDetection(reminder, noteId)
-                                            if (success) {
-                                                createdCount++
-                                                Log.d("AddScreen", "✅ Auto-created reminder for existing note: ${reminder.title}")
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e("AddScreen", "❌ Error auto-creating reminder for existing note", e)
+            isAnalyzingText = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    smartReminderAI.analyzeTextForReminders(combinedText, title)
+                }
+                if (result.isSuccess) {
+                    val reminders = result.getOrNull() ?: emptyList()
+                    if (reminders.isNotEmpty()) {
+                        if (isEditing) {
+                            var createdCount = 0
+                            reminders.forEach { reminder ->
+                                if (reminder.confidence >= 0.6f) {
+                                    try {
+                                        val success = withContext(Dispatchers.IO) {
+                                            reminderManager.createReminderFromDetection(reminder, noteId)
                                         }
+                                        if (success) createdCount++
+                                    } catch (e: Exception) {
+                                        Log.e("AddScreen", "Error auto-creating reminder", e)
                                     }
                                 }
+                            }
 
-                                if (createdCount > 0) {
-                                    detectedReminders = reminders.filter { it.confidence >= 0.6f }
+                            if (createdCount > 0) {
+                                detectedReminders = reminders.filter { it.confidence >= 0.6f }
+                                withContext(Dispatchers.Main) {
                                     Toast.makeText(
                                         context,
                                         "🤖 Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
-                            } else {
-                                // For new notes, store as pending reminders
-                                val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
-                                if (highConfidenceReminders.isNotEmpty()) {
-                                    pendingReminders = highConfidenceReminders
-                                    detectedReminders = highConfidenceReminders
-                                    Log.d("AddScreen", "📝 Stored ${highConfidenceReminders.size} pending reminders for new note")
-                                }
                             }
                         } else {
-                            // If analysis ran but found nothing, clear previous
-                            detectedReminders = emptyList()
-                            // keep pendingReminders untouched if already set by prior analysis
+                            // For new notes, store as pending reminders
+                            val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
+                            if (highConfidenceReminders.isNotEmpty()) {
+                                pendingReminders = highConfidenceReminders
+                                detectedReminders = highConfidenceReminders
+                                Log.d("AddScreen", "Stored ${highConfidenceReminders.size} pending reminders for new note")
+                            }
                         }
                     } else {
-                        Log.w("AddScreen", "SmartReminderAI analysis failed: ${result.exceptionOrNull()?.message}")
+                        detectedReminders = emptyList()
                     }
-                } catch (e: Exception) {
-                    Log.e("AddScreen", "Error analyzing text for reminders", e)
-                } finally {
-                    isAnalyzingText = false
+                } else {
+                    Log.w("AddScreen", "SmartReminderAI analysis failed: ${result.exceptionOrNull()?.message}")
                 }
+            } catch (e: Exception) {
+                Log.e("AddScreen", "Error analyzing text for reminders", e)
+            } finally {
+                isAnalyzingText = false
             }
         } else {
             // Clear previous analysis if no relevant keywords
@@ -405,6 +418,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
     // Save note function - OFFLINE FIRST
     fun saveNote() {
+        if (isSaving) return  // BUG-021 FIX: Prevent double-tap duplicate saves
         if (!canSave) {
             Toast.makeText(context, Constants.VALIDATION_WARNING_MESSAGE, Toast.LENGTH_LONG).show()
             return
@@ -435,10 +449,21 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                   pendingReminders.forEach { reminder ->
                                       if (reminder.confidence >= 0.6f) {
                                           try {
-                                              val success = reminderManager.createReminderFromDetection(reminder, finalNoteId)
+                                              // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
+                                              val actualReminder = if (reminder.entityType == "MinuteFallback") {
+                                                  val minuteMatch = Regex("(\\d+)").find(reminder.extractedText)
+                                                  val minutes = minuteMatch?.value?.toIntOrNull()
+                                                  if (minutes != null) {
+                                                      val freshCal = java.util.Calendar.getInstance()
+                                                      freshCal.add(java.util.Calendar.MINUTE, minutes)
+                                                      reminder.copy(reminderDateTime = freshCal.timeInMillis)
+                                                  } else reminder
+                                              } else reminder
+
+                                              val success = reminderManager.createReminderFromDetection(actualReminder, finalNoteId)
                                               if (success) createdCount++
                                           } catch (e: Exception) {
-                                              Log.e("AddScreen", "❌ Error creating pending smart reminder", e)
+                                              Log.e("AddScreen", "Error creating pending smart reminder", e)
                                           }
                                       }
                                   }
@@ -525,8 +550,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // Background gradient
-    val backgroundBrush = BackgroundProvider.getBrush()
+    // Performance: remember the brush to avoid re-creating gradient objects on every recomposition
+    val backgroundBrush = remember { BackgroundProvider.getBrush() }
 
     // Enhanced delete confirmation dialog
     if (showDeleteDialog) {
@@ -1278,13 +1303,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 if (titleFormatted != null) {
                                     Text(text = "Formatted Title Preview:", style = MaterialTheme.typography.bodySmall, color = NoteTheme.OnSurfaceVariant)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = titleFormatted!!, style = MaterialTheme.typography.titleMedium)
+                                    Text(text = titleFormatted ?: AnnotatedString(""), style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
                                 }
                                 if (descriptionFormatted != null) {
                                     Text(text = "Formatted Description Preview:", style = MaterialTheme.typography.bodySmall, color = NoteTheme.OnSurfaceVariant)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(text = descriptionFormatted!!, style = MaterialTheme.typography.bodyMedium)
+                                    Text(text = descriptionFormatted ?: AnnotatedString(""), style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
