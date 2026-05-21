@@ -1,7 +1,8 @@
 package com.amvarpvtltd.swiftNote.offline
 
 import com.amvarpvtltd.swiftNote.Note
-import com.amvarpvtltd.swiftNote.myGlobalMobileDeviceId
+import com.amvarpvtltd.swiftNote.DeviceIdentity
+import com.amvarpvtltd.swiftNote.VisibleForTestingOnly
 import com.amvarpvtltd.swiftNote.room.NoteEntity
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import org.junit.Assert.*
@@ -20,9 +21,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [31], manifest = Config.NONE)
 class OfflineNoteManagerTest {
 
+    @OptIn(VisibleForTestingOnly::class)
     @Before
     fun setUp() {
-        myGlobalMobileDeviceId = "test-device-offline"
+        DeviceIdentity.resetForTesting("test-device-offline")
     }
 
     // ============================================================

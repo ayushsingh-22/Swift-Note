@@ -36,10 +36,10 @@ class MyApplication : Application() {
         try {
             val storedPass = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(this)
             val deviceId = com.amvarpvtltd.swiftNote.auth.DeviceManager.getOrCreateDeviceId(this)
-            myGlobalMobileDeviceId = storedPass ?: deviceId
+            DeviceIdentity.set(storedPass ?: deviceId, "Application.onCreate")
         } catch (e: Exception) {
             // If anything fails, fallback to a random UUID
-            myGlobalMobileDeviceId = java.util.UUID.randomUUID().toString()
+            DeviceIdentity.set(java.util.UUID.randomUUID().toString(), "Application.onCreate:fallback")
         }
 
         Log.d(TAG, "MyApplication initialized")

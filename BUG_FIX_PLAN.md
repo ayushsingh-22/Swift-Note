@@ -17,16 +17,16 @@
 
 **FILE:** `app/build.gradle.kts`  
 **FUNCTION:** `signingConfigs.release`  
-**ROOT CAUSE:** Keystore password `#HareRam@2205#` is committed as plaintext in the build script. Anyone with repo access can sign APKs as you.
+**ROOT CAUSE:** Keystore password is committed as plaintext in the build script. Anyone with repo access can sign APKs as you.
 
 **BEFORE:**
 ```kotlin
 signingConfigs {
     create("release") {
         storeFile = file("debug.keystore")
-        storePassword = "#HareRam@2205#"
+        storePassword = "<REDACTED>"
         keyAlias = "Key0"
-        keyPassword = "#HareRam@2205#"
+        keyPassword = "<REDACTED>"
     }
 }
 ```
@@ -45,9 +45,9 @@ signingConfigs {
 
 Then add to `local.properties` (gitignored):
 ```properties
-KEYSTORE_PASSWORD=#HareRam@2205#
+KEYSTORE_PASSWORD=<your-keystore-password>
 KEY_ALIAS=Key0
-KEY_PASSWORD=#HareRam@2205#
+KEY_PASSWORD=<your-key-password>
 ```
 
 And ensure `local.properties` is in `.gitignore`.

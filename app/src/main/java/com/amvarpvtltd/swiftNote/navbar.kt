@@ -101,7 +101,7 @@ fun MyApp(modifier: Modifier = Modifier) {
             // Check if we have a stored passphrase (new system)
             val storedPassphrase = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(context)
             if (!storedPassphrase.isNullOrEmpty()) {
-                myGlobalMobileDeviceId = storedPassphrase
+                DeviceIdentity.set(storedPassphrase, "NavHost.storedPassphrase")
                 Log.d("MyApp", "✅ Found stored passphrase, going to main screen")
                 startDestination = "main"
                 isInitializing = false
@@ -132,7 +132,7 @@ fun MyApp(modifier: Modifier = Modifier) {
                 if (remoteImportSuccess) {
                     val deviceId2 = DeviceManager.getOrCreateDeviceId(context)
                     Log.d("MyApp", "Imported remote notes for deviceId: $deviceId2")
-                    myGlobalMobileDeviceId = deviceId2
+                    DeviceIdentity.set(deviceId2, "NavHost.remoteImport")
                     startDestination = "main"
                     isInitializing = false
                     return@LaunchedEffect

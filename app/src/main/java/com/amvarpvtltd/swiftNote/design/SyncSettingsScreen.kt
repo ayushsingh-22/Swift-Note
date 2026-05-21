@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
-import com.amvarpvtltd.swiftNote.myGlobalMobileDeviceId
+import com.amvarpvtltd.swiftNote.DeviceIdentity
 import com.amvarpvtltd.swiftNote.sync.SyncManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -74,9 +74,7 @@ fun SyncSettingsScreen(navController: NavController) {
         val stored = PassphraseManager.getStoredPassphrase(context)
         val deviceId = com.amvarpvtltd.swiftNote.auth.DeviceManager.getOrCreateDeviceId(context)
         currentPassphrase = stored ?: deviceId
-        if (myGlobalMobileDeviceId.isEmpty()) {
-            myGlobalMobileDeviceId = currentPassphrase
-        }
+        DeviceIdentity.setIfEmpty(currentPassphrase, "SyncSettingsScreen")
         if (currentPassphrase.isNotEmpty()) {
             // Load sync stats with animation
             scope.launch {

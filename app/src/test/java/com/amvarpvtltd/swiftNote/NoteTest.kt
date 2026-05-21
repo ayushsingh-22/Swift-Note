@@ -19,10 +19,11 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [31], manifest = Config.NONE)
 class NoteTest {
 
+    @OptIn(VisibleForTestingOnly::class)
     @Before
     fun setUp() {
         // Reset global device ID for test isolation
-        myGlobalMobileDeviceId = "test-device-id"
+        DeviceIdentity.resetForTesting("test-device-id")
     }
 
     // ============================================================
@@ -38,9 +39,10 @@ class NoteTest {
         assertTrue(note.id.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")))
     }
 
+    @OptIn(VisibleForTestingOnly::class)
     @Test
     fun `note uses global device ID by default`() {
-        myGlobalMobileDeviceId = "my-device-123"
+        DeviceIdentity.resetForTesting("my-device-123")
         val note = Note(title = "Test", description = "Desc")
         assertEquals("my-device-123", note.mymobiledeviceid)
     }
@@ -82,10 +84,10 @@ class NoteTest {
 
     @Test
     fun `global device ID set and get works`() {
-        myGlobalMobileDeviceId = "device-A"
+        DeviceIdentity.set("device-A", "test")
         assertEquals("device-A", myGlobalMobileDeviceId)
 
-        myGlobalMobileDeviceId = "device-B"
+        DeviceIdentity.set("device-B", "test")
         assertEquals("device-B", myGlobalMobileDeviceId)
     }
 
@@ -100,12 +102,11 @@ class NoteTest {
             Thread {
                 try {
                     repeat(iterationsPerThread) { i ->
-                        myGlobalMobileDeviceId = "thread-$threadIdx-iter-$i"
+                        DeviceIdentity.set("thread-$threadIdx-iter-$i", "concurrencyTest")
                         // Read should never throw or return garbled data
                         val read = myGlobalMobileDeviceId
                         if (read.isEmpty() && threadIdx > 0) {
                             // After initial set, should never be empty
-                            // (unless another thread hasn't set it yet)
                         }
                     }
                 } catch (e: Exception) {
