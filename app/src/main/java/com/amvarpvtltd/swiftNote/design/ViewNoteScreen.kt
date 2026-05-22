@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -53,6 +54,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
+import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
+import com.amvarpvtltd.swiftNote.components.ChecklistProgressIndicator
 import com.amvarpvtltd.swiftNote.components.ActionButton
 import com.amvarpvtltd.swiftNote.components.DeleteConfirmationDialog
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
@@ -62,8 +66,11 @@ import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
+import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +87,8 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val noteRepository = remember { NoteRepository(context) }
 
     // Network management
     val networkManager = remember { NetworkManager.getInstance(context) }
@@ -372,6 +381,91 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                             }
                         }
 
+                        // Description Card (or Checklist)
+                        val noteDescription = note?.description ?: ""
+                        val isChecklist = ChecklistParser.isChecklistContent(noteDescription)
+
+                        if (isChecklist) {
+                            // Interactive Checklist View
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = NoteTheme.Surface
+                                ),
+                                shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Outlined.Description,
+                                                contentDescription = "Checklist",
+                                                tint = NoteTheme.Primary,
+                                                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                                            Text(
+                                                text = "Checklist",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = NoteTheme.OnSurface,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        val (checked, total) = ChecklistParser.progress(noteDescription)
+                                        if (total > 0) {
+                                            Text(
+                                                text = "$checked/$total done",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = if (checked == total) NoteTheme.Primary else NoteTheme.Secondary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
+
+                                    // Progress bar
+                                    val (checked, total) = ChecklistParser.progress(noteDescription)
+                                    ChecklistProgressIndicator(checked = checked, total = total)
+
+                                    Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
+
+                                    // Interactive checklist items
+                                    val items = ChecklistParser.parseItems(noteDescription)
+                                    items.forEach { item ->
+                                        ChecklistItemRow(
+                                            item = item,
+                                            onCheckedChange = { _ ->
+                                                // Toggle and save immediately
+                                                val newDescription = ChecklistParser.toggleItem(noteDescription, item.id)
+                                                scope.launch(Dispatchers.IO) {
+                                                    noteRepository.saveNote(
+                                                        title = note?.title ?: "",
+                                                        description = newDescription,
+                                                        noteId = note?.id,
+                                                        context = context
+                                                    )
+                                                    // Reload to reflect changes
+                                                    viewModel.loadNote(noteId)
+                                                }
+                                            },
+                                            onTextChange = {},
+                                            onDelete = {},
+                                            onEnterPressed = {},
+                                            onBackspaceOnEmpty = {},
+                                            readOnly = true,
+                                            modifier = Modifier.padding(vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
                         // Description Card
                         Card(
                             colors = CardDefaults.cardColors(
@@ -413,6 +507,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 )
                             }
                         }
+                        } // end else (text description)
 
                         // Metadata Card
                         Card(

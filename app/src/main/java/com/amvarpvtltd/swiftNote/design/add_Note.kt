@@ -101,7 +101,10 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.ai.SmartReminderAI
+import com.amvarpvtltd.swiftNote.checklist.ChecklistItem
+import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.components.BackgroundProvider
+import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
 import com.amvarpvtltd.swiftNote.reminders.ReminderManager
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
@@ -130,6 +133,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var pendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
     var showReminderSuggestions by remember { mutableStateOf(false) }
     var isAnalyzingText by remember { mutableStateOf(false) }
+
+    // Phase 1: Checklist mode state
+    var isChecklistMode by remember { mutableStateOf(false) }
+    var checklistItems by remember { mutableStateOf(listOf(ChecklistItem(order = 0))) }
+    var focusedItemIndex by remember { mutableStateOf(-1) }
     // Formatted preview states (when clipboard HTML is pasted)
     var titleFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
     var descriptionFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
@@ -147,8 +155,18 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
     val isEditing = noteId != null
     // Performance: derivedStateOf prevents recomposition unless the derived value actually changes
-    val canSave by remember { derivedStateOf { ValidationUtils.canSaveNote(title, description) } }
-    val hasContent by remember { derivedStateOf { title.trim().isNotEmpty() || description.trim().isNotEmpty() } }
+    val canSave by remember { derivedStateOf {
+        if (isChecklistMode) {
+            title.trim().length >= Constants.MIN_CONTENT_LENGTH &&
+                checklistItems.any { it.text.isNotBlank() }
+        } else {
+            ValidationUtils.canSaveNote(title, description)
+        }
+    } }
+    val hasContent by remember { derivedStateOf {
+        title.trim().isNotEmpty() || description.trim().isNotEmpty() ||
+            (isChecklistMode && checklistItems.any { it.text.isNotBlank() })
+    } }
 
     // Theme management
     val themeState = com.amvarpvtltd.swiftNote.theme.rememberThemeState()
@@ -370,6 +388,15 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         val titleCandidate = it.title ?: ""
                         val descCandidate = it.description ?: ""
 
+                        // Phase 1: Detect checklist content
+                        if (ChecklistParser.isChecklistContent(descCandidate)) {
+                            isChecklistMode = true
+                            title = titleCandidate
+                            val items = ChecklistParser.parseItems(descCandidate)
+                            checklistItems = if (items.isEmpty()) listOf(ChecklistItem(order = 0)) else items
+                            description = "" // Keep description empty in checklist mode
+                        } else {
+
                         fun looksLikeHtml(s: String) = s.contains(Regex("<[^>]+>"))
 
                         if (looksLikeHtml(titleCandidate)) {
@@ -399,6 +426,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         } else {
                             description = descCandidate
                         }
+                        } // end else (non-checklist)
                     }
                 } else {
                     withContext(Dispatchers.Main) {
@@ -430,7 +458,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 // ALWAYS save to Room database first (offline-first)
                 // If we have HTML saved from a paste, persist the HTML so formatting is preserved.
                 val titleToSave = titleHtml ?: title
-                val descToSave = descriptionHtml ?: description
+                val descToSave = if (isChecklistMode) {
+                    ChecklistParser.serializeItems(checklistItems)
+                } else {
+                    descriptionHtml ?: description
+                }
 
                 val result = noteRepository.saveNote(titleToSave, descToSave, noteId, context)
 
@@ -1097,6 +1129,247 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
                     }
 
+                    // Phase 1: Note Mode Toggle (Text / Checklist)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(Constants.PADDING_SMALL.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Text mode button
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (isChecklistMode) {
+                                            // Convert checklist → text
+                                            description = ChecklistParser.checklistToText(checklistItems)
+                                            isChecklistMode = false
+                                        }
+                                    },
+                                shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (!isChecklistMode) NoteTheme.Primary.copy(alpha = 0.15f)
+                                    else Color.Transparent
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Description,
+                                        contentDescription = null,
+                                        tint = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "Text",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (!isChecklistMode) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Checklist mode button
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (!isChecklistMode) {
+                                            // Convert text → checklist
+                                            checklistItems = if (description.isNotBlank()) {
+                                                ChecklistParser.textToChecklist(description)
+                                            } else {
+                                                listOf(ChecklistItem(order = 0))
+                                            }
+                                            isChecklistMode = true
+                                        }
+                                    },
+                                shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isChecklistMode) NoteTheme.Primary.copy(alpha = 0.15f)
+                                    else Color.Transparent
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.CheckCircle,
+                                        contentDescription = null,
+                                        tint = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "Checklist",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (isChecklistMode) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Phase 1: Checklist Editor Section
+                    if (isChecklistMode) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 200.dp)
+                                .animateContentSize(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = NoteTheme.Surface
+                            ),
+                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = NoteTheme.Primary,
+                                            modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                                        Text(
+                                            text = "Checklist",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = NoteTheme.OnSurface,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    // Item count
+                                    val checkedCount = checklistItems.count { it.isChecked }
+                                    val totalCount = checklistItems.count { it.text.isNotBlank() }
+                                    if (totalCount > 0) {
+                                        Text(
+                                            text = "$checkedCount/$totalCount done",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = NoteTheme.Primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
+
+                                // Checklist items
+                                checklistItems.forEachIndexed { index, item ->
+                                    ChecklistItemRow(
+                                        item = item,
+                                        onCheckedChange = { checked ->
+                                            checklistItems = checklistItems.toMutableList().also {
+                                                it[index] = item.copy(isChecked = checked)
+                                            }
+                                        },
+                                        onTextChange = { newText ->
+                                            checklistItems = checklistItems.toMutableList().also {
+                                                it[index] = item.copy(text = newText)
+                                            }
+                                        },
+                                        onDelete = {
+                                            if (checklistItems.size > 1) {
+                                                checklistItems = checklistItems.toMutableList().also {
+                                                    it.removeAt(index)
+                                                }
+                                                focusedItemIndex = (index - 1).coerceAtLeast(0)
+                                            }
+                                        },
+                                        onEnterPressed = {
+                                            if (ChecklistParser.canAddMoreItems(checklistItems)) {
+                                                val newItem = ChecklistItem(order = index + 1)
+                                                checklistItems = checklistItems.toMutableList().also {
+                                                    it.add(index + 1, newItem)
+                                                }
+                                                focusedItemIndex = index + 1
+                                            }
+                                        },
+                                        onBackspaceOnEmpty = {
+                                            if (checklistItems.size > 1) {
+                                                checklistItems = checklistItems.toMutableList().also {
+                                                    it.removeAt(index)
+                                                }
+                                                focusedItemIndex = (index - 1).coerceAtLeast(0)
+                                            }
+                                        },
+                                        requestFocus = focusedItemIndex == index,
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    )
+                                }
+
+                                // Add item button
+                                if (ChecklistParser.canAddMoreItems(checklistItems)) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                val newItem = ChecklistItem(order = checklistItems.size)
+                                                checklistItems = checklistItems + newItem
+                                                focusedItemIndex = checklistItems.size // will be new last index
+                                            }
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Check,
+                                            contentDescription = "Add item",
+                                            tint = NoteTheme.Primary.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            "Add item",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NoteTheme.Primary.copy(alpha = 0.6f),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
                     // Description Section
                     Card(
                         modifier = Modifier
@@ -1204,6 +1477,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             )
                         }
                     }
+                    } // end else (text mode description)
 
                     // Validation warning section
                     AnimatedVisibility(

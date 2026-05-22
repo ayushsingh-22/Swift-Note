@@ -1,7 +1,9 @@
 package com.amvarpvtltd.swiftNote.components
 
+import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.os.Build
 import android.view.ContextThemeWrapper
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -562,6 +564,18 @@ fun ReminderBottomSheet(
 
             Button(
                 onClick = {
+                    // Check exact alarm permission for custom/exact times
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
+                        if (!alarmManager.canScheduleExactAlarms()) {
+                            NotificationHelper.showError(
+                                title = "Permission Required",
+                                message = "Please grant \"Alarms & Reminders\" permission in Settings to set exact-time reminders"
+                            )
+                            return@Button
+                        }
+                    }
+
                     // Get the reminder time either from preset or custom date/time
                     val reminderTime = when {
                         selectedPreset != null -> {

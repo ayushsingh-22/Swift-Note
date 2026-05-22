@@ -382,6 +382,20 @@ private fun NoteCardItem(
 
                     if (note.description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
+
+                        // Phase 1: Show checklist progress or text preview
+                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                            val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                            ChecklistProgressIndicator(checked = checked, total = total)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.getPreviewText(note.description),
+                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                                color = NoteTheme.OnSurfaceVariant,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
                         Text(
                             text = note.description,
                             style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
@@ -389,6 +403,7 @@ private fun NoteCardItem(
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
                         )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -538,6 +553,16 @@ private fun NoteListItem(
 
                     if (note.description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
+                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                            val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                            Text(
+                                text = "☑ $checked/$total items done",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NoteTheme.Primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
                         Text(
                             text = note.description,
                             style = MaterialTheme.typography.bodySmall,
@@ -545,6 +570,7 @@ private fun NoteListItem(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                        }
                     }
                 }
 
@@ -720,6 +746,15 @@ private fun NoteGridItem(
 
                         if (note.description.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
+                            if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                                val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                                Text(
+                                    text = "☑ $checked/$total items done",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NoteTheme.Primary,
+                                    maxLines = 1
+                                )
+                            } else {
                             Text(
                                 text = note.description,
                                 style = MaterialTheme.typography.bodySmall,
@@ -727,6 +762,7 @@ private fun NoteGridItem(
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            }
                         }
                     }
 

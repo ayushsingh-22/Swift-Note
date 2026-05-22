@@ -119,6 +119,8 @@ fun NotesScreen(navController: NavHostController) {
     // Reminder functionality state
     var selectedNoteForReminder by remember { mutableStateOf<dataclass?>(null) }
     var showReminderSheet by remember { mutableStateOf(false) }
+    var showPermissionRationale by remember { mutableStateOf(false) }
+    var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
     val reminderRepository = remember { com.amvarpvtltd.swiftNote.reminders.ReminderRepository(context) }
 
     // Phase 0.4: Undo-delete Snackbar
@@ -448,6 +450,30 @@ fun NotesScreen(navController: NavHostController) {
                     searchAndSortManager.updateSortOption(sortOption)
                 },
                 onDismiss = { showSortSheet = false }
+            )
+        }
+
+        // Permission rationale sheet - shown before reminder sheet when permissions are missing
+        if (showPermissionRationale && missingPermissionType != null) {
+            com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet(
+                permissionType = missingPermissionType!!,
+                onDismiss = {
+                    showPermissionRationale = false
+                    missingPermissionType = null
+                    selectedNoteForReminder = null
+                },
+                onPermissionGranted = {
+                    showPermissionRationale = false
+                    missingPermissionType = null
+                    // Re-check: if there's another missing permission, show it; otherwise open reminder
+                    val nextMissing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                    if (nextMissing != null) {
+                        missingPermissionType = nextMissing
+                        showPermissionRationale = true
+                    } else {
+                        showReminderSheet = true
+                    }
+                }
             )
         }
 
