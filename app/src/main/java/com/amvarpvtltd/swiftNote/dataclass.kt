@@ -79,7 +79,8 @@ data class Note(
     val description: String = "",
     var id: String = UUID.randomUUID().toString(),
     var mymobiledeviceid: String = myGlobalMobileDeviceId,
-    var timestamp: Long = System.currentTimeMillis()
+    var timestamp: Long = System.currentTimeMillis(),
+    var updatedAt: Long = System.currentTimeMillis()
 ) {
     // Encrypted versions for Firebase storage
     fun getEncryptedTitle(): String {
@@ -101,7 +102,8 @@ data class Note(
             description = getEncryptedDescription(),
             id = id,
             mymobiledeviceid = mymobiledeviceid,
-            timestamp = timestamp  // preserve original timestamp
+            timestamp = timestamp,
+            updatedAt = updatedAt
         )
     }
 
@@ -119,7 +121,8 @@ data class Note(
                     description = decryptedDescription,
                     id = encryptedData.id,
                     mymobiledeviceid = encryptedData.mymobiledeviceid,
-                    timestamp = encryptedData.timestamp  // preserve timestamp
+                    timestamp = encryptedData.timestamp,
+                    updatedAt = encryptedData.updatedAt
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error in fromEncryptedData for note ${encryptedData.id}", e)

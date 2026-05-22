@@ -11,7 +11,8 @@ object NoteEntityMapper {
             description = domain.getEncryptedDescription(),
             mymobiledeviceid = domain.mymobiledeviceid,
             timestamp = domain.timestamp,
-            synced = synced
+            synced = synced,
+            updatedAt = domain.updatedAt
         )
     }
 
@@ -22,7 +23,8 @@ object NoteEntityMapper {
             description = entity.description,
             id = entity.id,
             mymobiledeviceid = entity.mymobiledeviceid,
-            timestamp = entity.timestamp
+            timestamp = entity.timestamp,
+            updatedAt = if (entity.updatedAt > 0) entity.updatedAt else entity.timestamp
         )
         // Decrypt and return fresh dataclass
         return dataclass.fromEncryptedData(encrypted)

@@ -156,7 +156,7 @@ fun MyApp(modifier: Modifier = Modifier) {
     // Apply theme to entire app
     ProvideNoteTheme(themeMode = currentTheme) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceTint,
+            color = MaterialTheme.colorScheme.background,
             modifier = modifier
         ) {
             if (isInitializing) {

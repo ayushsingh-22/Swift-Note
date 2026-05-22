@@ -128,8 +128,8 @@ class SearchAndSortManager(private val scope: CoroutineScope) {
         return when (sortOption) {
             SortOption.DATE_CREATED_DESC -> notes.sortedByDescending { it.timestamp }
             SortOption.DATE_CREATED_ASC -> notes.sortedBy { it.timestamp }
-            SortOption.DATE_MODIFIED_DESC -> notes.sortedByDescending { it.timestamp }
-            SortOption.DATE_MODIFIED_ASC -> notes.sortedBy { it.timestamp }
+            SortOption.DATE_MODIFIED_DESC -> notes.sortedByDescending { it.updatedAt }
+            SortOption.DATE_MODIFIED_ASC -> notes.sortedBy { it.updatedAt }
             SortOption.TITLE_ASC -> notes.sortedWith { a, b ->
                 collator.compare(a.title.trim(), b.title.trim())
             }

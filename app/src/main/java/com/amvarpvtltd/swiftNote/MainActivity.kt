@@ -5,19 +5,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
-import android.view.WindowManager
 import android.view.textclassifier.TextClassifier
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.MutableLiveData
@@ -31,7 +27,6 @@ import kotlinx.coroutines.launch
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -65,19 +60,16 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             SelfNoteTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = Color.Green
-                ) { paddingValues ->
-                    MyApp(
-                        modifier = Modifier.padding(paddingValues)
-                    )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .systemBarsPadding(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MyApp()
                 }
             }
         }
-
-        // Setup full screen after content is set
-        window.decorView.post { setupFullScreen() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -108,8 +100,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        checkAndRequestNotificationPermission()
-        checkAndRequestExactAlarmPermission()
+        // Permissions are now requested at point-of-use, not eagerly at launch
     }
 
     private fun checkAndRequestExactAlarmPermission() {
@@ -297,38 +288,6 @@ class MainActivity : ComponentActivity() {
         // Add date/time handling logic here
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            setupFullScreen()
-        }
-    }
-
-    private fun setupFullScreen() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                val controller = window.insetsController
-                if (controller != null) {
-                    controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        or View.SYSTEM_UI_FLAG_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
-
-                @Suppress("DEPRECATION")
-                window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error setting up full screen mode", e)
-        }
-    }
 
     private fun openNotificationSettings() {
         try {

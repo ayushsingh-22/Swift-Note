@@ -22,6 +22,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -117,6 +121,25 @@ fun NotesScreen(navController: NavHostController) {
     var showReminderSheet by remember { mutableStateOf(false) }
     val reminderRepository = remember { com.amvarpvtltd.swiftNote.reminders.ReminderRepository(context) }
 
+    // Phase 0.4: Undo-delete Snackbar
+    val snackbarHostState = remember { SnackbarHostState() }
+    val pendingDelete by viewModel.pendingDelete.collectAsStateWithLifecycle()
+
+    // Show snackbar when a note is pending deletion
+    LaunchedEffect(pendingDelete) {
+        val deletedNote = pendingDelete
+        if (deletedNote != null) {
+            val result = snackbarHostState.showSnackbar(
+                message = "Note deleted",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoDelete()
+            }
+        }
+    }
+
     // Monitor offline state - show offline banner but don't redirect
     LaunchedEffect(isOnline, notes) {
         if (!isOnline) {
@@ -201,6 +224,7 @@ fun NotesScreen(navController: NavHostController) {
         NoteScreenBackground {
             Scaffold(
                 containerColor = Color.Transparent,
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
                     Column {
 

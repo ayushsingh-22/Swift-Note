@@ -6,10 +6,15 @@ import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
+import com.amvarpvtltd.swiftNote.room.AppDatabase
+import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -49,6 +54,18 @@ class NoteRepository(val context: Context? = null) {
     }
 
     /**
+     * Observe all notes reactively via Room Flow.
+     * The list updates automatically when the database changes.
+     */
+    fun observeNotes(): Flow<List<dataclass>> {
+        require(context != null) { "No context available for observeNotes" }
+        val db = AppDatabase.getInstance(context)
+        return db.noteDao().observeAllNotes()
+            .map { entities -> entities.map { NoteEntityMapper.toDomain(it) } }
+            .flowOn(Dispatchers.IO)
+    }
+
+    /**
      * Save a new note or update an existing one - OFFLINE FIRST
      * Always saves to Room database first, then attempts cloud sync
      */
@@ -65,6 +82,8 @@ class NoteRepository(val context: Context? = null) {
         if (noteId != null) {
             note.id = noteId
         }
+        // Always update the updatedAt timestamp on save/update
+        note.updatedAt = System.currentTimeMillis()
 
         // ALWAYS save to Room database first (offline-first)
         val manager = offlineManager ?: return Result.failure(Exception("No context available"))
