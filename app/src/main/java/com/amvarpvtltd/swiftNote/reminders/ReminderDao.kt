@@ -45,4 +45,18 @@ interface ReminderDao {
 
     @Query("DELETE FROM reminders WHERE reminderTime < :currentTime AND isActive = 0")
     suspend fun cleanupOldReminders(currentTime: Long)
+
+    // Phase 2: Recurring reminder queries
+
+    /** Get all active recurring reminders (for rescheduling after boot) */
+    @Query("SELECT * FROM reminders WHERE isActive = 1 AND recurrenceType != 'NONE'")
+    suspend fun getActiveRecurringReminders(): List<ReminderEntity>
+
+    /** Deactivate all reminders in a recurring chain (by parentReminderId or own id) */
+    @Query("UPDATE reminders SET isActive = 0 WHERE parentReminderId = :parentId OR id = :parentId")
+    suspend fun deactivateRecurringChain(parentId: String)
+
+    /** Get the parent reminder of a recurring chain */
+    @Query("SELECT * FROM reminders WHERE id = :parentId")
+    suspend fun getParentReminder(parentId: String): ReminderEntity?
 }

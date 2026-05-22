@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,7 +42,8 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val networkManager = NetworkManager.getInstance(context)
     val autoSyncManager = AutoSyncManager.getInstance(context, noteRepository)
 
-    // Phase 0.3: Flow-based reactive notes from Room — auto-updates on DB changes
+    // Phase 0.3: Flow-based reactive notes from Room — always active (Eagerly) so cached
+    // data is available instantly on navigation back without Room requery lag
     val notes: StateFlow<List<dataclass>> = noteRepository.observeNotes()
         .catch { e ->
             Log.e(TAG, "Error observing notes", e)
@@ -49,7 +51,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.Eagerly, // never stops — keeps data hot for instant nav-back
             initialValue = emptyList()
         )
 
@@ -74,10 +76,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        // Initial data load for first-time display + mark loading complete
+        // Dismiss loading as soon as Room emits its first value (fast with Eagerly — typically < 60ms).
+        // This replaces the fixed delay(300ms) which was causing a guaranteed loading flash on every launch.
         viewModelScope.launch {
-            // Small delay to allow Flow to emit first value
-            delay(Constants.LOADING_DELAY)
+            notes.first()          // suspends until Room gives ANY data (empty list or populated)
             _isLoading.value = false
         }
         startAutoSync()

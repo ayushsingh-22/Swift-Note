@@ -14,6 +14,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
+import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 
 /**
  * Helper class for managing system-level Android notifications
@@ -61,6 +62,20 @@ class SystemNotificationHelper(private val context: Context) {
     ) {
         if (!hasNotificationPermission()) {
             return
+        }
+
+        // Format checklist content into readable text for notification display
+        val displayDescription = if (ChecklistParser.isChecklistContent(noteDescription)) {
+            val (checked, total) = ChecklistParser.progress(noteDescription)
+            val items = ChecklistParser.parseItems(noteDescription)
+            val unchecked = items.filter { !it.isChecked }.take(3)
+            if (unchecked.isEmpty()) {
+                "✓ All $total items completed!"
+            } else {
+                "Checklist ($checked/$total done): " + unchecked.joinToString(", ") { it.text }
+            }
+        } else {
+            noteDescription
         }
 
         // Create an intent that will open the specific note when clicked
@@ -124,9 +139,9 @@ class SystemNotificationHelper(private val context: Context) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.logo2)
             .setContentTitle(displayTitle)
-            .setContentText(noteDescription.ifEmpty { "Tap to view your note" })
+            .setContentText(displayDescription.ifEmpty { "Tap to view your note" })
             .setStyle(NotificationCompat.BigTextStyle()
-                .bigText(noteDescription.ifEmpty { "Tap to view your note" })
+                .bigText(displayDescription.ifEmpty { "Tap to view your note" })
                 .setBigContentTitle(displayTitle)
                 .setSummaryText("SwiftNote Reminder"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)

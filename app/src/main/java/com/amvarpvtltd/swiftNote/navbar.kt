@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,10 +41,11 @@ import com.amvarpvtltd.swiftNote.design.NotesScreen
 import com.amvarpvtltd.swiftNote.design.ViewNoteScreen
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import com.amvarpvtltd.swiftNote.theme.AppThemeState
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
-import com.amvarpvtltd.swiftNote.theme.rememberThemeState
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,12 +54,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun MyApp(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
 
-    // Initialize theme management
-    val themeState = rememberThemeState()
-    var currentTheme by themeState
-
     // Capture context once in composable scope
     val context = LocalContext.current
+
+    // Initialize AppThemeState from SharedPrefs once, then observe reactively.
+    // AppThemeState is a global StateFlow — any screen that calls AppThemeState.setTheme()
+    // will immediately trigger recomposition here and update ProvideNoteTheme.
+    LaunchedEffect(Unit) {
+        AppThemeState.initialize(context)
+    }
+    val currentTheme by AppThemeState.themeMode.collectAsState()
 
     // Initialize managers using captured context
     val offlineManager = remember(context) { OfflineNoteManager(context) }
@@ -195,7 +207,34 @@ fun LoadingScreen() {
 
 @Composable
 fun NavigationComponent(navController: NavHostController, startDestination: String) {
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(220))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { -it / 4 },
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(220))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { -it / 4 },
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(220))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(280, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(220))
+        }
+    ) {
         // Onboarding & Auth
         composable("onboarding") {
             com.amvarpvtltd.swiftNote.design.OnboardingScreen(navController)

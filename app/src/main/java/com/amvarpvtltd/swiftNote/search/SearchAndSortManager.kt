@@ -31,14 +31,22 @@ data class SearchAndSortState(
     val isSearchActive: Boolean = false
 )
 
-// BUG-033 FIX: Accept external lifecycle-aware CoroutineScope to prevent leaks
-class SearchAndSortManager(private val scope: CoroutineScope) {
+/**
+ * Manages search and sort state for the notes list.
+ *
+ * [initialNotes] pre-seeds the manager with already-cached notes so there is no
+ * empty-state flash when navigating back to the home screen.
+ */
+@OptIn(FlowPreview::class)
+class SearchAndSortManager(
+    private val scope: CoroutineScope,
+    private val initialNotes: List<dataclass> = emptyList()
+) {
     private val _searchQuery = MutableStateFlow("")
     private val _sortOption = MutableStateFlow(SortOption.DATE_CREATED_DESC)
-    private val _allNotes = MutableStateFlow<List<dataclass>>(emptyList())
+    private val _allNotes = MutableStateFlow<List<dataclass>>(initialNotes)
 
-    @OptIn(FlowPreview::class)
-    private val debouncedSearchQuery = _searchQuery
+    private val debouncedSearchQuery: Flow<String> = _searchQuery
         .debounce(Constants.SEARCH_DEBOUNCE_DELAY)
         .distinctUntilChanged()
 
@@ -46,15 +54,10 @@ class SearchAndSortManager(private val scope: CoroutineScope) {
         debouncedSearchQuery,
         _sortOption,
         _allNotes
-    ) { query, sort, notes ->
-        val filtered = if (query.isBlank()) {
-            notes
-        } else {
-            searchNotes(notes, query)
-        }
-
-        val sorted = sortNotes(filtered, sort)
-
+    ) { query: String, sort: SortOption, notes: List<dataclass> ->
+        val filtered: List<dataclass> = if (query.isBlank()) notes
+                                        else searchNotes(notes, query)
+        val sorted: List<dataclass> = sortNotes(filtered, sort)
         SearchAndSortState(
             searchQuery = query,
             sortOption = sort,
@@ -63,119 +66,78 @@ class SearchAndSortManager(private val scope: CoroutineScope) {
         )
     }.stateIn(
         scope = scope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SearchAndSortState()
+        started = SharingStarted.Eagerly,
+        initialValue = SearchAndSortState(filteredNotes = initialNotes)
     )
 
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-    }
-
-    fun updateSortOption(sortOption: SortOption) {
-        _sortOption.value = sortOption
-    }
-
-    fun updateNotes(notes: List<dataclass>) {
-        _allNotes.value = notes
-    }
-
-    fun clearSearch() {
-        _searchQuery.value = ""
-    }
+    fun updateSearchQuery(query: String) { _searchQuery.value = query }
+    fun updateSortOption(sortOption: SortOption) { _sortOption.value = sortOption }
+    fun updateNotes(notes: List<dataclass>) { _allNotes.value = notes }
+    fun clearSearch() { _searchQuery.value = "" }
 
     private fun searchNotes(notes: List<dataclass>, query: String): List<dataclass> {
         if (query.isBlank()) return notes
-
         val searchTerms = query.lowercase().split(" ").filter { it.isNotBlank() }
-
         return notes.filter { note ->
-            val titleLower = note.title.lowercase()
-            val descriptionLower = note.description.lowercase()
-            val combinedContent = "$titleLower $descriptionLower"
-
-            // Check if all search terms are found
-            searchTerms.all { term ->
-                combinedContent.contains(term)
-            }
-        }.sortedByDescending { note ->
-            // Calculate relevance score for better search results
-            calculateRelevanceScore(note, searchTerms)
-        }
+            val combined = "${note.title.lowercase()} ${note.description.lowercase()}"
+            searchTerms.all { term -> combined.contains(term) }
+        }.sortedByDescending { note -> calculateRelevanceScore(note, searchTerms) }
     }
 
     private fun calculateRelevanceScore(note: dataclass, searchTerms: List<String>): Int {
         var score = 0
         val titleLower = note.title.lowercase()
         val descriptionLower = note.description.lowercase()
-
         searchTerms.forEach { term ->
-            // Title matches get higher score
             when {
                 titleLower.startsWith(term) -> score += 10
                 titleLower.contains(term) -> score += 5
                 descriptionLower.contains(term) -> score += 1
             }
         }
-
         return score
     }
 
     private fun sortNotes(notes: List<dataclass>, sortOption: SortOption): List<dataclass> {
         val collator = Collator.getInstance(Locale.getDefault()).apply {
-            strength = Collator.SECONDARY // Case-insensitive
+            strength = Collator.SECONDARY
         }
-
         return when (sortOption) {
-            SortOption.DATE_CREATED_DESC -> notes.sortedByDescending { it.timestamp }
-            SortOption.DATE_CREATED_ASC -> notes.sortedBy { it.timestamp }
+            SortOption.DATE_CREATED_DESC  -> notes.sortedByDescending { it.timestamp }
+            SortOption.DATE_CREATED_ASC   -> notes.sortedBy { it.timestamp }
             SortOption.DATE_MODIFIED_DESC -> notes.sortedByDescending { it.updatedAt }
-            SortOption.DATE_MODIFIED_ASC -> notes.sortedBy { it.updatedAt }
-            SortOption.TITLE_ASC -> notes.sortedWith { a, b ->
-                collator.compare(a.title.trim(), b.title.trim())
-            }
-            SortOption.TITLE_DESC -> notes.sortedWith { a, b ->
-                collator.compare(b.title.trim(), a.title.trim())
-            }
-            SortOption.CONTENT_LENGTH_DESC -> notes.sortedByDescending {
-                it.title.length + it.description.length
-            }
-            SortOption.CONTENT_LENGTH_ASC -> notes.sortedBy {
-                it.title.length + it.description.length
-            }
+            SortOption.DATE_MODIFIED_ASC  -> notes.sortedBy { it.updatedAt }
+            SortOption.TITLE_ASC          -> notes.sortedWith { a, b -> collator.compare(a.title.trim(), b.title.trim()) }
+            SortOption.TITLE_DESC         -> notes.sortedWith { a, b -> collator.compare(b.title.trim(), a.title.trim()) }
+            SortOption.CONTENT_LENGTH_DESC -> notes.sortedByDescending { it.title.length + it.description.length }
+            SortOption.CONTENT_LENGTH_ASC  -> notes.sortedBy { it.title.length + it.description.length }
         }
     }
 
     companion object {
-        fun getSortOptionLabel(sortOption: SortOption): String {
-            return when (sortOption) {
-                SortOption.DATE_CREATED_DESC -> "Newest First"
-                SortOption.DATE_CREATED_ASC -> "Oldest First"
-                SortOption.DATE_MODIFIED_DESC -> "Recently Modified"
-                SortOption.DATE_MODIFIED_ASC -> "Least Recently Modified"
-                SortOption.TITLE_ASC -> "Title A-Z"
-                SortOption.TITLE_DESC -> "Title Z-A"
-                SortOption.CONTENT_LENGTH_DESC -> "Longest First"
-                SortOption.CONTENT_LENGTH_ASC -> "Shortest First"
-            }
+        fun getSortOptionLabel(sortOption: SortOption): String = when (sortOption) {
+            SortOption.DATE_CREATED_DESC  -> "Newest First"
+            SortOption.DATE_CREATED_ASC   -> "Oldest First"
+            SortOption.DATE_MODIFIED_DESC -> "Recently Modified"
+            SortOption.DATE_MODIFIED_ASC  -> "Least Recently Modified"
+            SortOption.TITLE_ASC          -> "Title A-Z"
+            SortOption.TITLE_DESC         -> "Title Z-A"
+            SortOption.CONTENT_LENGTH_DESC -> "Longest First"
+            SortOption.CONTENT_LENGTH_ASC  -> "Shortest First"
         }
 
-        fun getSortIcon(sortOption: SortOption): androidx.compose.ui.graphics.vector.ImageVector {
-            return when (sortOption) {
-                SortOption.DATE_CREATED_DESC, SortOption.DATE_MODIFIED_DESC ->
-                    Icons.Outlined.Event
-                SortOption.DATE_CREATED_ASC, SortOption.DATE_MODIFIED_ASC ->
-                    Icons.Outlined.Event
-                SortOption.TITLE_ASC, SortOption.TITLE_DESC ->
-                    Icons.AutoMirrored.Outlined.Sort
-                SortOption.CONTENT_LENGTH_DESC, SortOption.CONTENT_LENGTH_ASC ->
-                    Icons.AutoMirrored.Outlined.Subject
+        fun getSortIcon(sortOption: SortOption): androidx.compose.ui.graphics.vector.ImageVector =
+            when (sortOption) {
+                SortOption.DATE_CREATED_DESC, SortOption.DATE_MODIFIED_DESC,
+                SortOption.DATE_CREATED_ASC,  SortOption.DATE_MODIFIED_ASC  -> Icons.Outlined.Event
+                SortOption.TITLE_ASC, SortOption.TITLE_DESC                  -> Icons.AutoMirrored.Outlined.Sort
+                SortOption.CONTENT_LENGTH_DESC, SortOption.CONTENT_LENGTH_ASC -> Icons.AutoMirrored.Outlined.Subject
             }
-        }
     }
 }
 
 @Composable
-fun rememberSearchAndSortManager(): SearchAndSortManager {
+fun rememberSearchAndSortManager(initialNotes: List<dataclass> = emptyList()): SearchAndSortManager {
     val scope = rememberCoroutineScope()
-    return remember { SearchAndSortManager(scope) }
+    return remember { SearchAndSortManager(scope, initialNotes) }
 }

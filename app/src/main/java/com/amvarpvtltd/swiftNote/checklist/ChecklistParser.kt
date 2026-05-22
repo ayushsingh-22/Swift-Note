@@ -135,6 +135,14 @@ object ChecklistParser {
     }
 
     /**
+     * Returns true if all checklist items are completed.
+     */
+    fun isAllDone(description: String): Boolean {
+        val items = parseItems(description)
+        return items.isNotEmpty() && items.all { it.isChecked }
+    }
+
+    /**
      * Check if adding more items would exceed the limit.
      */
     fun canAddMoreItems(items: List<ChecklistItem>): Boolean {

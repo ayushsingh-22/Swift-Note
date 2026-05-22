@@ -1,36 +1,57 @@
 package com.amvarpvtltd.swiftNote.design
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -44,20 +65,21 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
 import com.amvarpvtltd.swiftNote.components.ChecklistProgressIndicator
-import com.amvarpvtltd.swiftNote.components.ActionButton
 import com.amvarpvtltd.swiftNote.components.DeleteConfirmationDialog
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
@@ -70,12 +92,14 @@ import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
+import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
-    // ViewModel handles business logic (load, delete)
     val viewModel: ViewNoteViewModel = viewModel()
 
     val note by viewModel.note.collectAsStateWithLifecycle()
@@ -83,6 +107,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var copyConfirmed by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -90,56 +115,85 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     val scope = rememberCoroutineScope()
     val noteRepository = remember { NoteRepository(context) }
 
-    // Network management
     val networkManager = remember { NetworkManager.getInstance(context) }
     val isOnline by networkManager.isOnline.collectAsStateWithLifecycle()
 
-    // Load note via ViewModel
-    LaunchedEffect(noteId) {
-        viewModel.loadNote(noteId)
+    // Scroll progress fraction for the reading progress bar
+    val scrollFraction = if (scrollState.maxValue > 0)
+        scrollState.value.toFloat() / scrollState.maxValue.toFloat()
+    else 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = scrollFraction,
+        animationSpec = tween(150),
+        label = "scroll_progress"
+    )
+
+    // Note accent color derived from note ID for visual identity
+    val accentColor = remember(note?.id) {
+        val idx = (note?.id?.hashCode() ?: 0).absoluteValue
+        NoteTheme.getNoteAccentColor(idx)
     }
 
-    // Collect one-shot UI events
+    // Stats derived from note content
+    val wordCount = remember(note?.description) {
+        note?.description?.trim()?.split("\\s+".toRegex())?.filter { it.isNotBlank() }?.size ?: 0
+    }
+    val readingMinutes = remember(wordCount) { max(1, wordCount / 200) }
+
+    // Staggered visibility states
+    var heroVisible by remember { mutableStateOf(false) }
+    var contentVisible by remember { mutableStateOf(false) }
+    var metaVisible by remember { mutableStateOf(false) }
+
+    // Debounced checklist sync
+    var pendingDescription by remember { mutableStateOf<String?>(null) }
+    var syncJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    val dateFormatter = remember {
+        java.text.SimpleDateFormat("MMM dd, yyyy · hh:mm a", java.util.Locale.getDefault())
+    }
+
+    LaunchedEffect(noteId) { viewModel.loadNote(noteId) }
+
+    LaunchedEffect(note) {
+        if (note != null) {
+            heroVisible = true
+            delay(120)
+            contentVisible = true
+            delay(80)
+            metaVisible = true
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.uiEvent.collect { event ->
             when (event) {
-                is ViewNoteViewModel.UiEvent.ShowToast -> {
+                is ViewNoteViewModel.UiEvent.ShowToast ->
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
-                }
-                is ViewNoteViewModel.UiEvent.NavigateToMain -> {
-                    navController.navigate("main") {
-                        popUpTo("main") { inclusive = false }
-                    }
-                }
+                is ViewNoteViewModel.UiEvent.NavigateToMain ->
+                    navController.navigate("main") { popUpTo("main") { inclusive = false } }
             }
         }
     }
 
-    // Delete note delegates to ViewModel
-    fun deleteNote() { viewModel.deleteNote(noteId) }
-
-    // Share note function (UI-only)
-    fun shareNote() {
-        note?.let { currentNote -> ShareUtils.shareNote(context, currentNote) }
-    }
-
-    // Copy note function (UI-only)
+    // Copy with confirmation animation
     fun copyNote() {
-        note?.let { currentNote -> ShareUtils.copyNoteToClipboard(context, currentNote) }
+        note?.let {
+            ShareUtils.copyNoteToClipboard(context, it)
+            scope.launch {
+                copyConfirmed = true
+                delay(2000)
+                copyConfirmed = false
+            }
+        }
     }
-
-    // Performance: remember SimpleDateFormat to avoid recreating on every recomposition
-    val dateFormatter = remember {
-        java.text.SimpleDateFormat("MMM dd, yyyy 'at' hh:mm a", java.util.Locale.getDefault())
-    }
+    fun shareNote() { note?.let { ShareUtils.shareNote(context, it) } }
+    fun deleteNote() { viewModel.deleteNote(noteId) }
 
     DeleteConfirmationDialog(
         showDialog = showDeleteDialog,
         onDismiss = { showDeleteDialog = false },
-        onConfirm = {
-            showDeleteDialog = false
-            deleteNote()
-        },
+        onConfirm = { showDeleteDialog = false; deleteNote() },
         title = note?.title ?: "",
         message = "Are you sure you want to delete this note? This action cannot be undone."
     )
@@ -149,58 +203,25 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
             containerColor = Color.Transparent,
             topBar = {
                 Column {
-                    Spacer(modifier = Modifier.height(16.dp))
-
                     TopAppBar(
                         title = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = when {
-                                            isLoading -> "Loading..."
-                                            errorMessage != null -> "Error"
-                                            note != null -> {
-                                                val title = note?.title ?: ""
-                                                if (title.length > 25) "${title.take(25)}..." else title
-                                            }
-                                            else -> "Note"
-                                        },
-                                        fontWeight = FontWeight.Bold,
-                                        color = NoteTheme.OnSurface,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    // Show offline indicator in title area
-                                    if (!isOnline) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(top = 2.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.CloudOff,
-                                                contentDescription = "Offline",
-                                                tint = NoteTheme.Warning,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "Offline Mode",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = NoteTheme.Warning,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                }
-
+                                Text(
+                                    text = when {
+                                        isLoading -> "Loading…"
+                                        errorMessage != null -> "Error"
+                                        else -> "Note"
+                                    },
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = NoteTheme.OnSurfaceVariant,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
                                 if (isLoading) {
                                     CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
                                         color = NoteTheme.Primary
                                     )
@@ -220,352 +241,522 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 modifier = Modifier.padding(start = 12.dp)
                             )
                         },
-                       actions = {
-                           Row(
-                               modifier = Modifier.padding(end = 8.dp),
-                               verticalAlignment = Alignment.CenterVertically,
-                               horizontalArrangement = Arrangement.spacedBy(8.dp)
-                           ) {
-                               // Copy action
-                               if (note != null) {
-                                   IconActionButton(
-                                       onClick = {
-                                           hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                           copyNote()
-                                       },
-                                       icon = Icons.Outlined.ContentCopy,
-                                       contentDescription = "Copy note",
-                                       containerColor = NoteTheme.Secondary.copy(alpha = 0.1f),
-                                       contentColor = NoteTheme.Secondary
-                                   )
-                               }
-
-                               // Share action
-                               if (note != null) {
-                                   IconActionButton(
-                                       onClick = {
-                                           hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                           shareNote()
-                                       },
-                                       icon = Icons.Outlined.Share,
-                                       contentDescription = "Share note",
-                                       containerColor = NoteTheme.Primary.copy(alpha = 0.1f),
-                                       contentColor = NoteTheme.Primary
-                                   )
-                               }
-
-                               // Delete action
-                               if (note != null) {
-                                   IconActionButton(
-                                       onClick = {
-                                           hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                           showDeleteDialog = true
-                                       },
-                                       icon = Icons.Outlined.Delete,
-                                       contentDescription = "Delete note",
-                                       containerColor = NoteTheme.Error.copy(alpha = 0.1f),
-                                       contentColor = NoteTheme.Error
-                                   )
-                               }
-                           }
-                       },
+                        actions = {
+                            Row(
+                                modifier = Modifier.padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (!isOnline) {
+                                    Surface(
+                                        shape = RoundedCornerShape(100.dp),
+                                        color = NoteTheme.Warning.copy(alpha = 0.12f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.CloudOff,
+                                                contentDescription = null,
+                                                tint = NoteTheme.Warning,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "Offline",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = NoteTheme.Warning,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            },
-            floatingActionButton = {
-                if (note != null) {
-                    ActionButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            // Allow editing in both online and offline modes
-                            navController.navigate("addscreen/${note?.id}")
-                        },
-                        text = if (isOnline) "Edit Note" else "Edit Offline",
-                        icon = Icons.Outlined.Edit,
-                        modifier = Modifier
-                    )
+                    // ── Reading Progress Bar ─────────────────────────────────
+                    if (note != null && scrollState.maxValue > 0) {
+                        LinearProgressIndicator(
+                            progress = { animatedProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp),
+                            color = accentColor,
+                            trackColor = accentColor.copy(alpha = 0.12f),
+                            strokeCap = StrokeCap.Round
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(3.dp))
+                    }
                 }
             }
         ) { paddingValues ->
             when {
-                isLoading -> {
-                    LoadingCard("Loading your note...", "Fetching from local storage...")
+                isLoading -> LoadingCard("Loading your note...", "Fetching from local storage...")
+
+                errorMessage != null -> Box(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyStateCard(
+                        icon = Icons.Outlined.ErrorOutline,
+                        title = "Note Not Found",
+                        description = "The note you're looking for might have been deleted or doesn't exist.\n\nError: $errorMessage",
+                        buttonText = "Go Back to Notes",
+                        onButtonClick = { navController.navigateUp() }
+                    )
                 }
 
-                errorMessage != null -> {
-                    // Error state
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.ErrorOutline,
-                            title = "Note Not Found",
-                            description = "The note you're looking for might have been deleted or doesn't exist.\n\nError: $errorMessage",
-                            buttonText = "Go Back to Notes",
-                            onButtonClick = { navController.navigateUp() }
-                        )
-                    }
-                }
-
-                note == null -> {
-                    // No note found state
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        EmptyStateCard(
-                            icon = Icons.Outlined.ErrorOutline,
-                            title = "Note Not Available",
-                            description = "This note could not be loaded. It may not exist in your local storage.",
-                            buttonText = "Go Back to Notes",
-                            onButtonClick = { navController.navigateUp() }
-                        )
-                    }
+                note == null -> Box(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyStateCard(
+                        icon = Icons.Outlined.ErrorOutline,
+                        title = "Note Not Available",
+                        description = "This note could not be loaded.",
+                        buttonText = "Go Back to Notes",
+                        onButtonClick = { navController.navigateUp() }
+                    )
                 }
 
                 else -> {
-                    // Display note content - WORKS IN BOTH ONLINE AND OFFLINE MODE
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .padding(horizontal = Constants.PADDING_MEDIUM.dp)
-                            .verticalScroll(scrollState),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                    val noteDescription = note?.description ?: ""
+                    val isChecklist = ChecklistParser.isChecklistContent(noteDescription)
+                    val checklistItems = if (isChecklist) ChecklistParser.parseItems(noteDescription) else emptyList()
+                    val isValidChecklist = isChecklist && checklistItems.isNotEmpty()
 
-                        // Show offline message if needed
-                        if (!isOnline) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Warning.copy(alpha = 0.1f)
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.CloudOff,
-                                        contentDescription = "Offline",
-                                        tint = NoteTheme.Warning,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            text = "Viewing Offline",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = NoteTheme.Warning,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "This note is loaded from your device storage",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = NoteTheme.Warning
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Description Card (or Checklist)
-                        val noteDescription = note?.description ?: ""
-                        val isChecklist = ChecklistParser.isChecklistContent(noteDescription)
-
-                        if (isChecklist) {
-                            // Interactive Checklist View
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Surface
-                                ),
-                                shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Outlined.Description,
-                                                contentDescription = "Checklist",
-                                                tint = NoteTheme.Primary,
-                                                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
-                                            Text(
-                                                text = "Checklist",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = NoteTheme.OnSurface,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                        val (checked, total) = ChecklistParser.progress(noteDescription)
-                                        if (total > 0) {
-                                            Text(
-                                                text = "$checked/$total done",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = if (checked == total) NoteTheme.Primary else NoteTheme.Secondary,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
-
-                                    // Progress bar
-                                    val (checked, total) = ChecklistParser.progress(noteDescription)
-                                    ChecklistProgressIndicator(checked = checked, total = total)
-
-                                    Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
-
-                                    // Interactive checklist items
-                                    val items = ChecklistParser.parseItems(noteDescription)
-                                    items.forEach { item ->
-                                        ChecklistItemRow(
-                                            item = item,
-                                            onCheckedChange = { _ ->
-                                                // Toggle and save immediately
-                                                val newDescription = ChecklistParser.toggleItem(noteDescription, item.id)
-                                                scope.launch(Dispatchers.IO) {
-                                                    noteRepository.saveNote(
-                                                        title = note?.title ?: "",
-                                                        description = newDescription,
-                                                        noteId = note?.id,
-                                                        context = context
-                                                    )
-                                                    // Reload to reflect changes
-                                                    viewModel.loadNote(noteId)
-                                                }
-                                            },
-                                            onTextChange = {},
-                                            onDelete = {},
-                                            onEnterPressed = {},
-                                            onBackspaceOnEmpty = {},
-                                            readOnly = true,
-                                            modifier = Modifier.padding(vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                        // Description Card
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = NoteTheme.Surface
-                            ),
-                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(paddingValues)
+                                .verticalScroll(scrollState)
+                                .navigationBarsPadding()   // sync with action bar's nav inset
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 110.dp), // action card (~73dp) + box padding (40dp) - navBar already consumed
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // ── Hero Title Card ─────────────────────────────────
+                            AnimatedVisibility(
+                                visible = heroVisible,
+                                enter = fadeIn(tween(400)) + slideInVertically(
+                                    spring(Spring.DampingRatioMediumBouncy),
+                                    initialOffsetY = { it / 4 }
+                                )
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Card(
+                                    // SurfaceVariant gives a solid tinted base in both modes:
+                                    // Light → #F1F5F9 (cool blue-gray), Dark → #2A2F3E (deep navy)
+                                    colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant),
+                                    shape = RoundedCornerShape(24.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                    border = BorderStroke(1.5.dp, accentColor.copy(alpha = 0.40f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(
-                                        Icons.Outlined.Description,
-                                        contentDescription = "Description",
-                                        tint = NoteTheme.Secondary,
-                                        modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
-                                    Text(
-                                        text = "Description",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = NoteTheme.OnSurface,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
-
-                                Text(
-                                    text = note?.description ?: "",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = NoteTheme.OnSurface,
-                                    lineHeight = 24.sp,
-                                    textAlign = TextAlign.Start
-                                )
-                            }
-                        }
-                        } // end else (text description)
-
-                        // Metadata Card
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.3f)
-                            ),
-                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Created",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = NoteTheme.OnSurfaceVariant,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = note?.let {
-                                            dateFormatter.format(java.util.Date(it.timestamp))
-                                        } ?: "",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = NoteTheme.OnSurface,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-
-                                if (!isOnline) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically
+                                    // IntrinsicSize.Min lets the stripe Box use fillMaxHeight()
+                                    // matching the Column's intrinsic height without hardcoding dp
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(IntrinsicSize.Min)
+                                            // Layer 1 (already from card): SurfaceVariant solid base
+                                            // Layer 2: Strong horizontal accent wash — left vivid, right fades
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    colorStops = arrayOf(
+                                                        0.00f to accentColor.copy(alpha = 0.52f),
+                                                        0.38f to accentColor.copy(alpha = 0.20f),
+                                                        0.75f to accentColor.copy(alpha = 0.06f),
+                                                        1.00f to Color.Transparent
+                                                    )
+                                                )
+                                            )
                                     ) {
-                                        Icon(
-                                            Icons.Outlined.CloudOff,
-                                            contentDescription = "Offline",
-                                            tint = NoteTheme.Warning,
-                                            modifier = Modifier.size(16.dp)
+                                        // Full-height accent stripe — bold left edge
+                                        Box(
+                                            modifier = Modifier
+                                                .width(6.dp)
+                                                .fillMaxHeight()
+                                                .align(Alignment.CenterStart)
+                                                .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        colors = listOf(
+                                                            accentColor,
+                                                            accentColor.copy(alpha = 0.55f)
+                                                        )
+                                                    )
+                                                )
                                         )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Offline",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = NoteTheme.Warning,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                        Column(
+                                            modifier = Modifier.padding(
+                                                start = 22.dp, end = 16.dp,
+                                                top = 20.dp, bottom = 18.dp
+                                            )
+                                        ) {
+                                            Text(
+                                                text = note?.title ?: "",
+                                                fontSize = 26.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = NoteTheme.OnSurface,
+                                                lineHeight = 34.sp,
+                                                letterSpacing = (-0.5).sp
+                                            )
+
+                                            Spacer(modifier = Modifier.height(12.dp))
+
+                                            // ── Metadata chips row ────────────────────────────
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Date chip
+                                                MetaChip(
+                                                    icon = { Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
+                                                    label = note?.let { dateFormatter.format(java.util.Date(it.timestamp)) } ?: ""
+                                                )
+                                            }
+
+                                            if (!isValidChecklist && wordCount > 0) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // Word count chip
+                                                    MetaChip(
+                                                        icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
+                                                        label = "$wordCount words"
+                                                    )
+                                                    // Reading time chip
+                                                    MetaChip(
+                                                        icon = { Icon(Icons.Outlined.AccessTime, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
+                                                        label = "$readingMinutes min read"
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ── Content ─────────────────────────────────────────
+                            AnimatedVisibility(
+                                visible = contentVisible,
+                                enter = fadeIn(tween(400)) + slideInVertically(
+                                    spring(Spring.DampingRatioMediumBouncy),
+                                    initialOffsetY = { it / 3 }
+                                )
+                            ) {
+                                if (isValidChecklist) {
+                                    // Interactive Checklist Card
+                                    val (checked, total) = ChecklistParser.progress(noteDescription)
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+                                        shape = RoundedCornerShape(20.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                        border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(20.dp)) {
+                                            // Header row with progress ring
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .background(
+                                                                accentColor.copy(alpha = 0.12f),
+                                                                CircleShape
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Outlined.CheckCircle,
+                                                            contentDescription = null,
+                                                            tint = accentColor,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    Column {
+                                                        Text(
+                                                            text = "Checklist",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = NoteTheme.OnSurface
+                                                        )
+                                                        if (total > 0) {
+                                                            Text(
+                                                                text = "$checked of $total completed",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = NoteTheme.OnSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                // Circular progress micro-indicator
+                                                if (total > 0) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        CircularProgressIndicator(
+                                                            progress = { checked.toFloat() / total.toFloat() },
+                                                            modifier = Modifier.size(40.dp),
+                                                            color = if (checked == total) NoteTheme.Success else accentColor,
+                                                            trackColor = accentColor.copy(alpha = 0.12f),
+                                                            strokeCap = StrokeCap.Round,
+                                                            strokeWidth = 4.dp
+                                                        )
+                                                        Text(
+                                                            text = "${((checked.toFloat() / total.toFloat()) * 100).toInt()}%",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (checked == total) NoteTheme.Success else accentColor,
+                                                            fontSize = 10.sp
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(14.dp))
+                                            ChecklistProgressIndicator(checked = checked, total = total)
+                                            Spacer(modifier = Modifier.height(16.dp))
+
+                                            checklistItems.forEach { item ->
+                                                ChecklistItemRow(
+                                                    item = item,
+                                                    onCheckedChange = { _ ->
+                                                        val newDesc = ChecklistParser.toggleItem(
+                                                            pendingDescription ?: noteDescription, item.id
+                                                        )
+                                                        pendingDescription = newDesc
+                                                        syncJob?.cancel()
+                                                        syncJob = scope.launch(Dispatchers.IO) {
+                                                            kotlinx.coroutines.delay(500)
+                                                            noteRepository.saveNote(
+                                                                title = note?.title ?: "",
+                                                                description = newDesc,
+                                                                noteId = note?.id,
+                                                                context = context
+                                                            )
+                                                            pendingDescription = null
+                                                            viewModel.loadNote(noteId)
+                                                        }
+                                                    },
+                                                    onTextChange = {},
+                                                    onDelete = {},
+                                                    onEnterPressed = {},
+                                                    onBackspaceOnEmpty = {},
+                                                    readOnly = true,
+                                                    modifier = Modifier.padding(vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Text Description Card with SelectionContainer
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+                                        shape = RoundedCornerShape(20.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                        border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
+                                            SelectionContainer {
+                                                Text(
+                                                    text = note?.description ?: "",
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = NoteTheme.OnSurface,
+                                                    lineHeight = 28.sp,
+                                                    textAlign = TextAlign.Start,
+                                                    letterSpacing = 0.2.sp
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // Add bottom spacing for FAB
-                        Spacer(modifier = Modifier.height(80.dp))
+                        // ── Bottom Action Bar ────────────────────────────────────
+                        AnimatedVisibility(
+                            visible = contentVisible,
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            enter = fadeIn(tween(500)) + slideInVertically(
+                                spring(Spring.DampingRatioMediumBouncy),
+                                initialOffsetY = { it }
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                NoteTheme.Background.copy(alpha = 0.95f),
+                                                NoteTheme.Background
+                                            )
+                                        )
+                                    )
+                                    .padding(horizontal = 16.dp)
+                                    .padding(top = 16.dp, bottom = 24.dp)
+                                    .navigationBarsPadding()
+                            ) {
+                                Card(
+                                    shape = RoundedCornerShape(22.dp),
+                                    colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceAround,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Edit (primary action)
+                                        BottomActionItem(
+                                            icon = Icons.Outlined.Edit,
+                                            label = "Edit",
+                                            tint = NoteTheme.Primary,
+                                            bg = NoteTheme.Primary.copy(alpha = 0.13f),
+                                            isPrimary = true,
+                                            onClick = {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                navController.navigate("addscreen/${note?.id}")
+                                            }
+                                        )
+                                        // Share
+                                        BottomActionItem(
+                                            icon = Icons.Outlined.Share,
+                                            label = "Share",
+                                            tint = NoteTheme.Primary.copy(alpha = 0.85f),
+                                            bg = NoteTheme.Primary.copy(alpha = 0.08f),
+                                            onClick = {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                shareNote()
+                                            }
+                                        )
+                                        // Copy (with confirmation)
+                                        val copyTint by animateColorAsState(
+                                            targetValue = if (copyConfirmed) NoteTheme.Success else NoteTheme.OnSurfaceVariant,
+                                            label = "copy_tint"
+                                        )
+                                        BottomActionItem(
+                                            icon = if (copyConfirmed) Icons.Outlined.CheckCircle else Icons.Outlined.ContentCopy,
+                                            label = if (copyConfirmed) "Copied!" else "Copy",
+                                            tint = copyTint,
+                                            bg = if (copyConfirmed) NoteTheme.Success.copy(alpha = 0.1f)
+                                                 else NoteTheme.OnSurfaceVariant.copy(alpha = 0.08f),
+                                            onClick = {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                copyNote()
+                                            }
+                                        )
+                                        // Delete
+                                        BottomActionItem(
+                                            icon = Icons.Outlined.Delete,
+                                            label = "Delete",
+                                            tint = NoteTheme.Error,
+                                            bg = NoteTheme.Error.copy(alpha = 0.08f),
+                                            onClick = {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                showDeleteDialog = true
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+// Small metadata chip composable
+@Composable
+private fun MetaChip(
+    icon: @Composable () -> Unit,
+    label: String
+) {
+    Surface(
+        shape = RoundedCornerShape(100.dp),
+        color = NoteTheme.SurfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            icon()
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = NoteTheme.OnSurfaceVariant,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+// Bottom action bar item composable
+@Composable
+private fun BottomActionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    bg: Color,
+    isPrimary: Boolean = false,
+    onClick: () -> Unit
+) {
+    val iconBoxSize = if (isPrimary) 36.dp else 30.dp
+    val iconSize    = if (isPrimary) 17.dp else 15.dp
+    val cornerSize  = if (isPrimary) 11.dp else 9.dp
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 7.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(iconBoxSize)
+                .background(bg, RoundedCornerShape(cornerSize)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = tint,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            fontSize = 10.sp
+        )
     }
 }

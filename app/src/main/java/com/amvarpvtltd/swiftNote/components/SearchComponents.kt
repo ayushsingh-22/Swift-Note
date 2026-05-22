@@ -359,15 +359,15 @@ fun ThemeToggleButton(
             contentAlignment = Alignment.Center
         ) {
             val (icon, contentDescription) = when (currentTheme) {
-                com.amvarpvtltd.swiftNote.theme.ThemeMode.LIGHT -> Icons.Outlined.LightMode to "Light mode"
-                com.amvarpvtltd.swiftNote.theme.ThemeMode.DARK -> Icons.Outlined.DarkMode to "Dark mode"
-                com.amvarpvtltd.swiftNote.theme.ThemeMode.SYSTEM -> Icons.Outlined.SettingsBrightness to "System theme"
+                com.amvarpvtltd.swiftNote.theme.ThemeMode.LIGHT -> Icons.Outlined.LightMode to "Switch to dark mode"
+                com.amvarpvtltd.swiftNote.theme.ThemeMode.DARK -> Icons.Outlined.DarkMode to "Switch to system theme"
+                com.amvarpvtltd.swiftNote.theme.ThemeMode.SYSTEM -> Icons.Outlined.SettingsBrightness to "Switch to light mode"
             }
 
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = Color.Black,
+                tint = contentColor,
                 modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
             )
         }

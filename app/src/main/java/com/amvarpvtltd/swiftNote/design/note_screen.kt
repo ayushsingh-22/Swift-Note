@@ -65,7 +65,6 @@ import com.amvarpvtltd.swiftNote.components.rememberViewModeState
 import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.search.rememberSearchAndSortManager
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
-import com.amvarpvtltd.swiftNote.theme.rememberThemeState
 import com.amvarpvtltd.swiftNote.utils.AutoSyncManager
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
@@ -96,8 +95,10 @@ fun NotesScreen(navController: NavHostController) {
     val syncStatus by viewModel.autoSyncManager.lastSyncStatus.collectAsStateWithLifecycle()
     val hasPendingSync by viewModel.autoSyncManager.hasPendingSync.collectAsStateWithLifecycle()
 
-    // Search and Sort functionality - Fixed implementation
-    val searchAndSortManager = rememberSearchAndSortManager()
+    // Search and Sort — pre-seeded with current notes so no empty-state flash on nav-back.
+    // With SharingStarted.Eagerly on NotesViewModel.notes, `notes` already has cached data
+    // at first composition after navigation back.
+    val searchAndSortManager = rememberSearchAndSortManager(initialNotes = notes)
     val searchAndSortState by searchAndSortManager.searchAndSortState.collectAsStateWithLifecycle()
     var showSortSheet by remember { mutableStateOf(false) }
 
@@ -105,13 +106,20 @@ fun NotesScreen(navController: NavHostController) {
     var localSearchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
-    // Theme management
-    val themeState = rememberThemeState()
-    var currentTheme by themeState
+    // Theme — observe the global AppThemeState singleton.
+    // This is the same StateFlow that MyApp's ProvideNoteTheme observes, so toggling here
+    // immediately updates ProvideNoteTheme and NoteTheme colors everywhere in the app.
+    val currentTheme by com.amvarpvtltd.swiftNote.theme.AppThemeState.themeMode.collectAsStateWithLifecycle()
 
     // View mode management
     val viewModeState = rememberViewModeState()
     var currentViewMode by viewModeState
+
+    // Adaptive icon colors — computed once, reused for both action buttons
+    // (was inside run{} blocks, recomputed on every recomposition — now memoized)
+    val (adaptiveIconContainer, adaptiveIconContent) = remember(NoteTheme.Background, NoteTheme.Secondary) {
+        com.amvarpvtltd.swiftNote.components.adaptiveIconColors(NoteTheme.Background, NoteTheme.Secondary)
+    }
 
     // Offline banner state
     var showOfflineBanner by remember { mutableStateOf(false) }
@@ -142,12 +150,12 @@ fun NotesScreen(navController: NavHostController) {
         }
     }
 
-    // Monitor offline state - show offline banner but don't redirect
-    LaunchedEffect(isOnline, notes) {
+    // Monitor offline state — only key on isOnline, NOT on notes
+    // (was: LaunchedEffect(isOnline, notes) which restarted the 2s delay on every DB change)
+    LaunchedEffect(isOnline) {
         if (!isOnline) {
             showOfflineBanner = true
         } else {
-            // Hide banner when back online after a delay
             delay(2000)
             showOfflineBanner = false
         }
@@ -163,9 +171,11 @@ fun NotesScreen(navController: NavHostController) {
         searchAndSortManager.updateNotes(notes)
     }
 
-    // Save view mode when it changes
+    // Save view mode when it changes — on IO to avoid main-thread SharedPreferences write
     LaunchedEffect(currentViewMode) {
-        com.amvarpvtltd.swiftNote.components.ViewModeManager.setViewMode(context, currentViewMode)
+        withContext(Dispatchers.IO) {
+            com.amvarpvtltd.swiftNote.components.ViewModeManager.setViewMode(context, currentViewMode)
+        }
     }
 
     // Collect one-shot UI events from ViewModel
@@ -217,20 +227,15 @@ fun NotesScreen(navController: NavHostController) {
         }
     }
 
-    // Apply theme changes
-    LaunchedEffect(currentTheme) {
-        com.amvarpvtltd.swiftNote.theme.ThemeManager.setThemeMode(context, currentTheme)
-    }
+    // Theme persistence is handled inside AppThemeState.setTheme() — no LaunchedEffect needed here
 
-    ProvideNoteTheme(themeMode = currentTheme) {
-        NoteScreenBackground {
+    // Theme already provided by MyApp's ProvideNoteTheme — no double-wrap needed
+    NoteScreenBackground {
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
                     Column {
-
-                        Spacer(modifier = Modifier.height(16.dp))
 
                         // Add offline banner at the top
                         OfflineBanner(
@@ -248,14 +253,24 @@ fun NotesScreen(navController: NavHostController) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "My Notes",
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = NoteTheme.OnSurface,
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontSize = 28.sp,
-                                            letterSpacing = (-0.5).sp
-                                        )
+                                        Column {
+                                            Text(
+                                                text = "My Notes",
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = NoteTheme.OnSurface,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontSize = 30.sp,
+                                                letterSpacing = (-0.8).sp
+                                            )
+                                            if (notes.isNotEmpty()) {
+                                                Text(
+                                                    text = "${notes.size} note${if (notes.size != 1) "s" else ""}",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = NoteTheme.OnSurfaceVariant,
+                                                    fontWeight = FontWeight.Normal
+                                                )
+                                            }
+                                        }
 
                                         if (isRefreshingState) {
                                             Spacer(modifier = Modifier.width(Constants.CORNER_RADIUS_SMALL.dp))
@@ -280,23 +295,22 @@ fun NotesScreen(navController: NavHostController) {
                                         Spacer(modifier = Modifier.width(12.dp))
 
                                         // Sync settings button (adaptive colors)
-                                        run {
-                                            val (syncContainer, syncContent) = com.amvarpvtltd.swiftNote.components.adaptiveIconColors(NoteTheme.Background, NoteTheme.Secondary)
-                                            IconActionButton(
-                                                onClick = { navController.navigate("syncSettings") },
-                                                icon = Icons.Outlined.Person,
-                                                contentDescription = "Sync Settings",
-                                                containerColor = syncContainer,
-                                                contentColor = syncContent
-                                            )
-                                        }
+                                        IconActionButton(
+                                            onClick = { navController.navigate("syncSettings") },
+                                            icon = Icons.Outlined.Person,
+                                            contentDescription = "Sync Settings",
+                                            containerColor = adaptiveIconContainer,
+                                            contentColor = adaptiveIconContent
+                                        )
 
                                         Spacer(modifier = Modifier.width(12.dp))
 
-                                        // Theme toggle button
+                                        // Theme toggle button — updates global AppThemeState
                                         ThemeToggleButton(
                                             currentTheme = currentTheme,
-                                            onThemeChange = { newTheme -> currentTheme = newTheme }
+                                            onThemeChange = { newTheme ->
+                                                com.amvarpvtltd.swiftNote.theme.AppThemeState.setTheme(context, newTheme)
+                                            }
                                         )
                                     }
                                 }
@@ -351,9 +365,7 @@ fun NotesScreen(navController: NavHostController) {
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            // Sort button (adaptive colors)
-                            run {
-                                val (sortContainer, sortContent) = com.amvarpvtltd.swiftNote.components.adaptiveIconColors(NoteTheme.Background, NoteTheme.Secondary)
+                                // Sort button (adaptive colors)
                                 IconActionButton(
                                     onClick = {
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -361,10 +373,9 @@ fun NotesScreen(navController: NavHostController) {
                                     },
                                     icon = Icons.AutoMirrored.Outlined.Sort,
                                     contentDescription = "Sort",
-                                    containerColor = sortContainer,
-                                    contentColor = sortContent
+                                    containerColor = adaptiveIconContainer,
+                                    contentColor = adaptiveIconContent
                                 )
-                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -511,5 +522,4 @@ fun NotesScreen(navController: NavHostController) {
                 }
             )
         }
-    }
 }

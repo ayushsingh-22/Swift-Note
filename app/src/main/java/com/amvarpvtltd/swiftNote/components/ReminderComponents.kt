@@ -17,6 +17,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Button
@@ -44,6 +46,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +69,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.design.NoteTheme
+import com.amvarpvtltd.swiftNote.reminders.RecurrenceOption
 import com.amvarpvtltd.swiftNote.reminders.ReminderPreset
 import com.amvarpvtltd.swiftNote.reminders.ReminderRequest
 import com.amvarpvtltd.swiftNote.utils.Constants
@@ -113,6 +119,10 @@ fun ReminderBottomSheet(
             null
         )
     }
+
+    // Phase 2: Recurrence state
+    var selectedRecurrence by remember { mutableStateOf(RecurrenceOption.NEVER) }
+    var showRecurrenceOptions by remember { mutableStateOf(false) }
 
     if (!isVisible) return
 
@@ -316,13 +326,21 @@ fun ReminderBottomSheet(
                                         6.dp
                                     )
                                 )
+                                // Format checklist content properly instead of showing raw JSON
+                                val displayDescription = if (ChecklistParser.isChecklistContent(noteDescription)) {
+                                    val (checked, total) = ChecklistParser.progress(noteDescription)
+                                    val preview = ChecklistParser.getPreviewText(noteDescription)
+                                    "☑ $checked/$total done\n$preview"
+                                } else {
+                                    noteDescription
+                                }
                                 Text(
-                                    text = noteDescription.take(
-                                        100
-                                    ) + if (noteDescription.length > 100) "..." else "",
+                                    text = displayDescription.take(
+                                        150
+                                    ) + if (displayDescription.length > 150) "..." else "",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = NoteTheme.OnSurfaceVariant,
-                                    maxLines = 3,
+                                    maxLines = 4,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
@@ -549,6 +567,96 @@ fun ReminderBottomSheet(
                 )
             )
 
+            // Phase 2: Recurrence Picker Section
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp)
+            ) {
+                Column(modifier = Modifier.padding(Constants.PADDING_MEDIUM.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showRecurrenceOptions = !showRecurrenceOptions },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = "Repeat",
+                                tint = NoteTheme.Secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Repeat",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = NoteTheme.OnSurface
+                            )
+                        }
+                        Text(
+                            text = selectedRecurrence.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (selectedRecurrence != RecurrenceOption.NEVER) NoteTheme.Primary
+                                    else NoteTheme.OnSurfaceVariant
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showRecurrenceOptions) {
+                        Column(modifier = Modifier.padding(top = 12.dp)) {
+                            // Recurrence option chips
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                RecurrenceOption.entries.forEach { option ->
+                                    FilterChip(
+                                        selected = selectedRecurrence == option,
+                                        onClick = {
+                                            selectedRecurrence = option
+                                            showRecurrenceOptions = false
+                                        },
+                                        label = {
+                                            Text(
+                                                option.label,
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = NoteTheme.Primary.copy(alpha = 0.15f),
+                                            selectedLabelColor = NoteTheme.Primary
+                                        )
+                                    )
+                                }
+                            }
+
+                            if (selectedRecurrence != RecurrenceOption.NEVER) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = when (selectedRecurrence) {
+                                        RecurrenceOption.DAILY -> "Repeats every day at the same time"
+                                        RecurrenceOption.WEEKDAYS -> "Repeats Mon–Fri at the same time"
+                                        RecurrenceOption.WEEKLY -> "Repeats every week on the same day"
+                                        RecurrenceOption.MONTHLY -> "Repeats every month on the same date"
+                                        RecurrenceOption.YEARLY -> "Repeats every year on the same date"
+                                        else -> ""
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NoteTheme.OnSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(
+                modifier = Modifier.height(
+                    Constants.PADDING_MEDIUM.dp
+                )
+            )
+
             // Set reminder button
             val isButtonEnabled =
                 selectedPreset != null && (selectedPreset != ReminderPreset.CUSTOM || customDateTime != null)
@@ -601,12 +709,31 @@ fun ReminderBottomSheet(
                     // Create and set reminder if time is valid
                     if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
                         val preset = selectedPreset ?: ReminderPreset.CUSTOM
+
+                        // Phase 2: Determine recurrence settings
+                        val recurrenceType = selectedRecurrence.type
+                        val recurrenceDaysOfWeek = if (selectedRecurrence == RecurrenceOption.WEEKDAYS) {
+                            "2,3,4,5,6" // Mon–Fri in Calendar constants
+                        } else null
+
                         val request = ReminderRequest(
                             noteId = noteId,
                             noteTitle = noteTitle,
-                            noteDescription = noteDescription,
+                            // Convert checklist content to readable text for notification display
+                            noteDescription = if (ChecklistParser.isChecklistContent(noteDescription)) {
+                                val (checked, total) = ChecklistParser.progress(noteDescription)
+                                val items = ChecklistParser.parseItems(noteDescription)
+                                val unchecked = items.filter { !it.isChecked }.take(3)
+                                val preview = unchecked.joinToString(", ") { it.text }
+                                "Checklist ($checked/$total done): $preview"
+                            } else {
+                                noteDescription
+                            },
                             preset = preset,
-                            customDateTime = if (preset == ReminderPreset.CUSTOM) reminderTime else null
+                            customDateTime = if (preset == ReminderPreset.CUSTOM) reminderTime else null,
+                            recurrenceType = recurrenceType,
+                            recurrenceInterval = 1,
+                            recurrenceDaysOfWeek = recurrenceDaysOfWeek
                         )
                         onReminderSet(request)
 

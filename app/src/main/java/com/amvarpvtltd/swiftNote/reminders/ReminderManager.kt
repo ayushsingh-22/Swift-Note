@@ -20,6 +20,7 @@ import androidx.work.workDataOf
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
+import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -46,7 +47,6 @@ class ReminderManager private constructor(private val context: Context) {
     private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
         Log.e(TAG, "Uncaught exception in ReminderManager scope", exception)
     }
-    private val managerScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
     companion object {
         @SuppressLint("StaticFieldLeak")
@@ -154,10 +154,10 @@ class ReminderManager private constructor(private val context: Context) {
     }
 
     /**
-     * Android 12-15 compliant alarm scheduling with graceful degradation:
-     * 1. Exact alarm (best precision)
-     * 2. Inexact setAndAllowWhileIdle (fires during Doze, may be delayed ~minutes)
-     * 3. WorkManager fallback (guaranteed but may delay up to 15min in worst case)
+     * Android 12-15 compliant alarm scheduling with redundancy:
+     * 1. Try exact alarm (best precision) OR inexact setAndAllowWhileIdle
+     * 2. ALWAYS also schedule WorkManager as redundant backup (guaranteed execution)
+     * The WorkManager job will check if notification was already shown before duplicating.
      */
     private fun scheduleAlarmWithFallback(
         triggerAtMillis: Long,
@@ -169,9 +169,13 @@ class ReminderManager private constructor(private val context: Context) {
     ) {
         val delay = triggerAtMillis - System.currentTimeMillis()
         if (delay <= 0) {
-            Log.w(TAG, "Reminder time is in the past, skipping alarm scheduling")
+            Log.w(TAG, "Reminder time is in the past, firing notification immediately")
+            // Fire immediately instead of silently skipping
+            showReminderNotification(reminderId, title, description, noteId)
             return
         }
+
+        var alarmScheduled = false
 
         try {
             if (canScheduleExactAlarms()) {
@@ -182,26 +186,29 @@ class ReminderManager private constructor(private val context: Context) {
                     pendingIntent
                 )
                 Log.d(TAG, "Scheduled exact alarm for $reminderId")
-                return
+                alarmScheduled = true
             }
         } catch (e: SecurityException) {
             Log.w(TAG, "SecurityException on exact alarm: ${e.message}")
         }
 
-        // Fallback 1: setAndAllowWhileIdle (inexact but fires during Doze)
-        try {
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerAtMillis,
-                pendingIntent
-            )
-            Log.d(TAG, "Scheduled inexact (setAndAllowWhileIdle) alarm for $reminderId")
-            return
-        } catch (e: SecurityException) {
-            Log.w(TAG, "SecurityException on setAndAllowWhileIdle: ${e.message}")
+        if (!alarmScheduled) {
+            // Fallback 1: setAndAllowWhileIdle (inexact but fires during Doze)
+            try {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+                Log.d(TAG, "Scheduled inexact (setAndAllowWhileIdle) alarm for $reminderId")
+                alarmScheduled = true
+            } catch (e: SecurityException) {
+                Log.w(TAG, "SecurityException on setAndAllowWhileIdle: ${e.message}")
+            }
         }
 
-        // Fallback 2: WorkManager — guaranteed execution, respects system constraints
+        // ALWAYS schedule WorkManager as redundant backup — ensures notification fires
+        // even if AlarmManager is killed by OEM battery optimization or Doze
         scheduleWorkManagerFallback(delay, reminderId, noteId, title, description)
     }
 
@@ -376,10 +383,24 @@ class ReminderManager private constructor(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // Format checklist content for readable notification display
+            val displayDescription = if (ChecklistParser.isChecklistContent(description)) {
+                val (checked, total) = ChecklistParser.progress(description)
+                val items = ChecklistParser.parseItems(description)
+                val unchecked = items.filter { !it.isChecked }.take(3)
+                if (unchecked.isEmpty()) {
+                    "✓ All $total items completed!"
+                } else {
+                    "Checklist ($checked/$total done): " + unchecked.joinToString(", ") { it.text }
+                }
+            } else {
+                description
+            }
+
             val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon( R.drawable.logo2)
                 .setContentTitle("🔔 $title")
-                .setContentText(description)
+                .setContentText(displayDescription)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setAutoCancel(true)
@@ -395,8 +416,9 @@ class ReminderManager private constructor(private val context: Context) {
                 notificationManager.notify(reminderId.hashCode(), notification)
                 Log.d(TAG, "📱 Reminder notification shown: $title")
 
-                // Mark reminder as completed in database - Fixed using deactivateReminder
-                managerScope.launch {
+                // Mark reminder as completed SYNCHRONOUSLY using runBlocking
+                // This ensures it completes before the BroadcastReceiver's goAsync() finishes
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                     try {
                         reminderDao.deactivateReminder(reminderId)
                         Log.d(TAG, "✅ Reminder marked as completed: $title")
@@ -415,7 +437,9 @@ class ReminderManager private constructor(private val context: Context) {
 }
 
 /**
- * BroadcastReceiver to handle reminder alarms
+0 * BroadcastReceiver to handle reminder alarms.
+ * Uses goAsync() to prevent the system from killing the process before
+ * the notification is fully shown (critical when app is not in foreground).
  */
 class ReminderReceiver : BroadcastReceiver() {
     @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -427,13 +451,25 @@ class ReminderReceiver : BroadcastReceiver() {
 
         Log.d("ReminderReceiver", "🔔 Reminder triggered: $title")
 
-        val reminderManager = ReminderManager.getInstance(context)
-        reminderManager.showReminderNotification(reminderId, title, description, noteId)
+        // Use goAsync() to get more execution time (~30s instead of ~10s)
+        // This is critical when the app is killed/background — prevents premature process death
+        val pendingResult = goAsync()
+
+        try {
+            val reminderManager = ReminderManager.getInstance(context)
+            reminderManager.showReminderNotification(reminderId, title, description, noteId)
+        } catch (e: Exception) {
+            Log.e("ReminderReceiver", "❌ Error showing notification", e)
+        } finally {
+            // Must call finish() to release the wake lock
+            pendingResult.finish()
+        }
     }
 }
 
 /**
- * BroadcastReceiver to handle device boot and reschedule alarms
+ * BroadcastReceiver to handle device boot and reschedule alarms.
+ * Uses goAsync() for safe background execution.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -442,12 +478,19 @@ class BootReceiver : BroadcastReceiver() {
 
             Log.d("BootReceiver", "📱 Device booted, rescheduling reminders...")
 
+            val pendingResult = goAsync()
+
             val exceptionHandler = CoroutineExceptionHandler { _, exception ->
                 Log.e("BootReceiver", "Uncaught exception in BootReceiver scope", exception)
+                pendingResult.finish()
             }
             CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler).launch {
-                val reminderManager = ReminderManager.getInstance(context)
-                reminderManager.rescheduleAllReminders()
+                try {
+                    val reminderManager = ReminderManager.getInstance(context)
+                    reminderManager.rescheduleAllReminders()
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }
@@ -465,12 +508,19 @@ class ExactAlarmPermissionReceiver : BroadcastReceiver() {
 
             Log.d("ExactAlarmPermReceiver", "Exact alarm permission state changed — rescheduling reminders")
 
+            val pendingResult = goAsync()
+
             val exceptionHandler = CoroutineExceptionHandler { _, exception ->
                 Log.e("ExactAlarmPermReceiver", "Error rescheduling after permission change", exception)
+                pendingResult.finish()
             }
             CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler).launch {
-                val reminderManager = ReminderManager.getInstance(context)
-                reminderManager.rescheduleAllReminders()
+                try {
+                    val reminderManager = ReminderManager.getInstance(context)
+                    reminderManager.rescheduleAllReminders()
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }

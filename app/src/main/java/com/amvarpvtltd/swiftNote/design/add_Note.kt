@@ -12,6 +12,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -45,10 +48,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
@@ -103,7 +108,6 @@ import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.ai.SmartReminderAI
 import com.amvarpvtltd.swiftNote.checklist.ChecklistItem
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
-import com.amvarpvtltd.swiftNote.components.BackgroundProvider
 import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
 import com.amvarpvtltd.swiftNote.reminders.ReminderManager
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
@@ -115,6 +119,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.graphics.StrokeCap
+import com.amvarpvtltd.swiftNote.components.IconActionButton
+import com.amvarpvtltd.swiftNote.components.LoadingCard
+import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -171,6 +180,27 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Theme management
     val themeState = com.amvarpvtltd.swiftNote.theme.rememberThemeState()
     var currentTheme by themeState
+
+    // Scroll state for reading progress indicator
+    val scrollState = rememberScrollState()
+    val scrollFraction = if (scrollState.maxValue > 0)
+        scrollState.value.toFloat() / scrollState.maxValue.toFloat() else 0f
+    val animatedScrollProgress by animateFloatAsState(
+        targetValue = scrollFraction, animationSpec = tween(150), label = "scroll_progress"
+    )
+
+    // Staggered entrance animations
+    var heroVisible by remember { mutableStateOf(false) }
+    var contentVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isLoading) {
+        if (!isLoading) {
+            delay(80)
+            heroVisible = true
+            delay(120)
+            contentVisible = true
+        }
+    }
 
     // Performance: derivedStateOf for progress calculations - only recomputes when title/description length changes
     val titleProgress by remember { derivedStateOf { UIUtils.calculateProgress(title.length, Constants.TITLE_MAX_LENGTH) } }
@@ -232,10 +262,16 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
+    // Phase 1: Derive checklist text for Smart Reminder AI analysis
+    val checklistTextForAI by remember { derivedStateOf {
+        if (isChecklistMode) checklistItems.joinToString(". ") { it.text } else ""
+    } }
+
     // BUG-015 FIX: Debounced reminder analysis — only after user stops typing (800ms)
     // BUG-006 FIX: All Toast calls wrapped in withContext(Dispatchers.Main)
-    LaunchedEffect(title, description) {
-        val combinedText = "$title. $description".trim()
+    LaunchedEffect(title, description, checklistTextForAI) {
+        val descriptionForAnalysis = if (isChecklistMode) checklistTextForAI else description
+        val combinedText = "$title. $descriptionForAnalysis".trim()
 
         // Fast exit: skip all processing for very short input
         if (combinedText.length < 3) return@LaunchedEffect
@@ -276,30 +312,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         originalNoteTitle = userTitle
                     )
 
-                    if (isEditing) {
-                        scope.launch {
-                            try {
-                                val success = withContext(Dispatchers.IO) {
-                                    reminderManager.createReminderFromDetection(detected, noteId)
-                                }
-                                if (success) {
-                                    detectedReminders = listOf(detected)
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "🤖 Auto-created 1 smart reminder", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e("AddScreen", "Error creating minute-fallback reminder", e)
-                            }
-                        }
-                    } else {
-                        pendingReminders = listOf(detected)
-                        detectedReminders = listOf(detected)
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, "🤖 Suggestion: reminder in $n min", Toast.LENGTH_SHORT).show()
-                        }
-                        Log.d("AddScreen", "Minute-fallback pending reminder stored: $n minutes")
-                    }
+                    // Show as suggestion chip — user confirms via UI
+                    pendingReminders = listOf(detected)
+                    detectedReminders = listOf(detected)
+                    Log.d("AddScreen", "Minute-fallback reminder suggestion shown: $n minutes")
 
                     return@LaunchedEffect
                 }
@@ -322,39 +338,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 if (result.isSuccess) {
                     val reminders = result.getOrNull() ?: emptyList()
                     if (reminders.isNotEmpty()) {
-                        if (isEditing) {
-                            var createdCount = 0
-                            reminders.forEach { reminder ->
-                                if (reminder.confidence >= 0.6f) {
-                                    try {
-                                        val success = withContext(Dispatchers.IO) {
-                                            reminderManager.createReminderFromDetection(reminder, noteId)
-                                        }
-                                        if (success) createdCount++
-                                    } catch (e: Exception) {
-                                        Log.e("AddScreen", "Error auto-creating reminder", e)
-                                    }
-                                }
-                            }
-
-                            if (createdCount > 0) {
-                                detectedReminders = reminders.filter { it.confidence >= 0.6f }
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(
-                                        context,
-                                        "🤖 Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        } else {
-                            // For new notes, store as pending reminders
-                            val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
-                            if (highConfidenceReminders.isNotEmpty()) {
-                                pendingReminders = highConfidenceReminders
-                                detectedReminders = highConfidenceReminders
-                                Log.d("AddScreen", "Stored ${highConfidenceReminders.size} pending reminders for new note")
-                            }
+                        // Show as suggestion chips — user confirms via UI (both new and editing notes)
+                        val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
+                        if (highConfidenceReminders.isNotEmpty()) {
+                            pendingReminders = highConfidenceReminders
+                            detectedReminders = highConfidenceReminders
+                            Log.d("AddScreen", "Showing ${highConfidenceReminders.size} reminder suggestion chips")
                         }
                     } else {
                         detectedReminders = emptyList()
@@ -583,7 +572,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     }
 
     // Performance: remember the brush to avoid re-creating gradient objects on every recomposition
-    val backgroundBrush = remember { BackgroundProvider.getBrush() }
+    // (kept for backward compat but NoteScreenBackground is now used as wrapper)
 
     // Enhanced delete confirmation dialog
     if (showDeleteDialog) {
@@ -770,20 +759,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     }
 
     ProvideNoteTheme(themeMode = currentTheme) {
+        NoteScreenBackground {
         Scaffold(
-            modifier = Modifier.background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        NoteTheme.Background,
-                        NoteTheme.SurfaceVariant.copy(alpha = 0.3f),
-                        NoteTheme.Background
-                    )
-                )
-            ),
             containerColor = Color.Transparent,
             topBar = {
                 Column {
-                    Spacer(modifier = Modifier.height(16.dp))
 
                     TopAppBar(
                         title = {
@@ -809,75 +789,38 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         },
 
                         navigationIcon = {
-                            Card(
-                                modifier = Modifier
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        // Handle back navigation with confirmation
-                                        if (hasContent && !isEditing) {
-                                            showBackDialog = true
-                                        } else {
-                                            navController.navigateUp()
-                                        }
+                            IconActionButton(
+                                onClick = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (hasContent && !isEditing) {
+                                        showBackDialog = true
+                                    } else {
+                                        navController.navigateUp()
                                     }
-                                    .padding(start = 12.dp), // Move components inside from boundary
-                                shape = CircleShape,
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Primary.copy(alpha = 0.1f)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = NoteTheme.Primary,
-                                        modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
-                                    )
-                                }
-                            }
+                                },
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                containerColor = NoteTheme.Primary.copy(alpha = 0.1f),
+                                contentColor = NoteTheme.Primary,
+                                modifier = Modifier.padding(start = 12.dp)
+                            )
                         },
                         actions = {
                             Row(
-                                modifier = Modifier.padding(end = 16.dp), // Move components inside from boundary
+                                modifier = Modifier.padding(end = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (isEditing) {
-                                    Card(
-                                        modifier = Modifier
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                hapticFeedback.performHapticFeedback(
-                                                    HapticFeedbackType.LongPress
-                                                )
-                                                showDeleteDialog = true
-                                            },
-                                        shape = CircleShape,
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = NoteTheme.Error.copy(alpha = 0.1f)
-                                        ),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.Delete,
-                                                contentDescription = "Delete",
-                                                tint = NoteTheme.Error,
-                                                modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
-                                            )
-                                        }
-                                    }
+                                    IconActionButton(
+                                        onClick = {
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            showDeleteDialog = true
+                                        },
+                                        icon = Icons.Outlined.Delete,
+                                        contentDescription = "Delete note",
+                                        containerColor = NoteTheme.Error.copy(alpha = 0.1f),
+                                        contentColor = NoteTheme.Error
+                                    )
                                 }
                             }
                         },
@@ -886,7 +829,18 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         )
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Reading / scroll progress bar
+                    if (scrollState.maxValue > 0) {
+                        LinearProgressIndicator(
+                            progress = { animatedScrollProgress },
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = NoteTheme.Primary,
+                            trackColor = NoteTheme.Primary.copy(alpha = 0.12f),
+                            strokeCap = StrokeCap.Round
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.height(3.dp))
+                    }
                 }
             },
             floatingActionButton = {
@@ -961,46 +915,24 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             }
         ) { paddingValues ->
             if (isLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Card(
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
-                        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(Constants.PADDING_XL.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                color = NoteTheme.Primary,
-                                strokeWidth = 4.dp
-                            )
-                            Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
-                            Text(
-                                "Loading note...",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = NoteTheme.OnSurface,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
+                LoadingCard("Loading note...", "Fetching from local storage...")
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(backgroundBrush)
                         .padding(paddingValues)
                         .padding(Constants.PADDING_MEDIUM.dp)
-                        .verticalScroll(rememberScrollState()), // Enable vertical scrolling
+                        .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(Constants.CORNER_RADIUS_LARGE.dp)
                 ) {
                     // Title Section
+                    AnimatedVisibility(
+                        visible = heroVisible,
+                        enter = fadeIn(tween(400)) + slideInVertically(
+                            spring(Spring.DampingRatioMediumBouncy),
+                            initialOffsetY = { it / 4 }
+                        )
+                    ) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1008,10 +940,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         colors = CardDefaults.cardColors(
                             containerColor = NoteTheme.Surface
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(
-                            modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1128,8 +1061,16 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             }
                         }
                     }
+                    } // end AnimatedVisibility heroVisible
 
                     // Phase 1: Note Mode Toggle (Text / Checklist)
+                    AnimatedVisibility(
+                        visible = contentVisible,
+                        enter = fadeIn(tween(400)) + slideInVertically(
+                            spring(Spring.DampingRatioMediumBouncy),
+                            initialOffsetY = { it / 3 }
+                        )
+                    ) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -1239,6 +1180,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             }
                         }
                     }
+                    } // end AnimatedVisibility contentVisible
 
                     // Phase 1: Checklist Editor Section
                     if (isChecklistMode) {
@@ -1291,48 +1233,59 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                 Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
 
-                                // Checklist items
-                                checklistItems.forEachIndexed { index, item ->
-                                    ChecklistItemRow(
-                                        item = item,
-                                        onCheckedChange = { checked ->
+                                // Checklist items with drag-to-reorder
+                                com.amvarpvtltd.swiftNote.components.ReorderableChecklistColumn(
+                                    items = checklistItems,
+                                    onReorder = { fromIndex, toIndex ->
+                                        checklistItems = checklistItems.toMutableList().also {
+                                            val item = it.removeAt(fromIndex)
+                                            it.add(toIndex, item)
+                                        }
+                                    },
+                                    onCheckedChange = { index, checked ->
+                                        checklistItems = checklistItems.toMutableList().also {
+                                            it[index] = it[index].copy(isChecked = checked)
+                                        }
+                                    },
+                                    onTextChange = { index, newText ->
+                                        checklistItems = checklistItems.toMutableList().also {
+                                            it[index] = it[index].copy(text = newText)
+                                        }
+                                    },
+                                    onDelete = { index ->
+                                        if (checklistItems.size > 1) {
                                             checklistItems = checklistItems.toMutableList().also {
-                                                it[index] = item.copy(isChecked = checked)
+                                                it.removeAt(index)
                                             }
-                                        },
-                                        onTextChange = { newText ->
+                                            focusedItemIndex = (index - 1).coerceAtLeast(0)
+                                        }
+                                    },
+                                    onEnterPressed = { index ->
+                                        if (ChecklistParser.canAddMoreItems(checklistItems)) {
+                                            val newItem = ChecklistItem(order = index + 1)
                                             checklistItems = checklistItems.toMutableList().also {
-                                                it[index] = item.copy(text = newText)
+                                                it.add(index + 1, newItem)
                                             }
-                                        },
-                                        onDelete = {
-                                            if (checklistItems.size > 1) {
-                                                checklistItems = checklistItems.toMutableList().also {
-                                                    it.removeAt(index)
-                                                }
-                                                focusedItemIndex = (index - 1).coerceAtLeast(0)
+                                            focusedItemIndex = index + 1
+                                        }
+                                    },
+                                    onBackspaceOnEmpty = { index ->
+                                        if (checklistItems.size > 1) {
+                                            checklistItems = checklistItems.toMutableList().also {
+                                                it.removeAt(index)
                                             }
-                                        },
-                                        onEnterPressed = {
-                                            if (ChecklistParser.canAddMoreItems(checklistItems)) {
-                                                val newItem = ChecklistItem(order = index + 1)
-                                                checklistItems = checklistItems.toMutableList().also {
-                                                    it.add(index + 1, newItem)
-                                                }
-                                                focusedItemIndex = index + 1
-                                            }
-                                        },
-                                        onBackspaceOnEmpty = {
-                                            if (checklistItems.size > 1) {
-                                                checklistItems = checklistItems.toMutableList().also {
-                                                    it.removeAt(index)
-                                                }
-                                                focusedItemIndex = (index - 1).coerceAtLeast(0)
-                                            }
-                                        },
-                                        requestFocus = focusedItemIndex == index,
-                                        modifier = Modifier.padding(vertical = 2.dp)
-                                    )
+                                            focusedItemIndex = (index - 1).coerceAtLeast(0)
+                                        }
+                                    },
+                                    focusedItemIndex = focusedItemIndex
+                                )
+
+                                // Reset focusedItemIndex after it has been consumed
+                                LaunchedEffect(focusedItemIndex) {
+                                    if (focusedItemIndex >= 0) {
+                                        kotlinx.coroutines.delay(100)
+                                        focusedItemIndex = -1
+                                    }
                                 }
 
                                 // Add item button
@@ -1379,10 +1332,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         colors = CardDefaults.cardColors(
                             containerColor = NoteTheme.Surface
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(
-                            modifier = Modifier.padding(Constants.CORNER_RADIUS_LARGE.dp)
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1541,8 +1495,151 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
                     }
 
-                    // Auto-Created Reminders Status - Shows when reminders were created
-                    if (detectedReminders.isNotEmpty()) {
+                    // Phase 1: Smart Reminder Suggestion Chips — interactive chips instead of auto-fire
+                    if (detectedReminders.isNotEmpty() && pendingReminders.isNotEmpty()) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = NoteTheme.Secondary.copy(alpha = 0.06f)
+                            ),
+                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
+                            border = BorderStroke(1.dp, NoteTheme.Secondary.copy(alpha = 0.2f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(Constants.PADDING_MEDIUM.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = NoteTheme.Secondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                                    Text(
+                                        text = "Smart Reminder Suggestion",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = NoteTheme.Secondary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
+
+                                pendingReminders.forEach { reminder ->
+                                    val timeText = remember(reminder.reminderDateTime) {
+                                        val sdf = java.text.SimpleDateFormat("MMM dd, hh:mm a", java.util.Locale.getDefault())
+                                        sdf.format(java.util.Date(reminder.reminderDateTime))
+                                    }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .background(
+                                                NoteTheme.Secondary.copy(alpha = 0.08f),
+                                                RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                                            )
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "\"${reminder.extractedText}\"",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = NoteTheme.OnSurface,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "⏰ $timeText",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = NoteTheme.OnSurfaceVariant
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // Confirm chip
+                                        Card(
+                                            modifier = Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                // Accept: create the reminder
+                                                scope.launch {
+                                                    try {
+                                                        if (isEditing && noteId != null) {
+                                                            withContext(Dispatchers.IO) {
+                                                                reminderManager.createReminderFromDetection(reminder, noteId)
+                                                            }
+                                                        }
+                                                        // Move from pending to confirmed
+                                                        pendingReminders = pendingReminders.filter { it.id != reminder.id }
+                                                        detectedReminders = detectedReminders.map {
+                                                            if (it.id == reminder.id) it.copy(isConfirmed = true) else it
+                                                        }
+                                                        withContext(Dispatchers.Main) {
+                                                            Toast.makeText(context, "⏰ Reminder set!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Log.e("AddScreen", "Error confirming reminder", e)
+                                                    }
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = NoteTheme.Primary.copy(alpha = 0.15f)
+                                            ),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                        ) {
+                                            Text(
+                                                text = "Set",
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = NoteTheme.Primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Dismiss chip
+                                        Card(
+                                            modifier = Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                // Dismiss this suggestion
+                                                pendingReminders = pendingReminders.filter { it.id != reminder.id }
+                                                if (pendingReminders.isEmpty()) {
+                                                    detectedReminders = emptyList()
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = NoteTheme.OnSurfaceVariant.copy(alpha = 0.08f)
+                                            ),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.Close,
+                                                contentDescription = "Dismiss",
+                                                modifier = Modifier.padding(6.dp).size(16.dp),
+                                                tint = NoteTheme.OnSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Confirmed Reminders Status — shows after user taps "Set"
+                    if (detectedReminders.any { it.isConfirmed }) {
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = NoteTheme.Success.copy(alpha = 0.05f)
@@ -1560,8 +1657,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                                val confirmedCount = detectedReminders.count { it.isConfirmed }
                                 Text(
-                                    text = "✅ ${detectedReminders.size} smart reminder${if (detectedReminders.size > 1) "s" else ""} created automatically",
+                                    text = "✅ $confirmedCount reminder${if (confirmedCount > 1) "s" else ""} set",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = NoteTheme.Success,
                                     fontWeight = FontWeight.Medium
@@ -1612,6 +1710,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 navController.navigateUp()
             }
         }
+        } // end NoteScreenBackground
     }
 }
 

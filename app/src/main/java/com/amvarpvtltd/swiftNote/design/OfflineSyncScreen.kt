@@ -1,5 +1,11 @@
 package com.amvarpvtltd.swiftNote.design
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -54,6 +60,19 @@ fun OfflineSyncScreen(
     val syncStatus by autoSyncManager.lastSyncStatus.collectAsStateWithLifecycle()
     val pendingNotes by offlineManager.pendingSyncNotes.collectAsStateWithLifecycle()
 
+    // Staggered entrance animations
+    var statusCardVisible by remember { mutableStateOf(false) }
+    var syncCardVisible by remember { mutableStateOf(false) }
+    var actionsVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        statusCardVisible = true
+        kotlinx.coroutines.delay(120)
+        syncCardVisible = true
+        kotlinx.coroutines.delay(100)
+        actionsVisible = true
+    }
+
     // Manual sync function
     fun startManualSync() {
         if (!isOnline) return
@@ -76,7 +95,6 @@ fun OfflineSyncScreen(
             topBar = {
                 if (showBackButton) {
                     Column {
-                        Spacer(modifier = Modifier.height(16.dp))
 
                         TopAppBar(
                             title = {
@@ -118,13 +136,20 @@ fun OfflineSyncScreen(
                 verticalArrangement = Arrangement.spacedBy(Constants.PADDING_LARGE.dp)
             ) {
                 // Connection Status Card
+                AnimatedVisibility(
+                    visible = statusCardVisible,
+                    enter = fadeIn(tween(400)) + slideInVertically(
+                        spring(Spring.DampingRatioMediumBouncy),
+                        initialOffsetY = { it / 4 }
+                    )
+                ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = NoteTheme.Surface
                     ),
                     shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -181,15 +206,23 @@ fun OfflineSyncScreen(
                         )
                     }
                 }
+                } // end AnimatedVisibility statusCardVisible
 
                 // Sync Status Card
+                AnimatedVisibility(
+                    visible = syncCardVisible,
+                    enter = fadeIn(tween(400)) + slideInVertically(
+                        spring(Spring.DampingRatioMediumBouncy),
+                        initialOffsetY = { it / 3 }
+                    )
+                ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = NoteTheme.Surface
                     ),
                     shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -282,6 +315,7 @@ fun OfflineSyncScreen(
                         )
                     }
                 }
+                } // end AnimatedVisibility syncCardVisible
 
                 // Pending Notes Card
                 if (pendingNotes.isNotEmpty()) {
@@ -328,6 +362,13 @@ fun OfflineSyncScreen(
                 }
 
                 // Action Buttons
+                AnimatedVisibility(
+                    visible = actionsVisible,
+                    enter = fadeIn(tween(400)) + slideInVertically(
+                        spring(Spring.DampingRatioMediumBouncy),
+                        initialOffsetY = { it / 2 }
+                    )
+                ) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -388,6 +429,7 @@ fun OfflineSyncScreen(
                         Text("View Notes", fontWeight = FontWeight.Medium)
                     }
                 }
+                } // end AnimatedVisibility actionsVisible
             }
         }
     }

@@ -1,12 +1,19 @@
 package com.amvarpvtltd.swiftNote.design
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,23 +21,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.amvarpvtltd.swiftNote.components.BackgroundProvider
-import androidx.compose.ui.res.painterResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OnboardingScreen(
-    navController: NavController
-) {
+fun OnboardingScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showQRScanner by remember { mutableStateOf(false) }
@@ -39,53 +47,83 @@ fun OnboardingScreen(
     var inputPassphrase by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
 
+    // Staggered animation states
+    var heroVisible by remember { mutableStateOf(false) }
+    var cardsVisible by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
-        // Mark first launch as complete
         DeviceManager.markFirstLaunchComplete(context)
+        delay(100)
+        heroVisible = true
+        delay(300)
+        cardsVisible = true
     }
 
-    // Performance: remember brush to avoid recreating gradient on every recomposition
-    val backgroundBrush = remember { BackgroundProvider.getBrush() }
-
-    Scaffold { paddingValues ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        // ── Gradient hero background ──────────────────────────────────────
         Box(
             modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.52f)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            NoteTheme.Primary,
+                            NoteTheme.PrimaryVariant,
+                            NoteTheme.PrimaryContainer
+                        )
+                    )
+                )
+        )
+        // Bottom half background
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .background(NoteTheme.Background)
+        )
+
+        Column(
+            modifier = Modifier
                 .fillMaxSize()
-                .background(brush = backgroundBrush)
-                .padding(paddingValues)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            // ── Hero Section ────────────────────────────────────────────
+            AnimatedVisibility(
+                visible = heroVisible,
+                enter = fadeIn(tween(600)) + slideInVertically(
+                    spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    initialOffsetY = { -it / 3 }
+                )
             ) {
-                // Welcome Header with better spacing and visual hierarchy
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 40.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                        .padding(top = 64.dp, bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // App icon/logo placeholder
-                    Card(
+                    // Floating logo circle
+                    Box(
                         modifier = Modifier
-                            .size(80.dp)
-                            .clip(RoundedCornerShape(20.dp)),
-                        colors = CardDefaults.cardColors(
-                            containerColor = NoteTheme.Primary.copy(alpha = 0.1f)
-                        ),
-//
+                            .size(96.dp)
+                            .background(
+                                color = Color.White.copy(alpha = 0.15f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .size(72.dp)
+                                .background(Color.White.copy(alpha = 0.9f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
                                 painter = painterResource(id = com.amvarpvtltd.swiftNote.R.drawable.logo2),
-                                contentDescription = "Onboarding Image",
-                                modifier = Modifier.size(48.dp)
-//                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(NoteTheme.Primary),
+                                contentDescription = "SwiftNote Logo",
+                                modifier = Modifier.size(44.dp)
                             )
                         }
                     }
@@ -93,265 +131,195 @@ fun OnboardingScreen(
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Text(
-                        text = "Welcome to SwiftNote",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = NoteTheme.OnBackground,
-                        textAlign = TextAlign.Center
+                        text = "SwiftNote",
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        letterSpacing = (-1).sp
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Secure. Private. Always with you.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.82f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 24.sp
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(
-                        text = "Your secure, private note-taking companion.\nChoose how you'd like to get started:",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                        color = NoteTheme.OnSurfaceVariant,
-                        lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * 1.2
-                    )
+                    // Feature chips row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("✦ Offline-first", "✦ Encrypted", "✦ AI Reminders").forEach { label ->
+                            Surface(
+                                shape = RoundedCornerShape(100.dp),
+                                color = Color.White.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = label,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                 }
+            }
 
-                // Options container with better spacing
+            // ── Options Card Sheet ─────────────────────────────────────
+            AnimatedVisibility(
+                visible = cardsVisible,
+                enter = fadeIn(tween(500)) + slideInVertically(
+                    spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    initialOffsetY = { it / 2 }
+                )
+            ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                        .background(NoteTheme.Background)
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 28.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Start Fresh card - premium design with left accent stripe
-                    ElevatedCard(
+                    Text(
+                        text = "How would you like to start?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteTheme.OnBackground
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // ── Start Fresh Card ─────────────────────────────
+                    OnboardingOptionCard(
+                        icon = Icons.Default.AutoAwesome,
+                        iconTint = NoteTheme.Primary,
+                        iconBg = NoteTheme.PrimaryContainer,
+                        title = "Start Fresh",
+                        subtitle = "Begin with a clean slate. Your notes stay private on this device.",
+                        accentColor = NoteTheme.Primary,
                         onClick = {
                             scope.launch {
                                 isLoading = true
                                 try {
                                     val deviceId = DeviceManager.getOrCreateDeviceId(context)
                                     PassphraseManager.storePassphrase(context, deviceId).getOrThrow()
-
                                     try {
-                                        val syncResult = SyncManager.syncDataFromPassphrase(context, deviceId, deviceId)
-                                        if (syncResult.isSuccess) {
-                                            android.util.Log.d("OnboardingScreen", "Imported remote notes for device: $deviceId")
-                                        } else {
-                                            android.util.Log.w("OnboardingScreen", "No remote notes or import failed for device: $deviceId - ${syncResult.exceptionOrNull()?.message}")
-                                        }
-                                    } catch (e: Exception) {
-                                        android.util.Log.w("OnboardingScreen", "Remote import check failed for device: $deviceId", e)
-                                    }
-
+                                        SyncManager.syncDataFromPassphrase(context, deviceId, deviceId)
+                                    } catch (_: Exception) {}
                                     navController.navigate("main") {
                                         popUpTo("onboarding") { inclusive = true }
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(
-                                        context,
-                                        "Setup failed: ${e.message}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
+                                    Toast.makeText(context, "Setup failed: ${e.message}", Toast.LENGTH_LONG).show()
                                 } finally {
                                     isLoading = false
                                 }
                             }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(NoteTheme.Radius.lg.dp)),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
-                        colors = CardDefaults.elevatedCardColors(
-                            containerColor = NoteTheme.Surface
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Enhanced icon container
-                            Card(
-                                modifier = Modifier.size(56.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Primary.copy(alpha = 0.15f)
-                                )
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = NoteTheme.Primary
-                                    )
-                                }
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Start Fresh",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NoteTheme.OnSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Begin with a clean slate and create your first notes",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = NoteTheme.OnSurface.copy(alpha = 0.7f),
-                                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.3
-                                )
-                            }
-
-                            // Arrow indicator
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = NoteTheme.OnSurface.copy(alpha = 0.4f)
-                            )
                         }
-                    }
+                    )
 
-                    // Restore Existing (QR) - premium design
-                    ElevatedCard(
-                        onClick = { showQRScanner = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(NoteTheme.Radius.lg.dp)),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
-                        colors = CardDefaults.elevatedCardColors(
-                            containerColor = NoteTheme.Surface
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Enhanced icon container
-                            Card(
-                                modifier = Modifier.size(56.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Secondary.copy(alpha = 0.15f)
-                                )
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QrCodeScanner,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = NoteTheme.Secondary
-                                    )
-                                }
-                            }
+                    // ── Scan QR Card ──────────────────────────────────
+                    OnboardingOptionCard(
+                        icon = Icons.Default.QrCodeScanner,
+                        iconTint = Color(0xFF8B5CF6),
+                        iconBg = Color(0xFFF3E8FF),
+                        title = "Restore via QR Code",
+                        subtitle = "Scan a QR from another device to import your notes securely.",
+                        accentColor = Color(0xFF8B5CF6),
+                        onClick = { showQRScanner = true }
+                    )
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Scan QR Code",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NoteTheme.OnSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Restore your notes by scanning a QR code from another device",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = NoteTheme.OnSurface.copy(alpha = 0.7f),
-                                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.3
-                                )
-                            }
-
-                            // Arrow indicator
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = NoteTheme.OnSurface.copy(alpha = 0.4f)
-                            )
-                        }
-                    }
-
-                    // Manual entry option - redesigned as a subtle button
+                    // ── Manual Passphrase Card ────────────────────────
                     OutlinedCard(
                         onClick = { showManualDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(16.dp),
                         border = CardDefaults.outlinedCardBorder().copy(
                             width = 1.dp,
-                            brush = androidx.compose.ui.graphics.SolidColor(NoteTheme.Primary.copy(alpha = 0.3f))
+                            brush = androidx.compose.ui.graphics.SolidColor(
+                                NoteTheme.Outline
+                            )
+                        ),
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = NoteTheme.Surface
                         )
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Key,
                                 contentDescription = null,
                                 tint = NoteTheme.Primary,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
-
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Enter Passphrase Manually",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = NoteTheme.Primary
                                 )
                                 Text(
-                                    text = "Have a passphrase? Enter it directly",
+                                    text = "Already have a passphrase? Enter it directly.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = NoteTheme.OnSurface.copy(alpha = 0.6f)
+                                    color = NoteTheme.OnSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = NoteTheme.Primary.copy(alpha = 0.5f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Loading feedback
+                    if (isLoading) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = NoteTheme.PrimaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = NoteTheme.Primary,
+                                    strokeWidth = 2.5.dp
+                                )
+                                Text(
+                                    text = "Setting up your workspace…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NoteTheme.OnPrimaryContainer,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     }
                 }
-
-                // Loading indicator with better positioning and styling
-                if (isLoading) {
-                    Spacer(modifier = Modifier.height(32.dp))
-                    Card(
-                        modifier = Modifier.padding(16.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = NoteTheme.Surface.copy(alpha = 0.9f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator(
-                                color = NoteTheme.Primary,
-                                strokeWidth = 3.dp
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Setting up your notes...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = NoteTheme.OnSurface.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                }
-
-                // Bottom spacing
-                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
 
-    // QR Scanner for restore (unchanged functionality)
     if (showQRScanner) {
         QRScannerSection(
             onQRScanned = { qrContent ->
@@ -360,39 +328,18 @@ fun OnboardingScreen(
                     try {
                         val sourcePassphrase = PassphraseManager.extractPassphraseFromQR(qrContent)
                         if (sourcePassphrase == null) {
-                            Toast.makeText(
-                                context,
-                                "Invalid QR code format",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Invalid QR code format", Toast.LENGTH_SHORT).show()
                             return@launch
                         }
-
                         val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
                         PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
-
-                        val result = SyncManager.syncDataFromPassphrase(
-                            context,
-                            sourcePassphrase,
-                            currentPassphrase
-                        )
+                        val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
                         if (result.isFailure) {
-                            Toast.makeText(
-                                context,
-                                "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
                         }
-
-                        navController.navigate("main") {
-                            popUpTo("onboarding") { inclusive = true }
-                        }
+                        navController.navigate("main") { popUpTo("onboarding") { inclusive = true } }
                     } catch (e: Exception) {
-                        Toast.makeText(
-                            context,
-                            "Restore failed: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        Toast.makeText(context, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
                     } finally {
                         isLoading = false
                         showQRScanner = false
@@ -403,7 +350,6 @@ fun OnboardingScreen(
         )
     }
 
-    // Manual passphrase dialog using shared EnhancedSyncFromDeviceDialog for consistent UI (unchanged functionality)
     if (showManualDialog) {
         EnhancedSyncFromDeviceDialog(
             inputPassphrase = inputPassphrase,
@@ -412,55 +358,98 @@ fun OnboardingScreen(
             isLoading = isLoading,
             onSync = {
                 scope.launch {
-                    if (inputPassphrase.isBlank()) {
-                        errorMessage = "Please enter a passphrase"
-                        return@launch
-                    }
-
-                    isLoading = true
-                    errorMessage = ""
-
+                    if (inputPassphrase.isBlank()) { errorMessage = "Please enter a passphrase"; return@launch }
+                    isLoading = true; errorMessage = ""
                     try {
                         val sourcePassphrase = inputPassphrase
-
                         val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
                         PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
-
-                        val result = SyncManager.syncDataFromPassphrase(
-                            context,
-                            sourcePassphrase,
-                            currentPassphrase
-                        )
+                        val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
                         if (result.isFailure) {
-                            Toast.makeText(
-                                context,
-                                "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
                         }
-
-                        navController.navigate("main") {
-                            popUpTo("onboarding") { inclusive = true }
-                        }
+                        navController.navigate("main") { popUpTo("onboarding") { inclusive = true } }
                     } catch (e: Exception) {
-                        Toast.makeText(
-                            context,
-                            "Restore failed: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        Toast.makeText(context, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
                     } finally {
-                        isLoading = false
-                        showManualDialog = false
-                        inputPassphrase = ""
-                        errorMessage = ""
+                        isLoading = false; showManualDialog = false
+                        inputPassphrase = ""; errorMessage = ""
                     }
                 }
             },
-            onCancel = {
-                showManualDialog = false
-                inputPassphrase = ""
-                errorMessage = ""
-            }
+            onCancel = { showManualDialog = false; inputPassphrase = ""; errorMessage = "" }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OnboardingOptionCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        0f to accentColor.copy(alpha = 0.06f),
+                        1f to Color.Transparent
+                    )
+                )
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon container
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(iconBg, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteTheme.OnSurface
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NoteTheme.OnSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = accentColor.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }

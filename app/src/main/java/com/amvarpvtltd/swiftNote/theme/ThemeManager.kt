@@ -5,16 +5,40 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import com.amvarpvtltd.swiftNote.utils.Constants
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode {
     LIGHT, DARK, SYSTEM
 }
 
+/**
+ * Global singleton for app-wide reactive theme state.
+ * This is the SINGLE SOURCE OF TRUTH for the current theme.
+ * Both MyApp (ProvideNoteTheme) and NotesScreen (toggle button) observe/update this.
+ * Using StateFlow ensures all observers react immediately when the theme changes.
+ */
+object AppThemeState {
+    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    /** Call once at app start to load the saved preference. */
+    fun initialize(context: Context) {
+        _themeMode.value = ThemeManager.getThemeMode(context)
+    }
+
+    /** Toggle/set theme — updates the flow AND persists to SharedPreferences. */
+    fun setTheme(context: Context, mode: ThemeMode) {
+        _themeMode.value = mode
+        ThemeManager.setThemeMode(context, mode)
+    }
+}
+
 object ThemeManager {
     fun getThemeMode(context: Context): ThemeMode {
-        val prefs = context.getSharedPreferences(Constants.THEME_PREFERENCES, Context.MODE_PRIVATE)
-        val themeName = prefs.getString(Constants.THEME_MODE_KEY, Constants.DEFAULT_THEME_MODE)
+        val prefs = context.getSharedPreferences("note_theme_prefs", Context.MODE_PRIVATE)
+        val themeName = prefs.getString("theme_mode", "system")
         return when (themeName) {
             "light" -> ThemeMode.LIGHT
             "dark" -> ThemeMode.DARK
@@ -23,13 +47,13 @@ object ThemeManager {
     }
 
     fun setThemeMode(context: Context, themeMode: ThemeMode) {
-        val prefs = context.getSharedPreferences(Constants.THEME_PREFERENCES, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("note_theme_prefs", Context.MODE_PRIVATE)
         val themeName = when (themeMode) {
             ThemeMode.LIGHT -> "light"
             ThemeMode.DARK -> "dark"
             ThemeMode.SYSTEM -> "system"
         }
-        prefs.edit().putString(Constants.THEME_MODE_KEY, themeName).apply()
+        prefs.edit().putString("theme_mode", themeName).apply()
     }
 }
 
@@ -123,8 +147,9 @@ fun ProvideNoteTheme(
     val isDark = isDarkMode(themeMode)
     val colors = DynamicNoteTheme.colors(isDark)
 
-    // Update the existing NoteTheme object
-    LaunchedEffect(colors) {
+    // Apply colors synchronously (SideEffect runs after each successful recomposition,
+    // no async frame delay — eliminates the one-frame flash when navigating)
+    SideEffect {
         with(colors) {
             com.amvarpvtltd.swiftNote.design.NoteTheme.Primary = primary
             com.amvarpvtltd.swiftNote.design.NoteTheme.PrimaryVariant = primaryVariant

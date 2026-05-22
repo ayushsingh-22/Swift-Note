@@ -17,12 +17,19 @@ class ReminderRepository(private val context: Context) {
 
     suspend fun createReminder(request: ReminderRequest): Result<String> {
         return try {
+            val reminderId = UUID.randomUUID().toString()
             val reminder = ReminderEntity(
-                id = UUID.randomUUID().toString(),
+                id = reminderId,
                 noteId = request.noteId,
                 noteTitle = request.noteTitle,
                 noteDescription = request.noteDescription,
-                reminderTime = request.getReminderTime()
+                reminderTime = request.getReminderTime(),
+                // Phase 2: Include recurrence data
+                recurrenceType = request.recurrenceType,
+                recurrenceInterval = request.recurrenceInterval,
+                recurrenceDaysOfWeek = request.recurrenceDaysOfWeek,
+                recurrenceEndDate = request.recurrenceEndDate,
+                parentReminderId = if (request.isRecurring) reminderId else null
             )
 
             withContext(Dispatchers.IO) {
@@ -30,7 +37,8 @@ class ReminderRepository(private val context: Context) {
                 reminderScheduler.scheduleReminder(reminder)
             }
 
-            Log.d("ReminderRepository", "Created reminder for note: ${request.noteTitle}")
+            Log.d("ReminderRepository", "Created reminder for note: ${request.noteTitle}" +
+                if (request.isRecurring) " (recurring: ${request.recurrenceType})" else "")
             Result.success(reminder.id)
         } catch (e: Exception) {
             Log.e("ReminderRepository", "Error creating reminder", e)

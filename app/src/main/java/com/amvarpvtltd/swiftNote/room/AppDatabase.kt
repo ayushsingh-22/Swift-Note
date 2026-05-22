@@ -11,7 +11,7 @@ import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
 
 @Database(
     entities = [NoteEntity::class, PendingDeletionEntity::class, ReminderEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -107,6 +107,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Phase 2: Migration from version 6 to 7 — add recurrence columns to reminders
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceType TEXT NOT NULL DEFAULT 'NONE'")
+                database.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceInterval INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceDaysOfWeek TEXT")
+                database.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceEndDate INTEGER")
+                database.execSQL("ALTER TABLE reminders ADD COLUMN parentReminderId TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -114,7 +125,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "notes_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 // BUG-010 FIX: Removed fallbackToDestructiveMigration() to prevent silent data loss
                 .build()
                 INSTANCE = instance

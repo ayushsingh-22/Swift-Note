@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme for dark mode that inherits from Material3 with fallback -->
+    <!-- Base application theme for dark mode -->
     <style name="Base.Theme.SelfNote" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Primary colors -->
         <item name="colorPrimary">@color/md_theme_dark_primary</item>
@@ -39,20 +39,21 @@
         <item name="colorInverseOnSurface">@color/md_theme_dark_inverseOnSurface</item>
         <item name="colorInverseSurface">@color/md_theme_dark_inverseSurface</item>
         <item name="colorInversePrimary">@color/md_theme_dark_inversePrimary</item>
+
+        <!-- Edge-to-edge: transparent system bars with dark-appropriate icons -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
     </style>
 
-    <!-- Fallback theme for dark mode if Material3 is not available -->
-    <style name="Base.Theme.SelfNote.Fallback" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/md_theme_dark_primary</item>
-        <item name="colorPrimaryDark">@color/md_theme_dark_primaryContainer</item>
-        <item name="colorAccent">@color/md_theme_dark_secondary</item>
-        <item name="android:colorBackground">@color/md_theme_dark_background</item>
-        <item name="colorSurface">@color/md_theme_dark_surface</item>
-    </style>
-
-    <!-- Main application theme that can be referenced from AndroidManifest.xml -->
+    <!-- Main application theme -->
     <style name="Theme.SelfNote" parent="Base.Theme.SelfNote" />
 
-    <!-- Alternative theme name for compatibility -->
+    <!-- Legacy aliases -->
+    <style name="Theme.QuickNote" parent="Base.Theme.SelfNote" />
     <style name="Theme.SwiftNote" parent="Base.Theme.SelfNote" />
 </resources>

@@ -40,7 +40,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-import com.amvarpvtltd.swiftNote.components.BackgroundProvider
+import com.amvarpvtltd.swiftNote.components.IconActionButton
+import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +67,7 @@ fun SyncSettingsScreen(navController: NavController) {
     var cardsVisible by remember { mutableStateOf(false) }
 
     // Performance: remember brush to avoid recreating gradient on every recomposition
-    val backgroundBrush = remember { BackgroundProvider.getBrush() }
+    // NoteScreenBackground is now the primary wrapper; backgroundBrush kept for reference only
 
     // Load current passphrase on screen load
     LaunchedEffect(Unit) {
@@ -91,8 +92,10 @@ fun SyncSettingsScreen(navController: NavController) {
         cardsVisible = true
     }
 
+    NoteScreenBackground {
     Scaffold(
         topBar = {
+            Column {
             TopAppBar(
                 title = {
                     Text(
@@ -102,31 +105,31 @@ fun SyncSettingsScreen(navController: NavController) {
                     )
                 },
                 navigationIcon = {
-                    IconButton(
+                    IconActionButton(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             navController.navigateUp()
-                        }
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = NoteTheme.OnSurface
-                        )
-                    }
+                        },
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        containerColor = NoteTheme.Primary.copy(alpha = 0.1f),
+                        contentColor = NoteTheme.Primary,
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = NoteTheme.SurfaceVariant
+                    containerColor = Color.Transparent
                 )
             )
+            Spacer(modifier = Modifier.height(3.dp))
+            }
         },
-        // make scaffold transparent and use shared background so gradient matches other screens
+        // make scaffold transparent and use NoteScreenBackground wrapper
         containerColor = Color.Transparent
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = backgroundBrush)
                 .padding(paddingValues)
         ) {
             // Enhanced animated layout with improved visual hierarchy
@@ -316,6 +319,7 @@ fun SyncSettingsScreen(navController: NavController) {
             }
         )
     }
+    } // end NoteScreenBackground
 }
 
 // Enhanced animated device info card

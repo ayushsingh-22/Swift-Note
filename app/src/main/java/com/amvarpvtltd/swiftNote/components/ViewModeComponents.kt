@@ -384,14 +384,19 @@ private fun NoteCardItem(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Phase 1: Show checklist progress or text preview
-                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
+                            && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
                             val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                            val allDone = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isAllDone(note.description)
                             ChecklistProgressIndicator(checked = checked, total = total)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.getPreviewText(note.description),
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                color = NoteTheme.OnSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    lineHeight = 22.sp,
+                                    textDecoration = if (allDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
+                                ),
+                                color = if (allDone) NoteTheme.OnSurfaceVariant.copy(alpha = 0.5f) else NoteTheme.OnSurfaceVariant,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -553,12 +558,16 @@ private fun NoteListItem(
 
                     if (note.description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
+                            && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
                             val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                            val allDoneList = checked == total && total > 0
                             Text(
                                 text = "☑ $checked/$total items done",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = NoteTheme.Primary,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    textDecoration = if (allDoneList) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
+                                ),
+                                color = if (allDoneList) NoteTheme.Primary.copy(alpha = 0.6f) else NoteTheme.Primary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -746,12 +755,16 @@ private fun NoteGridItem(
 
                         if (note.description.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
-                            if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)) {
+                            if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
+                                && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
                                 val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
+                                val allDoneGrid = checked == total && total > 0
                                 Text(
                                     text = "☑ $checked/$total items done",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NoteTheme.Primary,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        textDecoration = if (allDoneGrid) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
+                                    ),
+                                    color = if (allDoneGrid) NoteTheme.Primary.copy(alpha = 0.6f) else NoteTheme.Primary,
                                     maxLines = 1
                                 )
                             } else {

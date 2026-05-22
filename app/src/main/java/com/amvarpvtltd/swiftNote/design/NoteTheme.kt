@@ -10,71 +10,71 @@ import androidx.compose.ui.graphics.luminance
 
 object NoteTheme {
     // ─── Premium Palette: Light Theme ───────────────────────────────────
-    // Primary accent — Teal (controlled saturation, no purple/neon)
-    var Primary by mutableStateOf(Color(0xFF0D9488))
-    var PrimaryVariant by mutableStateOf(Color(0xFF0F766E))
+    // Primary — Deep Indigo (modern 2025-26 note-app premium feel)
+    var Primary by mutableStateOf(Color(0xFF6366F1))
+    var PrimaryVariant by mutableStateOf(Color(0xFF4F46E5))
     var OnPrimary by mutableStateOf(Color(0xFFFFFFFF))
-    var PrimaryContainer by mutableStateOf(Color(0xFFCCFBF1))
-    var OnPrimaryContainer by mutableStateOf(Color(0xFF042F2E))
+    var PrimaryContainer by mutableStateOf(Color(0xFFEEF2FF))
+    var OnPrimaryContainer by mutableStateOf(Color(0xFF1E1B4B))
 
-    // Secondary — Slate neutrals for UI chrome
-    var Secondary by mutableStateOf(Color(0xFF4A5568))
-    var SecondaryVariant by mutableStateOf(Color(0xFF334155))
+    // Secondary — Slate neutrals with indigo tint
+    var Secondary by mutableStateOf(Color(0xFF64748B))
+    var SecondaryVariant by mutableStateOf(Color(0xFF475569))
     var OnSecondary by mutableStateOf(Color(0xFFFFFFFF))
     var SecondaryContainer by mutableStateOf(Color(0xFFF1F5F9))
     var OnSecondaryContainer by mutableStateOf(Color(0xFF1E293B))
 
-    // Surface — Snow Canvas / Pure Surface
+    // Surface — Ultra-clean white with faint indigo tint on background
     var Surface by mutableStateOf(Color(0xFFFFFFFF))
-    var OnSurface by mutableStateOf(Color(0xFF1A1D23))
-    var SurfaceVariant by mutableStateOf(Color(0xFFF8F9FA))
-    var OnSurfaceVariant by mutableStateOf(Color(0xFF4A5568))
+    var OnSurface by mutableStateOf(Color(0xFF0F172A))
+    var SurfaceVariant by mutableStateOf(Color(0xFFF8FAFC))
+    var OnSurfaceVariant by mutableStateOf(Color(0xFF64748B))
 
-    // Background — Snow Canvas
-    var Background by mutableStateOf(Color(0xFFFAFBFC))
-    var OnBackground by mutableStateOf(Color(0xFF1A1D23))
+    // Background — Subtle indigo-washed white
+    var Background by mutableStateOf(Color(0xFFF5F7FF))
+    var OnBackground by mutableStateOf(Color(0xFF0F172A))
 
-    // Error — Danger Crimson
-    var Error by mutableStateOf(Color(0xFFDC2626))
+    // Error — Vivid Crimson
+    var Error by mutableStateOf(Color(0xFFEF4444))
     var OnError by mutableStateOf(Color(0xFFFFFFFF))
     var ErrorContainer by mutableStateOf(Color(0xFFFEE2E2))
     var OnErrorContainer by mutableStateOf(Color(0xFF7F1D1D))
 
-    // Warning — Caution Amber
-    var Warning by mutableStateOf(Color(0xFFD97706))
+    // Warning — Warm Amber
+    var Warning by mutableStateOf(Color(0xFFF59E0B))
     var OnWarning by mutableStateOf(Color(0xFFFFFFFF))
     var WarningContainer by mutableStateOf(Color(0xFFFEF3C7))
     var OnWarningContainer by mutableStateOf(Color(0xFF78350F))
 
-    // Success — Verdant Green
-    var Success by mutableStateOf(Color(0xFF059669))
+    // Success — Vibrant Emerald
+    var Success by mutableStateOf(Color(0xFF10B981))
     var OnSuccess by mutableStateOf(Color(0xFFFFFFFF))
     var SuccessContainer by mutableStateOf(Color(0xFFD1FAE5))
     var OnSuccessContainer by mutableStateOf(Color(0xFF064E3B))
 
-    // Outline — Whisper Border
+    // Outline — Light slate border
     var Outline by mutableStateOf(Color(0xFFE2E8F0))
     var OutlineVariant by mutableStateOf(Color(0xFFCBD5E1))
 
     // ─── Premium Palette: Dark Theme ────────────────────────────────────
     object Dark {
-        var Primary by mutableStateOf(Color(0xFF2DD4BF))
-        var OnPrimary by mutableStateOf(Color(0xFF042F2E))
-        var PrimaryContainer by mutableStateOf(Color(0xFF0F766E))
-        var OnPrimaryContainer by mutableStateOf(Color(0xFFCCFBF1))
+        var Primary by mutableStateOf(Color(0xFF818CF8))
+        var OnPrimary by mutableStateOf(Color(0xFF1E1B4B))
+        var PrimaryContainer by mutableStateOf(Color(0xFF3730A3))
+        var OnPrimaryContainer by mutableStateOf(Color(0xFFE0E7FF))
 
         var Secondary by mutableStateOf(Color(0xFF94A3B8))
         var OnSecondary by mutableStateOf(Color(0xFF1E293B))
-        var SecondaryContainer by mutableStateOf(Color(0xFF334155))
-        var OnSecondaryContainer by mutableStateOf(Color(0xFFF1F5F9))
+        var SecondaryContainer by mutableStateOf(Color(0xFF1E2D3D))
+        var OnSecondaryContainer by mutableStateOf(Color(0xFFCBD5E1))
 
-        var Surface by mutableStateOf(Color(0xFF1C2128))
-        var OnSurface by mutableStateOf(Color(0xFFF0F4F8))
-        var SurfaceVariant by mutableStateOf(Color(0xFF282E36))
-        var OnSurfaceVariant by mutableStateOf(Color(0xFF94A3B8))
+        var Surface by mutableStateOf(Color(0xFF161B22))
+        var OnSurface by mutableStateOf(Color(0xFFECF0F7))
+        var SurfaceVariant by mutableStateOf(Color(0xFF21262D))
+        var OnSurfaceVariant by mutableStateOf(Color(0xFF8B949E))
 
-        var Background by mutableStateOf(Color(0xFF0F1419))
-        var OnBackground by mutableStateOf(Color(0xFFF0F4F8))
+        var Background by mutableStateOf(Color(0xFF0D1117))
+        var OnBackground by mutableStateOf(Color(0xFFECF0F7))
 
         var Error by mutableStateOf(Color(0xFFF87171))
         var OnError by mutableStateOf(Color(0xFF7F1D1D))
@@ -91,18 +91,18 @@ object NoteTheme {
         var SuccessContainer by mutableStateOf(Color(0xFF065F46))
         var OnSuccessContainer by mutableStateOf(Color(0xFFA7F3D0))
 
-        var Outline by mutableStateOf(Color(0xFF334155))
-        var OutlineVariant by mutableStateOf(Color(0xFF475569))
+        var Outline by mutableStateOf(Color(0xFF30363D))
+        var OutlineVariant by mutableStateOf(Color(0xFF3C4450))
     }
 
     // ─── Note Card Accent Rotation ──────────────────────────────────────
     val NoteAccentColors = listOf(
-        Color(0xFF0D9488), // Teal
-        Color(0xFFD97706), // Amber
-        Color(0xFFE11D48), // Rose
-        Color(0xFF4F46E5), // Indigo
-        Color(0xFF059669), // Emerald
-        Color(0xFF0284C7), // Sky
+        Color(0xFF6366F1), // Indigo
+        Color(0xFF8B5CF6), // Violet
+        Color(0xFF06B6D4), // Cyan
+        Color(0xFF10B981), // Emerald
+        Color(0xFFF59E0B), // Amber
+        Color(0xFFEF4444), // Rose
     )
 
     fun getNoteAccentColor(index: Int): Color {
@@ -173,11 +173,9 @@ object NoteTheme {
         }
     }
 
-    // Helper function to ensure proper contrast ratio
     fun ensureContrastRatio(foreground: Color, background: Color, minRatio: Float = 4.5f): Color {
         val contrast = getContrastRatio(foreground, background)
         if (contrast >= minRatio) return foreground
-
         return if (background.luminance() > 0.5f) {
             foreground.copy(alpha = 1f).darker(steps = ((minRatio - contrast) * 2).toInt())
         } else {
