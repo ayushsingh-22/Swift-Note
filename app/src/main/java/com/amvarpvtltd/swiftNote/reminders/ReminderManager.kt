@@ -455,14 +455,82 @@ class ReminderReceiver : BroadcastReceiver() {
         // This is critical when the app is killed/background — prevents premature process death
         val pendingResult = goAsync()
 
-        try {
-            val reminderManager = ReminderManager.getInstance(context)
-            reminderManager.showReminderNotification(reminderId, title, description, noteId)
-        } catch (e: Exception) {
-            Log.e("ReminderReceiver", "❌ Error showing notification", e)
-        } finally {
-            // Must call finish() to release the wake lock
+        val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+            Log.e("ReminderReceiver", "Uncaught exception in ReminderReceiver scope", exception)
             pendingResult.finish()
+        }
+
+        CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler).launch {
+            try {
+                val reminderManager = ReminderManager.getInstance(context)
+                reminderManager.showReminderNotification(reminderId, title, description, noteId)
+
+                // Phase 2: Schedule next occurrence for recurring reminders
+                val db = com.amvarpvtltd.swiftNote.room.AppDatabase.getInstance(context)
+                val reminderEntity = db.reminderDao().getReminderById(reminderId)
+                if (reminderEntity != null && reminderEntity.recurrenceType != RecurrenceType.NONE) {
+                    val parentId = reminderEntity.parentReminderId ?: reminderEntity.id
+                    val nextTime = RecurrenceCalculator.getNextOccurrence(
+                        currentReminderTime = reminderEntity.reminderTime,
+                        recurrenceType = reminderEntity.recurrenceType,
+                        recurrenceInterval = reminderEntity.recurrenceInterval,
+                        recurrenceDaysOfWeek = reminderEntity.recurrenceDaysOfWeek,
+                        recurrenceEndDate = reminderEntity.recurrenceEndDate
+                    )
+
+                    if (nextTime != null) {
+                        val nextReminder = ReminderEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            noteId = reminderEntity.noteId,
+                            noteTitle = reminderEntity.noteTitle,
+                            noteDescription = reminderEntity.noteDescription,
+                            reminderTime = nextTime,
+                            isActive = true,
+                            createdAt = System.currentTimeMillis(),
+                            recurrenceType = reminderEntity.recurrenceType,
+                            recurrenceInterval = reminderEntity.recurrenceInterval,
+                            recurrenceDaysOfWeek = reminderEntity.recurrenceDaysOfWeek,
+                            recurrenceEndDate = reminderEntity.recurrenceEndDate,
+                            parentReminderId = parentId
+                        )
+
+                        db.reminderDao().insertReminder(nextReminder)
+
+                        // Schedule the next alarm
+                        val nextIntent = Intent(context, ReminderReceiver::class.java).apply {
+                            putExtra(ReminderManager.EXTRA_REMINDER_ID, nextReminder.id)
+                            putExtra(ReminderManager.EXTRA_REMINDER_TITLE, nextReminder.noteTitle)
+                            putExtra(ReminderManager.EXTRA_REMINDER_DESCRIPTION, nextReminder.noteDescription)
+                            putExtra(ReminderManager.EXTRA_NOTE_ID, nextReminder.noteId)
+                        }
+                        val nextPendingIntent = PendingIntent.getBroadcast(
+                            context,
+                            nextReminder.id.hashCode(),
+                            nextIntent,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+
+                        val alarmMgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmMgr.canScheduleExactAlarms()) {
+                                alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime, nextPendingIntent)
+                            } else {
+                                alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime, nextPendingIntent)
+                            }
+                        } catch (_: SecurityException) {
+                            alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTime, nextPendingIntent)
+                        }
+
+                        Log.d("ReminderReceiver", "🔄 Scheduled next recurring reminder at $nextTime for chain $parentId")
+                    } else {
+                        Log.d("ReminderReceiver", "🏁 Recurring chain ended for $parentId (end date reached)")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ReminderReceiver", "❌ Error in ReminderReceiver", e)
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 }

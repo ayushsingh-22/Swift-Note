@@ -41,6 +41,7 @@ import com.amvarpvtltd.swiftNote.design.NotesScreen
 import com.amvarpvtltd.swiftNote.design.ViewNoteScreen
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import com.amvarpvtltd.swiftNote.test.SmartChipsTestDataSeeder
 import com.amvarpvtltd.swiftNote.theme.AppThemeState
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.google.firebase.database.FirebaseDatabase
@@ -167,6 +168,27 @@ fun MyApp(modifier: Modifier = Modifier) {
 
     // Apply theme to entire app
     ProvideNoteTheme(themeMode = currentTheme) {
+        // ┌─────────────────────────────────────────────────────────────────────┐
+        // │ 🧪 TEST DATA SEEDER — REMOVE THIS ENTIRE BLOCK FOR PRODUCTION      │
+        // │ Seeds 5 test notes with phone/email/URL/address entities to test    │
+        // │ Smart Action Chips (Phase 3). Only runs once per install in DEBUG.  │
+        // └─────────────────────────────────────────────────────────────────────┘
+        if (com.amvarpvtltd.swiftNote.BuildConfig.DEBUG) {
+            LaunchedEffect(isInitializing) {
+                if (!isInitializing) {
+                    val prefs = context.getSharedPreferences("smart_chips_test", android.content.Context.MODE_PRIVATE)
+                    if (!prefs.getBoolean("seeded_v1", false)) {
+                        prefs.edit().putBoolean("seeded_v1", true).apply()
+                        SmartChipsTestDataSeeder.seedTestData(context)
+                        Log.d("MyApp", "🧪 Phase 3 test data seeded for Smart Action Chips")
+                    }
+                }
+            }
+        }
+        // ┌─────────────────────────────────────────────────────────────────────┐
+        // │ 🧪 END TEST DATA SEEDER                                             │
+        // └─────────────────────────────────────────────────────────────────────┘
+
         Surface(
             color = MaterialTheme.colorScheme.background,
             modifier = modifier
@@ -267,6 +289,11 @@ fun NavigationComponent(navController: NavHostController, startDestination: Stri
 
         composable("offlineSyncScreen") {
             com.amvarpvtltd.swiftNote.design.OfflineSyncScreen(navController)
+        }
+
+        // AI Settings (Gemini API Key management)
+        composable("aiSettings") {
+            com.amvarpvtltd.swiftNote.design.AISettingsScreen(navController)
         }
     }
 }

@@ -143,6 +143,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var showReminderSuggestions by remember { mutableStateOf(false) }
     var isAnalyzingText by remember { mutableStateOf(false) }
 
+    // Permission state for notification/alarm access (Phase 0.2: point-of-use)
+    var showPermissionRationale by remember { mutableStateOf(false) }
+    var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
+    var pendingReminderAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     // Phase 1: Checklist mode state
     var isChecklistMode by remember { mutableStateOf(false) }
     var checklistItems by remember { mutableStateOf(listOf(ChecklistItem(order = 0))) }
@@ -463,7 +468,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                        val finalNoteId = savedNoteId ?: noteId
 
                        // Create any pending smart reminders for newly saved notes
-                       if (finalNoteId != null && pendingReminders.isNotEmpty()) {
+                       // Only auto-create if notification permission is already granted
+                       val hasNotificationPermission = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context) == null
+                       if (finalNoteId != null && pendingReminders.isNotEmpty() && hasNotificationPermission) {
                           var createdCount = 0
                           try {
                               withContext(Dispatchers.IO) {
@@ -573,6 +580,32 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
     // Performance: remember the brush to avoid re-creating gradient objects on every recomposition
     // (kept for backward compat but NoteScreenBackground is now used as wrapper)
+
+    // Permission rationale sheet — shown before creating a reminder when notification permission is missing
+    if (showPermissionRationale && missingPermissionType != null) {
+        com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet(
+            permissionType = missingPermissionType!!,
+            onDismiss = {
+                showPermissionRationale = false
+                missingPermissionType = null
+                pendingReminderAction = null
+            },
+            onPermissionGranted = {
+                showPermissionRationale = false
+                missingPermissionType = null
+                // Re-check: if there's another missing permission, show it; otherwise execute the pending action
+                val nextMissing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                if (nextMissing != null) {
+                    missingPermissionType = nextMissing
+                    showPermissionRationale = true
+                } else {
+                    // Permission granted — execute the pending reminder action
+                    pendingReminderAction?.invoke()
+                    pendingReminderAction = null
+                }
+            }
+        )
+    }
 
     // Enhanced delete confirmation dialog
     if (showDeleteDialog) {
@@ -1569,24 +1602,50 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = null
                                             ) {
-                                                // Accept: create the reminder
-                                                scope.launch {
-                                                    try {
-                                                        if (isEditing && noteId != null) {
-                                                            withContext(Dispatchers.IO) {
-                                                                reminderManager.createReminderFromDetection(reminder, noteId)
+                                                // Check notification permission before creating reminder
+                                                val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                                                if (missing != null) {
+                                                    // Store the action to execute after permission is granted
+                                                    pendingReminderAction = {
+                                                        scope.launch {
+                                                            try {
+                                                                if (isEditing && noteId != null) {
+                                                                    withContext(Dispatchers.IO) {
+                                                                        reminderManager.createReminderFromDetection(reminder, noteId)
+                                                                    }
+                                                                }
+                                                                pendingReminders = pendingReminders.filter { it.id != reminder.id }
+                                                                detectedReminders = detectedReminders.map {
+                                                                    if (it.id == reminder.id) it.copy(isConfirmed = true) else it
+                                                                }
+                                                                Toast.makeText(context, "⏰ Reminder set!", Toast.LENGTH_SHORT).show()
+                                                            } catch (e: Exception) {
+                                                                Log.e("AddScreen", "Error confirming reminder", e)
                                                             }
                                                         }
-                                                        // Move from pending to confirmed
-                                                        pendingReminders = pendingReminders.filter { it.id != reminder.id }
-                                                        detectedReminders = detectedReminders.map {
-                                                            if (it.id == reminder.id) it.copy(isConfirmed = true) else it
+                                                    }
+                                                    missingPermissionType = missing
+                                                    showPermissionRationale = true
+                                                } else {
+                                                    // Permission already granted — create the reminder
+                                                    scope.launch {
+                                                        try {
+                                                            if (isEditing && noteId != null) {
+                                                                withContext(Dispatchers.IO) {
+                                                                    reminderManager.createReminderFromDetection(reminder, noteId)
+                                                                }
+                                                            }
+                                                            // Move from pending to confirmed
+                                                            pendingReminders = pendingReminders.filter { it.id != reminder.id }
+                                                            detectedReminders = detectedReminders.map {
+                                                                if (it.id == reminder.id) it.copy(isConfirmed = true) else it
+                                                            }
+                                                            withContext(Dispatchers.Main) {
+                                                                Toast.makeText(context, "⏰ Reminder set!", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            Log.e("AddScreen", "Error confirming reminder", e)
                                                         }
-                                                        withContext(Dispatchers.Main) {
-                                                            Toast.makeText(context, "⏰ Reminder set!", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    } catch (e: Exception) {
-                                                        Log.e("AddScreen", "Error confirming reminder", e)
                                                     }
                                                 }
                                             },

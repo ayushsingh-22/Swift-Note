@@ -77,6 +77,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.amvarpvtltd.swiftNote.ai.DetectedEntity
+import com.amvarpvtltd.swiftNote.ai.SmartEntityDetector
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
 import com.amvarpvtltd.swiftNote.components.ChecklistProgressIndicator
@@ -85,6 +87,9 @@ import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
+import com.amvarpvtltd.swiftNote.components.ReminderBottomSheet
+import com.amvarpvtltd.swiftNote.components.SmartActionChipRow
+import com.amvarpvtltd.swiftNote.reminders.ReminderRepository
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
@@ -94,6 +99,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.absoluteValue
 import kotlin.math.max
 
@@ -108,12 +114,14 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var copyConfirmed by remember { mutableStateOf(false) }
+    var showReminderSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val noteRepository = remember { NoteRepository(context) }
+    val reminderRepository = remember { ReminderRepository(context) }
 
     val networkManager = remember { NetworkManager.getInstance(context) }
     val isOnline by networkManager.isOnline.collectAsStateWithLifecycle()
@@ -145,6 +153,9 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     var contentVisible by remember { mutableStateOf(false) }
     var metaVisible by remember { mutableStateOf(false) }
 
+    // Smart Action Chips — detected entities
+    var detectedEntities by remember { mutableStateOf<List<DetectedEntity>>(emptyList()) }
+
     // Debounced checklist sync
     var pendingDescription by remember { mutableStateOf<String?>(null) }
     var syncJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -156,12 +167,21 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     LaunchedEffect(noteId) { viewModel.loadNote(noteId) }
 
     LaunchedEffect(note) {
-        if (note != null) {
-            heroVisible = true
-            delay(120)
-            contentVisible = true
-            delay(80)
-            metaVisible = true
+        val currentNote = note ?: return@LaunchedEffect
+        heroVisible = true
+        delay(120)
+        contentVisible = true
+        delay(80)
+        metaVisible = true
+
+        // Detect entities for Smart Action Chips
+        val textToAnalyze = "${currentNote.title} ${currentNote.description}"
+        if (textToAnalyze.isNotBlank()) {
+            detectedEntities = SmartEntityDetector.analyze(
+                context = context,
+                text = textToAnalyze,
+                noteId = currentNote.id
+            )
         }
     }
 
@@ -197,6 +217,36 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
         title = note?.title ?: "",
         message = "Are you sure you want to delete this note? This action cannot be undone."
     )
+
+    // ── Reminder Bottom Sheet (triggered by Smart Action Chips DateTime → Add Reminder)
+    if (showReminderSheet && note != null) {
+        ReminderBottomSheet(
+            isVisible = showReminderSheet,
+            noteId = note!!.id,
+            noteTitle = note!!.title,
+            noteDescription = note!!.description,
+            onDismiss = { showReminderSheet = false },
+            onReminderSet = { reminderRequest ->
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val result = reminderRepository.createReminder(reminderRequest)
+                        withContext(Dispatchers.Main) {
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "⏰ Reminder set!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "❌ Failed to set reminder", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "❌ Error setting reminder", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                showReminderSheet = false
+            }
+        )
+    }
 
     NoteScreenBackground {
         Scaffold(
@@ -586,6 +636,31 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            // ── Smart Action Chips ────────────────────────────────
+                            AnimatedVisibility(
+                                visible = metaVisible && detectedEntities.isNotEmpty(),
+                                enter = fadeIn(tween(400)) + slideInVertically(
+                                    animationSpec = tween(400),
+                                    initialOffsetY = { it / 3 }
+                                )
+                            ) {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+                                    shape = RoundedCornerShape(20.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                    border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    SmartActionChipRow(
+                                        entities = detectedEntities,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                        onAddReminderClick = { _ ->
+                                            showReminderSheet = true
+                                        }
+                                    )
                                 }
                             }
                         }

@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.textclassifier.TextClassifier
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,16 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.lifecycleScope
 import com.amvarpvtltd.swiftNote.permissions.PermissionManager
 import com.amvarpvtltd.swiftNote.permissions.createPermissionManager
 import com.amvarpvtltd.swiftNote.ui.theme.SelfNoteTheme
 import com.amvarpvtltd.swiftNote.utils.PreferenceManager
-import com.amvarpvtltd.swiftNote.utils.TextClassifierManager
-import kotlinx.coroutines.launch
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
@@ -32,8 +26,6 @@ class MainActivity : ComponentActivity() {
     // Modular permission manager
     private lateinit var permissionManager: PermissionManager
 
-    // Text classifier manager for smart text features
-    private lateinit var textClassifierManager: TextClassifierManager
 
     // LiveData to hold the noteId from notification
     companion object {
@@ -51,8 +43,6 @@ class MainActivity : ComponentActivity() {
         // Initialize modular permission manager
         initializePermissionManager()
 
-        // Initialize text classifier
-        initializeTextClassifier()
 
         // Check for noteId in intent
         handleIntent(intent)
@@ -199,91 +189,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initializeTextClassifier() {
-        // Initialize the text classifier manager using singleton pattern
-        textClassifierManager = TextClassifierManager.getInstance(applicationContext)
-
-        // Setup lifecycle observer for cleanup
-        lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onDestroy(owner: LifecycleOwner) {
-                super.onDestroy(owner)
-                // Cleanup if needed
-            }
-        })
-    }
-
-    /**
-     * Process text content to identify entities like URLs, dates, etc.
-     */
-    private fun processTextContent(text: String) {
-        lifecycleScope.launch {
-            try {
-                val entities = textClassifierManager.detectTextEntities(text)
-                entities.forEach { (type, ranges) ->
-                    Log.d(TAG, "Found entity type: $type at positions: $ranges")
-                    handleEntityDetection(type, ranges, text)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error analyzing text", e)
-            }
-        }
-    }
-
-    /**
-     * Process text selection and handle available actions
-     */
-    private fun processTextSelection(text: String, start: Int, end: Int) {
-        lifecycleScope.launch {
-            try {
-                val actions = textClassifierManager.getTextActions(text, start, end)
-                actions.forEach { action ->
-                    Log.d(TAG, "Action available: ${action.title}")
-                    action.actionIntent.send()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting text actions", e)
-            }
-        }
-    }
-
-    private fun handleEntityDetection(type: String, ranges: List<IntRange>, text: String) {
-        ranges.forEach { range ->
-            val entityText = text.substring(range.first, range.last + 1)
-            Log.d(TAG, "Entity: $type = $entityText")
-            when (type) {
-                TextClassifier.TYPE_URL -> handleUrl(entityText)
-                TextClassifier.TYPE_EMAIL -> handleEmail(entityText)
-                TextClassifier.TYPE_PHONE -> handlePhone(entityText)
-                TextClassifier.TYPE_ADDRESS -> handleAddress(entityText)
-                TextClassifier.TYPE_DATE, TextClassifier.TYPE_DATE_TIME -> handleDateTime(entityText)
-            }
-        }
-    }
-
-    private fun handleUrl(url: String) {
-        Log.d(TAG, "Detected URL: $url")
-        // Add URL handling logic here
-    }
-
-    private fun handleEmail(email: String) {
-        Log.d(TAG, "Detected email: $email")
-        // Add email handling logic here
-    }
-
-    private fun handlePhone(phone: String) {
-        Log.d(TAG, "Detected phone: $phone")
-        // Add phone handling logic here
-    }
-
-    private fun handleAddress(address: String) {
-        Log.d(TAG, "Detected address: $address")
-        // Add address handling logic here
-    }
-
-    private fun handleDateTime(dateTime: String) {
-        Log.d(TAG, "Detected date/time: $dateTime")
-        // Add date/time handling logic here
-    }
 
 
     private fun openNotificationSettings() {

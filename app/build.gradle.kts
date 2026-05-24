@@ -42,6 +42,7 @@ android {
 
         vectorDrawables.useSupportLibrary = true
 
+
         javaCompileOptions {
             annotationProcessorOptions {
                 arguments += mapOf(
@@ -114,6 +115,10 @@ dependencies {
     implementation(libs.firebase.firestore.ktx)
     implementation(libs.firebase.auth.ktx)
     implementation("com.google.firebase:firebase-crashlytics-ktx") // ✅ runtime Crashlytics
+    implementation("com.google.firebase:firebase-analytics-ktx")   // ✅ Analytics for smart chip events
+
+    // Google AI - Gemini Developer API (free tier)
+    implementation(libs.google.ai.generativeai)
 
     implementation(libs.androidx.tv.material)
     implementation(libs.gson)
@@ -128,6 +133,12 @@ dependencies {
     implementation("com.google.mlkit:entity-extraction:16.0.0-beta6")
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // Browser (Custom Tabs for Smart Action Chips)
+    implementation("androidx.browser:browser:1.8.0")
+
+    // Security (EncryptedSharedPreferences for API key storage)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // CameraX + ML Kit
     implementation(libs.camerax.core)

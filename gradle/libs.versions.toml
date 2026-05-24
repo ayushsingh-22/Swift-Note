@@ -32,6 +32,8 @@ foundation = "1.9.0"
 pdfViewer = "1.0.0-alpha10"
 # Firebase Crashlytics plugin
 crashlytics = "2.9.8"
+# Google AI (Gemini Developer API - free tier)
+googleAI = "0.9.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -67,6 +69,7 @@ firebase-database = { group = "com.google.firebase", name = "firebase-database-k
 firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-auth-ktx = { group = "com.google.firebase", name = "firebase-auth-ktx" }
 firebase-crashlytics-buildtools = { group = "com.google.firebase", name = "firebase-crashlytics-buildtools", version = "3.0.2" }
+google-ai-generativeai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "googleAI" }
 
 # CameraX
 camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }

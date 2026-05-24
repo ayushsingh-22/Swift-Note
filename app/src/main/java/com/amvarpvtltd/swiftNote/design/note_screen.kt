@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -303,6 +304,17 @@ fun NotesScreen(navController: NavHostController) {
                                             contentColor = adaptiveIconContent
                                         )
 
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // AI Settings button
+                                        IconActionButton(
+                                            onClick = { navController.navigate("aiSettings") },
+                                            icon = Icons.Outlined.AutoAwesome,
+                                            contentDescription = "AI Settings",
+                                            containerColor = adaptiveIconContainer,
+                                            contentColor = adaptiveIconContent
+                                        )
+
                                         Spacer(modifier = Modifier.width(12.dp))
 
                                         // Theme toggle button — updates global AppThemeState
@@ -443,7 +455,14 @@ fun NotesScreen(navController: NavHostController) {
                                     onShare = { note -> shareNote(note) },
                                     onReminder = { note ->
                                         selectedNoteForReminder = note
-                                        showReminderSheet = true
+                                        // Check permissions before showing reminder sheet
+                                        val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                                        if (missing != null) {
+                                            missingPermissionType = missing
+                                            showPermissionRationale = true
+                                        } else {
+                                            showReminderSheet = true
+                                        }
                                     }
                                 )
                             }
