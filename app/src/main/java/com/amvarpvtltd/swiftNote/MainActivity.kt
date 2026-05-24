@@ -31,6 +31,18 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         val noteIdToOpen = MutableLiveData<String?>()
+        // Phase 5: Share/widget action state
+        val pendingAction = MutableLiveData<QuickAction?>()
+    }
+
+    /**
+     * Phase 5: Represents an action triggered by share or widget.
+     */
+    sealed class QuickAction {
+        data class QuickSave(val title: String, val description: String) : QuickAction()
+        data class OpenEditor(val title: String, val description: String) : QuickAction()
+        object CreateNote : QuickAction()
+        object CreateChecklist : QuickAction()
     }
 
     private lateinit var preferenceManager: PreferenceManager
@@ -65,12 +77,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        // Check if we have a noteId in the intent (from notification)
+        // Check if we have a noteId in the intent (from notification or widget)
         val noteId = intent.getStringExtra("noteId")
         if (!noteId.isNullOrEmpty()) {
-            Log.d(TAG, "📱 Received noteId from notification: $noteId")
-            // Set the LiveData value to trigger navigation in MyApp
+            Log.d(TAG, "📱 Received noteId from notification/widget: $noteId")
             noteIdToOpen.value = noteId
+            return
+        }
+
+        // Phase 5: Handle share quick-save action
+        when (intent.action) {
+            "com.amvarpvtltd.swiftNote.ACTION_QUICK_SAVE" -> {
+                val title = intent.getStringExtra("quick_title") ?: ""
+                val description = intent.getStringExtra("quick_description") ?: ""
+                Log.d(TAG, "📥 Quick save from share: title='$title'")
+                pendingAction.value = QuickAction.QuickSave(title, description)
+            }
+            "com.amvarpvtltd.swiftNote.ACTION_OPEN_EDITOR" -> {
+                val title = intent.getStringExtra("shared_title") ?: ""
+                val description = intent.getStringExtra("shared_description") ?: ""
+                Log.d(TAG, "📝 Open editor from share: title='$title'")
+                pendingAction.value = QuickAction.OpenEditor(title, description)
+            }
+            "com.amvarpvtltd.swiftNote.ACTION_CREATE_NOTE" -> {
+                Log.d(TAG, "📝 Create note from widget")
+                pendingAction.value = QuickAction.CreateNote
+            }
+            "com.amvarpvtltd.swiftNote.ACTION_CREATE_CHECKLIST" -> {
+                Log.d(TAG, "☑️ Create checklist from widget")
+                pendingAction.value = QuickAction.CreateChecklist
+            }
         }
     }
 

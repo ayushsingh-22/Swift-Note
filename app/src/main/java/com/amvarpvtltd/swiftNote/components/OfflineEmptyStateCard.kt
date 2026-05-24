@@ -28,6 +28,7 @@ fun OfflineEmptyStateCard(
     isOnline: Boolean,
     hasPendingSync: Boolean,
     onCreateNoteClick: () -> Unit,
+    onSeedDemoClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showPulse by remember { mutableStateOf(true) }
@@ -183,6 +184,36 @@ fun OfflineEmptyStateCard(
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleMedium
                         )
+                    }
+
+                    // Demo data button – only shown when there are no notes
+                    if (onSeedDemoClick != null) {
+                        OutlinedButton(
+                            onClick = onSeedDemoClick,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = NoteTheme.Primary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                NoteTheme.Primary.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                            )
+                            Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                            Text(
+                                text = "Load Demo Notes",
+                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                        }
                     }
 
                     // Status information

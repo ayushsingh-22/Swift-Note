@@ -34,6 +34,8 @@ pdfViewer = "1.0.0-alpha10"
 crashlytics = "2.9.8"
 # Google AI (Gemini Developer API - free tier)
 googleAI = "0.9.0"
+# Glance (App Widget with Compose-style API)
+glance = "1.1.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -85,6 +87,10 @@ zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" 
 
 # Other
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+
+# Glance (App Widgets)
+glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 
 # Test libraries
 junit = { group = "junit", name = "junit", version.ref = "junit" }

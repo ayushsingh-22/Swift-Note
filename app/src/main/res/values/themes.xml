@@ -53,5 +53,13 @@
     <!-- Legacy alias for compatibility -->
     <style name="Theme.QuickNote" parent="Base.Theme.SelfNote" />
     <style name="Theme.SwiftNote" parent="Base.Theme.SelfNote" />
+
+    <!-- Transparent theme for share receiver dialog overlay -->
+    <style name="Theme.SelfNote.Transparent" parent="Theme.SelfNote">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>
 

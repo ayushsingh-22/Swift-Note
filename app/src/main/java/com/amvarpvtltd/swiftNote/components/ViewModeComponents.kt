@@ -18,11 +18,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ViewList
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -146,7 +149,9 @@ fun NotesDisplay(
     onEdit: (dataclass) -> Unit,
     onDelete: (dataclass) -> Unit,
     onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit = {},
+    onArchive: (dataclass) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     when (viewMode) {
@@ -156,7 +161,9 @@ fun NotesDisplay(
             onEdit = onEdit,
             onDelete = onDelete,
             onShare = onShare,
-            onReminder = onReminder, // Pass reminder action
+            onReminder = onReminder,
+            onPin = onPin,
+            onArchive = onArchive,
             modifier = modifier
         )
         ViewMode.LIST -> NotesListView(
@@ -165,7 +172,9 @@ fun NotesDisplay(
             onEdit = onEdit,
             onDelete = onDelete,
             onShare = onShare,
-            onReminder = onReminder, // Pass reminder action
+            onReminder = onReminder,
+            onPin = onPin,
+            onArchive = onArchive,
             modifier = modifier
         )
         ViewMode.GRID -> NotesGridView(
@@ -174,13 +183,16 @@ fun NotesDisplay(
             onEdit = onEdit,
             onDelete = onDelete,
             onShare = onShare,
-            onReminder = onReminder, // Pass reminder action
+            onReminder = onReminder,
+            onPin = onPin,
+            onArchive = onArchive,
             modifier = modifier
         )
     }
 }
 
-// Card View (existing style)
+// Card View (existing style with swipe-to-action)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotesCardView(
     notes: List<dataclass>,
@@ -188,7 +200,9 @@ private fun NotesCardView(
     onEdit: (dataclass) -> Unit,
     onDelete: (dataclass) -> Unit,
     onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit,
+    onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -205,21 +219,69 @@ private fun NotesCardView(
             items = notes,
             key = { _, note -> note.id }
         ) { index, note ->
-            NoteCardItem(
-                note = note,
-                index = index,
-                onView = onView,
-                onEdit = onEdit,
-                onDelete = onDelete,
-                onShare = onShare,
-                onReminder = onReminder, // Pass reminder action
-                modifier = modifier
+            val dismissState = rememberSwipeToDismissBoxState(
+                confirmValueChange = { dismissValue ->
+                    when (dismissValue) {
+                        SwipeToDismissBoxValue.EndToStart -> {
+                            onDelete(note)
+                            true
+                        }
+                        else -> false
+                    }
+                }
             )
+
+            SwipeToDismissBox(
+                state = dismissState,
+                enableDismissFromStartToEnd = false,
+                backgroundContent = {
+                    val color by animateColorAsState(
+                        when (dismissState.targetValue) {
+                            SwipeToDismissBoxValue.EndToStart -> NoteTheme.Error.copy(alpha = 0.15f)
+                            else -> Color.Transparent
+                        },
+                        label = "swipe_bg"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(color)
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = null,
+                                tint = NoteTheme.Error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.animateItem()
+            ) {
+                NoteCardItem(
+                    note = note,
+                    index = index,
+                    onView = onView,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
+                    onShare = onShare,
+                    onReminder = onReminder,
+                    onPin = onPin,
+                    onArchive = onArchive,
+                    modifier = modifier
+                )
+            }
         }
     }
 }
 
-// List View (compact horizontal layout)
+// List View (compact horizontal layout with swipe-to-action)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotesListView(
     notes: List<dataclass>,
@@ -227,7 +289,9 @@ private fun NotesListView(
     onEdit: (dataclass) -> Unit,
     onDelete: (dataclass) -> Unit,
     onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit,
+    onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -244,15 +308,60 @@ private fun NotesListView(
             items = notes,
             key = { _, note -> note.id }
         ) { index, note ->
-            NoteListItem(
-                note = note,
-                index = index,
-                onView = onView,
-                onEdit = onEdit,
-                onDelete = onDelete,
-                onShare = onShare,
-                onReminder = onReminder, // Pass reminder action
+            val dismissState = rememberSwipeToDismissBoxState(
+                confirmValueChange = { dismissValue ->
+                    when (dismissValue) {
+                        SwipeToDismissBoxValue.EndToStart -> {
+                            onDelete(note)
+                            true
+                        }
+                        else -> false
+                    }
+                }
             )
+
+            SwipeToDismissBox(
+                state = dismissState,
+                enableDismissFromStartToEnd = false,
+                backgroundContent = {
+                    val color by animateColorAsState(
+                        when (dismissState.targetValue) {
+                            SwipeToDismissBoxValue.EndToStart -> NoteTheme.Error.copy(alpha = 0.15f)
+                            else -> Color.Transparent
+                        },
+                        label = "swipe_bg_list"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(NoteTheme.Radius.md.dp))
+                            .background(color)
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = null,
+                                tint = NoteTheme.Error,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.animateItem()
+            ) {
+                NoteListItem(
+                    note = note,
+                    index = index,
+                    onView = onView,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
+                    onShare = onShare,
+                    onReminder = onReminder,
+                )
+            }
         }
     }
 }
@@ -266,6 +375,8 @@ private fun NotesGridView(
     onDelete: (dataclass) -> Unit,
     onShare: (dataclass) -> Unit,
     onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit,
+    onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
@@ -302,7 +413,7 @@ private fun NotesGridView(
     }
 }
 
-// Card Item Component (enhanced with share)
+// Card Item Component (enhanced with pin/archive)
 @Composable
 private fun NoteCardItem(
     note: dataclass,
@@ -311,12 +422,15 @@ private fun NoteCardItem(
     onEdit: (dataclass) -> Unit,
     onDelete: (dataclass) -> Unit,
     onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit,
+    onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isPressed by remember { mutableStateOf(false) }
     val hapticFeedback = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
@@ -325,18 +439,23 @@ private fun NoteCardItem(
     )
 
     val cardColorPair = noteCardColors[index % noteCardColors.size]
-    // backgroundColor removed - using NoteTheme.Surface for premium white cards
-    val accentColor = cardColorPair.second
+    // Use category color if available, otherwise default accent
+    val accentColor = if (note.category.isNotBlank()) {
+        com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(context, note.category)
+            ?: cardColorPair.second
+    } else {
+        cardColorPair.second
+    }
 
     AnimatedVisibility(
         visible = true,
         enter = slideInVertically(
-            initialOffsetY = { it },
-            animationSpec = tween(durationMillis = 600, delayMillis = index * 100)
+            initialOffsetY = { it / 3 },
+            animationSpec = tween(durationMillis = 350, delayMillis = (index * 50).coerceAtMost(200))
         ) + scaleIn(
-            initialScale = 0.9f,
+            initialScale = 0.95f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-        ) + fadeIn(animationSpec = tween(durationMillis = 600, delayMillis = index * 100))
+        ) + fadeIn(animationSpec = tween(durationMillis = 300, delayMillis = (index * 50).coerceAtMost(200)))
     ) {
         Card(
             modifier = Modifier
@@ -351,22 +470,49 @@ private fun NoteCardItem(
                     onView(note)
                 },
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = 0.dp
+            colors = CardDefaults.cardColors(
+                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
             ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
             Row {
-                // Left accent stripe (3dp width)
+                // Left accent stripe — category color always
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
+                        .width(4.dp)
                         .fillMaxHeight()
                         .background(accentColor)
                 )
 
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    // Pinned pill tag — shown above title
+                    if (note.isPinned) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(NoteTheme.Warning.copy(alpha = 0.12f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.PushPin,
+                                contentDescription = null,
+                                tint = NoteTheme.Warning,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Text(
+                                text = "Pinned",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = NoteTheme.Warning,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // Title row
                     Text(
                         text = note.title,
                         style = MaterialTheme.typography.titleMedium.copy(
@@ -377,7 +523,8 @@ private fun NoteCardItem(
                         fontWeight = FontWeight.SemiBold,
                         color = NoteTheme.OnSurface,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     if (note.description.isNotEmpty()) {
@@ -418,6 +565,35 @@ private fun NoteCardItem(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Pin button — filled icon when pinned, outlined when not
+                        IconActionButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPin(note)
+                            },
+                            icon = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = if (note.isPinned) "Unpin" else "Pin",
+                            containerColor = NoteTheme.Warning.copy(alpha = if (note.isPinned) 0.18f else 0.10f),
+                            contentColor = NoteTheme.Warning
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Archive / Unarchive button — icon adapts based on note state
+                        IconActionButton(
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onArchive(note)
+                            },
+                            icon = if (note.isArchived) Icons.Outlined.Unarchive else Icons.Outlined.Archive,
+                            contentDescription = if (note.isArchived) "Unarchive" else "Archive",
+                            containerColor = NoteTheme.Success.copy(alpha = 0.10f),
+                            contentColor = NoteTheme.Success
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Share button — primary/indigo color
                         IconActionButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -425,12 +601,13 @@ private fun NoteCardItem(
                             },
                             icon = Icons.Outlined.Share,
                             contentDescription = "Share",
-                            containerColor = NoteTheme.Primary.copy(alpha = 0.1f),
+                            containerColor = NoteTheme.Primary.copy(alpha = 0.10f),
                             contentColor = NoteTheme.Primary
                         )
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
+                        // Delete button — error/red color
                         IconActionButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -438,12 +615,13 @@ private fun NoteCardItem(
                             },
                             icon = Icons.Outlined.Delete,
                             contentDescription = "Delete",
-                            containerColor = NoteTheme.Error.copy(alpha = 0.1f),
+                            containerColor = NoteTheme.Error.copy(alpha = 0.10f),
                             contentColor = NoteTheme.Error
                         )
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
+                        // Edit button — accent color (per card palette)
                         IconActionButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -451,12 +629,13 @@ private fun NoteCardItem(
                             },
                             icon = Icons.Outlined.Edit,
                             contentDescription = "Edit",
-                            containerColor = accentColor.copy(alpha = 0.1f),
+                            containerColor = accentColor.copy(alpha = 0.10f),
                             contentColor = accentColor
                         )
 
-                        // Reminder button
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Reminder button — secondary/slate color
                         IconActionButton(
                             onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -464,7 +643,7 @@ private fun NoteCardItem(
                             },
                             icon = Icons.Outlined.Alarm,
                             contentDescription = "Set Reminder",
-                            containerColor = NoteTheme.Secondary.copy(alpha = 0.1f),
+                            containerColor = NoteTheme.Secondary.copy(alpha = 0.10f),
                             contentColor = NoteTheme.Secondary
                         )
                     }
@@ -516,9 +695,9 @@ private fun NoteListItem(
     AnimatedVisibility(
         visible = true,
         enter = slideInVertically(
-            initialOffsetY = { it / 4 },
-            animationSpec = tween(durationMillis = 400, delayMillis = index * 50)
-        ) + fadeIn(animationSpec = tween(durationMillis = 400, delayMillis = index * 50))
+            initialOffsetY = { it / 5 },
+            animationSpec = tween(durationMillis = 250, delayMillis = (index * 35).coerceAtMost(150))
+        ) + fadeIn(animationSpec = tween(durationMillis = 250, delayMillis = (index * 35).coerceAtMost(150)))
     ) {
         Card(
             modifier = Modifier
@@ -533,7 +712,9 @@ private fun NoteListItem(
                     onView(note)
                 },
             shape = RoundedCornerShape(NoteTheme.Radius.md.dp),
-            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
@@ -547,14 +728,28 @@ private fun NoteListItem(
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = note.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = NoteTheme.OnSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = note.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NoteTheme.OnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (note.isPinned) {
+                            Icon(
+                                Icons.Outlined.PushPin,
+                                contentDescription = "Pinned",
+                                tint = NoteTheme.Warning,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
 
                     if (note.description.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -701,9 +896,9 @@ private fun NoteGridItem(
     AnimatedVisibility(
         visible = true,
         enter = scaleIn(
-            initialScale = 0.8f,
+            initialScale = 0.92f,
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-        ) + fadeIn(animationSpec = tween(durationMillis = 400, delayMillis = index * 100))
+        ) + fadeIn(animationSpec = tween(durationMillis = 250, delayMillis = (index * 40).coerceAtMost(150)))
     ) {
         Card(
             modifier = Modifier
@@ -719,12 +914,14 @@ private fun NoteGridItem(
                     onView(note)
                 },
             shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
-            colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = BorderStroke(1.dp, NoteTheme.Outline)
         ) {
             Box {
-                // Left accent stripe
+                // Left accent stripe �� always category color
                 Box(
                     modifier = Modifier
                         .width(3.dp)
@@ -744,14 +941,29 @@ private fun NoteGridItem(
                     ) {
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Text(
-                            text = note.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NoteTheme.OnSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        // Title with inline pin icon for pinned notes
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = note.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = NoteTheme.OnSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (note.isPinned) {
+                                Icon(
+                                    Icons.Outlined.PushPin,
+                                    contentDescription = "Pinned",
+                                    tint = NoteTheme.Warning,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
 
                         if (note.description.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
@@ -879,3 +1091,6 @@ val noteCardColors = listOf(
     Color(0xFFFFFFFF) to Color(0xFF059669), // Surface + Emerald
     Color(0xFFFFFFFF) to Color(0xFF0284C7), // Surface + Sky
 )
+
+// Pinned note visual identity — uses NoteTheme.Warning (amber) which adapts to dark/light mode
+// Use NoteTheme.Warning for NoteTheme.Warning and NoteTheme.Warning.copy(alpha = 0.08f) for NoteTheme.Warning.copy(alpha = 0.08f)

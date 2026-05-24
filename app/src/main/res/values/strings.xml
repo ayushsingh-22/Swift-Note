@@ -10,4 +10,7 @@
     <string name="no_notes_found">No notes found</string>
     <string name="offline_mode">Offline Mode</string>
     <string name="sync_notes">Sync Notes</string>
+    <string name="widget_description">Quick access to create notes and view pinned notes</string>
+    <string name="widget_name">SwiftNote Quick Capture</string>
+
 </resources>

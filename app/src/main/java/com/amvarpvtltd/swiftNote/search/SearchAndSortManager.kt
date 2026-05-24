@@ -28,7 +28,8 @@ data class SearchAndSortState(
     val searchQuery: String = "",
     val sortOption: SortOption = SortOption.DATE_CREATED_DESC,
     val filteredNotes: List<dataclass> = emptyList(),
-    val isSearchActive: Boolean = false
+    val isSearchActive: Boolean = false,
+    val categoryFilter: String = "" // Empty = "All"
 )
 
 /**
@@ -45,6 +46,7 @@ class SearchAndSortManager(
     private val _searchQuery = MutableStateFlow("")
     private val _sortOption = MutableStateFlow(SortOption.DATE_CREATED_DESC)
     private val _allNotes = MutableStateFlow<List<dataclass>>(initialNotes)
+    private val _categoryFilter = MutableStateFlow("")
 
     private val debouncedSearchQuery: Flow<String> = _searchQuery
         .debounce(Constants.SEARCH_DEBOUNCE_DELAY)
@@ -53,16 +55,21 @@ class SearchAndSortManager(
     val searchAndSortState: StateFlow<SearchAndSortState> = combine(
         debouncedSearchQuery,
         _sortOption,
-        _allNotes
-    ) { query: String, sort: SortOption, notes: List<dataclass> ->
-        val filtered: List<dataclass> = if (query.isBlank()) notes
-                                        else searchNotes(notes, query)
+        _allNotes,
+        _categoryFilter
+    ) { query: String, sort: SortOption, notes: List<dataclass>, category: String ->
+        // Apply category filter before search/sort so category chips behave predictably.
+        val categoryFiltered = if (category.isBlank()) notes
+                               else notes.filter { it.category.equals(category, ignoreCase = true) }
+        val filtered: List<dataclass> = if (query.isBlank()) categoryFiltered
+                                        else searchNotes(categoryFiltered, query)
         val sorted: List<dataclass> = sortNotes(filtered, sort)
         SearchAndSortState(
             searchQuery = query,
             sortOption = sort,
             filteredNotes = sorted,
-            isSearchActive = query.isNotBlank()
+            isSearchActive = query.isNotBlank(),
+            categoryFilter = category
         )
     }.stateIn(
         scope = scope,
@@ -70,10 +77,16 @@ class SearchAndSortManager(
         initialValue = SearchAndSortState(filteredNotes = initialNotes)
     )
 
+    /** Get distinct categories that have at least one note */
+    val availableCategories: StateFlow<List<String>> = _allNotes
+        .map { notes -> notes.mapNotNull { it.category.ifBlank { null } }.distinct().sorted() }
+        .stateIn(scope = scope, started = SharingStarted.Eagerly, initialValue = emptyList())
+
     fun updateSearchQuery(query: String) { _searchQuery.value = query }
     fun updateSortOption(sortOption: SortOption) { _sortOption.value = sortOption }
     fun updateNotes(notes: List<dataclass>) { _allNotes.value = notes }
     fun clearSearch() { _searchQuery.value = "" }
+    fun updateCategoryFilter(category: String) { _categoryFilter.value = category }
 
     private fun searchNotes(notes: List<dataclass>, query: String): List<dataclass> {
         if (query.isBlank()) return notes
@@ -102,16 +115,29 @@ class SearchAndSortManager(
         val collator = Collator.getInstance(Locale.getDefault()).apply {
             strength = Collator.SECONDARY
         }
-        return when (sortOption) {
-            SortOption.DATE_CREATED_DESC  -> notes.sortedByDescending { it.timestamp }
-            SortOption.DATE_CREATED_ASC   -> notes.sortedBy { it.timestamp }
-            SortOption.DATE_MODIFIED_DESC -> notes.sortedByDescending { it.updatedAt }
-            SortOption.DATE_MODIFIED_ASC  -> notes.sortedBy { it.updatedAt }
-            SortOption.TITLE_ASC          -> notes.sortedWith { a, b -> collator.compare(a.title.trim(), b.title.trim()) }
-            SortOption.TITLE_DESC         -> notes.sortedWith { a, b -> collator.compare(b.title.trim(), a.title.trim()) }
-            SortOption.CONTENT_LENGTH_DESC -> notes.sortedByDescending { it.title.length + it.description.length }
-            SortOption.CONTENT_LENGTH_ASC  -> notes.sortedBy { it.title.length + it.description.length }
+        // Always keep pinned notes at the top regardless of sort
+        val (pinned, unpinned) = notes.partition { it.isPinned }
+        val sortedUnpinned = when (sortOption) {
+            SortOption.DATE_CREATED_DESC  -> unpinned.sortedByDescending { it.timestamp }
+            SortOption.DATE_CREATED_ASC   -> unpinned.sortedBy { it.timestamp }
+            SortOption.DATE_MODIFIED_DESC -> unpinned.sortedByDescending { it.updatedAt }
+            SortOption.DATE_MODIFIED_ASC  -> unpinned.sortedBy { it.updatedAt }
+            SortOption.TITLE_ASC          -> unpinned.sortedWith { a, b -> collator.compare(a.title.trim(), b.title.trim()) }
+            SortOption.TITLE_DESC         -> unpinned.sortedWith { a, b -> collator.compare(b.title.trim(), a.title.trim()) }
+            SortOption.CONTENT_LENGTH_DESC -> unpinned.sortedByDescending { it.title.length + it.description.length }
+            SortOption.CONTENT_LENGTH_ASC  -> unpinned.sortedBy { it.title.length + it.description.length }
         }
+        val sortedPinned = when (sortOption) {
+            SortOption.DATE_CREATED_DESC  -> pinned.sortedByDescending { it.timestamp }
+            SortOption.DATE_CREATED_ASC   -> pinned.sortedBy { it.timestamp }
+            SortOption.DATE_MODIFIED_DESC -> pinned.sortedByDescending { it.updatedAt }
+            SortOption.DATE_MODIFIED_ASC  -> pinned.sortedBy { it.updatedAt }
+            SortOption.TITLE_ASC          -> pinned.sortedWith { a, b -> collator.compare(a.title.trim(), b.title.trim()) }
+            SortOption.TITLE_DESC         -> pinned.sortedWith { a, b -> collator.compare(b.title.trim(), a.title.trim()) }
+            SortOption.CONTENT_LENGTH_DESC -> pinned.sortedByDescending { it.title.length + it.description.length }
+            SortOption.CONTENT_LENGTH_ASC  -> pinned.sortedBy { it.title.length + it.description.length }
+        }
+        return sortedPinned + sortedUnpinned
     }
 
     companion object {

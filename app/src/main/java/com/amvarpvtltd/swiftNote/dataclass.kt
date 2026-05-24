@@ -80,7 +80,11 @@ data class Note(
     var id: String = UUID.randomUUID().toString(),
     var mymobiledeviceid: String = myGlobalMobileDeviceId,
     var timestamp: Long = System.currentTimeMillis(),
-    var updatedAt: Long = System.currentTimeMillis()
+    var updatedAt: Long = System.currentTimeMillis(),
+    val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
+    val category: String = "",
+    val colorKey: String? = null
 ) {
     // Encrypted versions for Firebase storage
     fun getEncryptedTitle(): String {
@@ -103,7 +107,11 @@ data class Note(
             id = id,
             mymobiledeviceid = mymobiledeviceid,
             timestamp = timestamp,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            isPinned = isPinned,
+            isArchived = isArchived,
+            category = category,
+            colorKey = colorKey
         )
     }
 
@@ -122,7 +130,11 @@ data class Note(
                     id = encryptedData.id,
                     mymobiledeviceid = encryptedData.mymobiledeviceid,
                     timestamp = encryptedData.timestamp,
-                    updatedAt = encryptedData.updatedAt
+                    updatedAt = encryptedData.updatedAt,
+                    isPinned = encryptedData.isPinned,
+                    isArchived = encryptedData.isArchived,
+                    category = encryptedData.category,
+                    colorKey = encryptedData.colorKey
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error in fromEncryptedData for note ${encryptedData.id}", e)

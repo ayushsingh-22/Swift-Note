@@ -12,7 +12,11 @@ object NoteEntityMapper {
             mymobiledeviceid = domain.mymobiledeviceid,
             timestamp = domain.timestamp,
             synced = synced,
-            updatedAt = domain.updatedAt
+            updatedAt = domain.updatedAt,
+            isPinned = domain.isPinned,
+            isArchived = domain.isArchived,
+            category = domain.category,
+            colorKey = domain.colorKey
         )
     }
 
@@ -24,7 +28,11 @@ object NoteEntityMapper {
             id = entity.id,
             mymobiledeviceid = entity.mymobiledeviceid,
             timestamp = entity.timestamp,
-            updatedAt = if (entity.updatedAt > 0) entity.updatedAt else entity.timestamp
+            updatedAt = if (entity.updatedAt > 0) entity.updatedAt else entity.timestamp,
+            isPinned = entity.isPinned,
+            isArchived = entity.isArchived,
+            category = entity.category,
+            colorKey = entity.colorKey
         )
         // Decrypt and return fresh dataclass
         return dataclass.fromEncryptedData(encrypted)

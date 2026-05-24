@@ -177,6 +177,135 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Phase 4: Toggle pin status.
+     */
+    fun togglePin(noteId: String, currentlyPinned: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                noteRepository.togglePin(noteId, !currentlyPinned)
+                val action = if (!currentlyPinned) "📌 Note pinned" else "📌 Note unpinned"
+                _uiEvent.emit(UiEvent.ShowToast(action))
+            } catch (e: Exception) {
+                _uiEvent.emit(UiEvent.ShowToast("❌ Failed to update pin status"))
+            }
+        }
+    }
+
+    /**
+     * Phase 4: Archive a note.
+     */
+    fun archiveNote(noteId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                noteRepository.toggleArchive(noteId, true)
+                _uiEvent.emit(UiEvent.ShowToast("📦 Note archived"))
+            } catch (e: Exception) {
+                _uiEvent.emit(UiEvent.ShowToast("❌ Failed to archive note"))
+            }
+        }
+    }
+
+    /**
+     * Phase 4: Unarchive a note.
+     */
+    fun unarchiveNote(noteId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                noteRepository.toggleArchive(noteId, false)
+                _uiEvent.emit(UiEvent.ShowToast("📦 Note restored from archive"))
+            } catch (e: Exception) {
+                _uiEvent.emit(UiEvent.ShowToast("❌ Failed to unarchive note"))
+            }
+        }
+    }
+
+    /**
+     * Phase 4: Update note category.
+     */
+    fun updateCategory(noteId: String, category: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                noteRepository.updateCategory(noteId, category)
+            } catch (e: Exception) {
+                _uiEvent.emit(UiEvent.ShowToast("❌ Failed to update category"))
+            }
+        }
+    }
+
+    /**
+     * Seeds one sample note per default category so the UI has data to display.
+     * Only runs when there are no existing notes.
+     */
+    fun seedDemoNotes() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (notes.value.isNotEmpty()) return@launch
+
+            data class DemoNote(val title: String, val description: String, val category: String)
+
+            val checklistV1 = "[[CHECKLIST_V1]]"
+            val demos = listOf(
+                DemoNote(
+                    title = "Weekend Plans",
+                    description = "• Visit the local farmers market in the morning\n• Call parents in the afternoon\n• Movie night with friends – don't forget snacks!\n• Prep clothes for the week",
+                    category = "Personal"
+                ),
+                DemoNote(
+                    title = "Q2 Project Goals",
+                    description = "• Launch redesigned onboarding flow by April 15\n• Reduce user drop-off by 20%\n• Conduct 5 user-research interviews\n• Align with design team on component library\n• Weekly stand-ups every Monday 10 AM",
+                    category = "Work"
+                ),
+                DemoNote(
+                    title = "Grocery Checklist",
+                    description = "$checklistV1[{\"id\":\"1\",\"text\":\"Milk (2 litres)\",\"isChecked\":false,\"order\":0},{\"id\":\"2\",\"text\":\"Eggs (12 pack)\",\"isChecked\":true,\"order\":1},{\"id\":\"3\",\"text\":\"Bread\",\"isChecked\":false,\"order\":2},{\"id\":\"4\",\"text\":\"Olive oil\",\"isChecked\":false,\"order\":3},{\"id\":\"5\",\"text\":\"Fresh vegetables\",\"isChecked\":false,\"order\":4},{\"id\":\"6\",\"text\":\"Greek yogurt\",\"isChecked\":true,\"order\":5}]",
+                    category = "Shopping"
+                ),
+                DemoNote(
+                    title = "Morning Routine",
+                    description = "$checklistV1[{\"id\":\"1\",\"text\":\"Wake up at 6:30 AM\",\"isChecked\":false,\"order\":0},{\"id\":\"2\",\"text\":\"10 min meditation\",\"isChecked\":false,\"order\":1},{\"id\":\"3\",\"text\":\"30 min workout\",\"isChecked\":false,\"order\":2},{\"id\":\"4\",\"text\":\"Healthy breakfast\",\"isChecked\":false,\"order\":3},{\"id\":\"5\",\"text\":\"Review daily goals\",\"isChecked\":false,\"order\":4}]",
+                    category = "Health"
+                ),
+                DemoNote(
+                    title = "Monthly Budget",
+                    description = "💰 Income: ₹85,000\n\nFixed Expenses:\n  • Rent – ₹22,000\n  • EMI – ₹12,500\n  • Utilities – ₹3,200\n\nVariable Expenses:\n  • Groceries – ₹8,000\n  • Dining out – ₹4,000\n  • Entertainment – ₹2,500\n\nSavings goal: ₹15,000\n📈 Investment SIP: ₹10,000",
+                    category = "Finance"
+                ),
+                DemoNote(
+                    title = "Goa Trip Plans 🌊",
+                    description = "Dates: 15–20 December\nBudget: ₹25,000 per person\n\nTo-do:\n• Book flights (IndiGo / Air India)\n• Reserve beachside hotel at Calangute\n• Rent a scooter for sightseeing\n\nMust visit:\n• Dudhsagar Falls\n• Basilica of Bom Jesus\n• Anjuna Flea Market\n• Spice plantation tour",
+                    category = "Travel"
+                ),
+                DemoNote(
+                    title = "App Feature Ideas 💡",
+                    description = "1. Collaborative notes with real-time editing\n2. Voice-to-note transcription using on-device AI\n3. Smart auto-tagging from note content\n4. Handwriting-to-text conversion\n5. Weekly digest email of top notes\n6. Note graph – visualise connections\n7. Dark/Light/AMOLED themes\n8. Custom note templates",
+                    category = "Ideas"
+                ),
+                DemoNote(
+                    title = "Books to Read 📚",
+                    description = "$checklistV1[{\"id\":\"1\",\"text\":\"Atomic Habits – James Clear\",\"isChecked\":true,\"order\":0},{\"id\":\"2\",\"text\":\"Deep Work – Cal Newport\",\"isChecked\":false,\"order\":1},{\"id\":\"3\",\"text\":\"The Psychology of Money – Morgan Housel\",\"isChecked\":false,\"order\":2},{\"id\":\"4\",\"text\":\"Zero to One – Peter Thiel\",\"isChecked\":false,\"order\":3},{\"id\":\"5\",\"text\":\"Sapiens – Yuval Noah Harari\",\"isChecked\":false,\"order\":4},{\"id\":\"6\",\"text\":\"The Lean Startup – Eric Ries\",\"isChecked\":false,\"order\":5}]",
+                    category = "Learning"
+                )
+            )
+
+            try {
+                demos.forEach { demo ->
+                    noteRepository.saveNote(
+                        title = demo.title,
+                        description = demo.description,
+                        context = context,
+                        category = demo.category
+                    )
+                    // small delay so timestamps are distinct
+                    delay(5)
+                }
+                _uiEvent.emit(UiEvent.ShowToast("🎉 Demo notes loaded! One for each category."))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to seed demo notes", e)
+                _uiEvent.emit(UiEvent.ShowToast("❌ Could not load demo notes"))
+            }
+        }
+    }
+
     private fun startAutoSync() {
         autoSyncManager.startAutoSync()
     }

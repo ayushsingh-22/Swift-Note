@@ -40,6 +40,7 @@ import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.design.NotesScreen
 import com.amvarpvtltd.swiftNote.design.ViewNoteScreen
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
+import com.amvarpvtltd.swiftNote.share.SharedNoteData
 import com.amvarpvtltd.swiftNote.sync.SyncManager
 import com.amvarpvtltd.swiftNote.test.SmartChipsTestDataSeeder
 import com.amvarpvtltd.swiftNote.theme.AppThemeState
@@ -103,6 +104,65 @@ fun MyApp(modifier: Modifier = Modifier) {
             // Reset the noteId after navigation
             noteIdToOpen.value = null
             MainActivity.noteIdToOpen.value = null
+        }
+    }
+
+    // Phase 5: Handle pending actions from share/widget
+    val pendingAction = remember { mutableStateOf<MainActivity.QuickAction?>(null) }
+
+    DisposableEffect(Unit) {
+        val observer = androidx.lifecycle.Observer<MainActivity.QuickAction?> { action ->
+            pendingAction.value = action
+        }
+        MainActivity.pendingAction.observeForever(observer)
+        onDispose {
+            MainActivity.pendingAction.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(pendingAction.value) {
+        val action = pendingAction.value
+        if (action != null && !isInitializing) {
+            when (action) {
+                is MainActivity.QuickAction.QuickSave -> {
+                    // Save the note directly via repository
+                    Log.d("MyApp", "💾 Quick saving note from share")
+                    try {
+                        val repo = com.amvarpvtltd.swiftNote.repository.NoteRepository.getInstance(context)
+                        repo.saveNote(
+                            title = action.title,
+                            description = action.description,
+                            context = context
+                        )
+                        android.widget.Toast.makeText(context, "Note saved!", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Log.e("MyApp", "Failed to quick save", e)
+                        android.widget.Toast.makeText(context, "Failed to save note", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                is MainActivity.QuickAction.OpenEditor -> {
+                    navController.navigate("addscreen") {
+                        popUpTo("main") { inclusive = false }
+                    }
+                    // The shared content will be passed via SharedNoteData
+                    SharedNoteData.title = action.title
+                    SharedNoteData.description = action.description
+                }
+                is MainActivity.QuickAction.CreateNote -> {
+                    navController.navigate("addscreen") {
+                        popUpTo("main") { inclusive = false }
+                    }
+                }
+                is MainActivity.QuickAction.CreateChecklist -> {
+                    // Navigate to add screen — checklist mode will be activated
+                    SharedNoteData.startAsChecklist = true
+                    navController.navigate("addscreen") {
+                        popUpTo("main") { inclusive = false }
+                    }
+                }
+            }
+            pendingAction.value = null
+            MainActivity.pendingAction.value = null
         }
     }
 
@@ -294,6 +354,11 @@ fun NavigationComponent(navController: NavHostController, startDestination: Stri
         // AI Settings (Gemini API Key management)
         composable("aiSettings") {
             com.amvarpvtltd.swiftNote.design.AISettingsScreen(navController)
+        }
+
+        // Phase 4: Archive screen
+        composable("archive") {
+            com.amvarpvtltd.swiftNote.design.ArchiveScreen(navController)
         }
     }
 }

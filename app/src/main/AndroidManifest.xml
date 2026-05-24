@@ -62,6 +62,35 @@
             </intent-filter>
         </activity>
 
+        <!-- Phase 5A: Share-to-SwiftNote receiver activity -->
+        <activity
+            android:name=".share.ShareReceiverActivity"
+            android:exported="true"
+            android:label="SwiftNote"
+            android:theme="@style/Theme.SelfNote.Transparent"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="standard">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Phase 5B: Home Screen Widget -->
+        <receiver
+            android:name=".widget.QuickNoteWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_note_widget_info" />
+        </receiver>
+
         <!-- Smart Reminder receivers -->
         <receiver
             android:name=".reminders.ReminderReceiver"

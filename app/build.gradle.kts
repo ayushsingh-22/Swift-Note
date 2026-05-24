@@ -137,6 +137,10 @@ dependencies {
     // Browser (Custom Tabs for Smart Action Chips)
     implementation("androidx.browser:browser:1.8.0")
 
+    // Glance (App Widget)
+    implementation(libs.glance.appwidget)
+    implementation(libs.glance.material3)
+
     // Security (EncryptedSharedPreferences for API key storage)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 

@@ -158,6 +158,22 @@ class OfflineNoteManager(context: Context) {
         }
     }
 
+    /**
+     * Get ALL notes including archived — used for sync conflict resolution.
+     * Without this, archived notes are invisible to the sync map and get overwritten by stale cloud data.
+     */
+    suspend fun getAllNotesIncludingArchived(): List<dataclass> {
+        return try {
+            withContext(Dispatchers.IO) {
+                val entities = noteDao.getAllNotesIncludingArchived()
+                entities.map { NoteEntityMapper.toDomain(it) }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting all notes including archived", e)
+            emptyList()
+        }
+    }
+
     suspend fun getPendingSyncNotes(): List<dataclass> {
         return try {
             withContext(Dispatchers.IO) {

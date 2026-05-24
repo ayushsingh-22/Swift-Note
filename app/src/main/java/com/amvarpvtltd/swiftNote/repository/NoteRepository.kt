@@ -66,6 +66,70 @@ class NoteRepository(val context: Context? = null) {
     }
 
     /**
+     * Observe archived notes reactively via Room Flow.
+     */
+    fun observeArchivedNotes(): Flow<List<dataclass>> {
+        require(context != null) { "No context available for observeArchivedNotes" }
+        val db = AppDatabase.getInstance(context)
+        return db.noteDao().observeArchivedNotes()
+            .map { entities -> entities.map { NoteEntityMapper.toDomain(it) } }
+            .flowOn(Dispatchers.IO)
+    }
+
+    /**
+     * Toggle pin status for a note.
+     */
+    suspend fun togglePin(noteId: String, isPinned: Boolean) = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext
+        val db = AppDatabase.getInstance(ctx)
+        db.noteDao().updatePinStatus(noteId, isPinned)
+        // Try to sync updated note to cloud
+        syncSingleNote(noteId)
+        // Phase 5B: Refresh widget to reflect pin change
+        com.amvarpvtltd.swiftNote.widget.WidgetUpdateWorker.refreshNow(ctx)
+    }
+
+    /**
+     * Toggle archive status for a note.
+     */
+    suspend fun toggleArchive(noteId: String, isArchived: Boolean) = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext
+        val db = AppDatabase.getInstance(ctx)
+        db.noteDao().updateArchiveStatus(noteId, isArchived)
+        syncSingleNote(noteId)
+    }
+
+    /**
+     * Update category for a note.
+     */
+    suspend fun updateCategory(noteId: String, category: String) = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext
+        val db = AppDatabase.getInstance(ctx)
+        db.noteDao().updateCategory(noteId, category)
+        syncSingleNote(noteId)
+    }
+
+    /**
+     * Sync a single note to Firebase after local update.
+     */
+    private suspend fun syncSingleNote(noteId: String) {
+        val ctx = context ?: return
+        val networkManager = NetworkManager.getInstance(ctx)
+        if (networkManager.isConnected()) {
+            try {
+                val db = AppDatabase.getInstance(ctx)
+                val entity = db.noteDao().getNoteById(noteId) ?: return
+                val note = NoteEntityMapper.toDomain(entity)
+                val encryptedNote = note.toEncryptedData()
+                resolveNotesRef().child(noteId).setValue(encryptedNote).await()
+                db.noteDao().update(entity.copy(synced = true))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to sync note $noteId after update: ${e.message}")
+            }
+        }
+    }
+
+    /**
      * Save a new note or update an existing one - OFFLINE FIRST
      * Always saves to Room database first, then attempts cloud sync
      */
@@ -73,17 +137,27 @@ class NoteRepository(val context: Context? = null) {
         title: String,
         description: String,
         noteId: String? = null,
-        context: Context
+        context: Context,
+        category: String? = null
     ): Result<String> {
-        val note = dataclass(title = title.trim(), description = description.trim())
-        // Ensure note carries the current device id
-        val deviceIdForNote = DeviceManager.getOrCreateDeviceId(context)
-        note.mymobiledeviceid = deviceIdForNote
-        if (noteId != null) {
-            note.id = noteId
+        val existingNote = noteId?.let { id ->
+            offlineManager?.getNoteById(id)
+                ?: loadExistingNoteFromDb(id, context) // pass context param so isPinned/isArchived are preserved
         }
-        // Always update the updatedAt timestamp on save/update
-        note.updatedAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        val note = (existingNote ?: dataclass()).copy(
+            title = title.trim(),
+            description = description.trim(),
+            id = noteId ?: existingNote?.id ?: dataclass().id,
+            mymobiledeviceid = DeviceManager.getOrCreateDeviceId(context),
+            timestamp = existingNote?.timestamp ?: now,
+            updatedAt = now,
+            category = category ?: existingNote?.category.orEmpty(),
+            // Explicitly preserve pin/archive state so editing never silently resets them
+            isPinned = existingNote?.isPinned ?: false,
+            isArchived = existingNote?.isArchived ?: false
+        )
+        // Ensure note carries the current device id
 
         // ALWAYS save to Room database first (offline-first)
         val manager = offlineManager ?: return Result.failure(Exception("No context available"))
@@ -115,6 +189,14 @@ class NoteRepository(val context: Context? = null) {
         }
 
         return Result.success(note.id)
+    }
+
+    private suspend fun loadExistingNoteFromDb(noteId: String, override: Context? = null): dataclass? = withContext(Dispatchers.IO) {
+        val ctx = override ?: context ?: return@withContext null
+        AppDatabase.getInstance(ctx)
+            .noteDao()
+            .getNoteById(noteId)
+            ?.let(NoteEntityMapper::toDomain)
     }
 
     /**
@@ -272,7 +354,9 @@ class NoteRepository(val context: Context? = null) {
             }
 
             // SECOND: Get current local notes to check for conflicts
-            val localNotes = offlineManager.getAllNotes()
+            // IMPORTANT: Use getAllNotesIncludingArchived() so archived notes appear in the map.
+            // Without this, archived notes are invisible and cloud data overwrites them with isArchived=false.
+            val localNotes = offlineManager.getAllNotesIncludingArchived()
             val localNoteMap = localNotes.associateBy { it.id }
             val pendingDeletionIds = pendingDeletions.map { it.noteId }.toSet()
 
@@ -320,8 +404,23 @@ class NoteRepository(val context: Context? = null) {
             }
 
             // FOURTH: Update local database with cloud notes that passed conflict checks
+            // IMPORTANT: Preserve local pin/archive/category state during cloud sync.
+            // These are user-intent fields that should never be overwritten by stale cloud data.
             cloudNotes.forEach { note ->
-                offlineManager.saveNoteOffline(note, synced = true)
+                val localNote = localNoteMap[note.id]
+                val mergedNote = if (localNote != null) {
+                    // Preserve local pin/archive/category - they may have been updated locally
+                    // but not yet synced to cloud (race condition protection)
+                    note.copy(
+                        isPinned = localNote.isPinned,
+                        isArchived = localNote.isArchived,
+                        category = localNote.category.ifBlank { note.category },
+                        colorKey = localNote.colorKey ?: note.colorKey
+                    )
+                } else {
+                    note
+                }
+                offlineManager.saveNoteOffline(mergedNote, synced = true)
             }
 
             Log.d(TAG, "Background sync completed: ${cloudNotes.size} notes from cloud, ${pendingDeletions.size} deletions processed")

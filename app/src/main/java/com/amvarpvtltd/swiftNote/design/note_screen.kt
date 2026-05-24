@@ -1,26 +1,49 @@
 package com.amvarpvtltd.swiftNote.design
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -30,9 +53,12 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,7 +91,6 @@ import com.amvarpvtltd.swiftNote.components.ViewModeToggleButton
 import com.amvarpvtltd.swiftNote.components.rememberViewModeState
 import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.search.rememberSearchAndSortManager
-import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.amvarpvtltd.swiftNote.utils.AutoSyncManager
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
@@ -75,6 +100,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+
+/**
+ * Dynamic greeting based on time of day
+ */
+private fun getGreeting(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> "Good morning ☀️"
+        in 12..16 -> "Good afternoon"
+        in 17..20 -> "Good evening 🌅"
+        else -> "Good night 🌙"
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -97,8 +136,6 @@ fun NotesScreen(navController: NavHostController) {
     val hasPendingSync by viewModel.autoSyncManager.hasPendingSync.collectAsStateWithLifecycle()
 
     // Search and Sort — pre-seeded with current notes so no empty-state flash on nav-back.
-    // With SharingStarted.Eagerly on NotesViewModel.notes, `notes` already has cached data
-    // at first composition after navigation back.
     val searchAndSortManager = rememberSearchAndSortManager(initialNotes = notes)
     val searchAndSortState by searchAndSortManager.searchAndSortState.collectAsStateWithLifecycle()
     var showSortSheet by remember { mutableStateOf(false) }
@@ -108,16 +145,13 @@ fun NotesScreen(navController: NavHostController) {
     var isSearchActive by remember { mutableStateOf(false) }
 
     // Theme — observe the global AppThemeState singleton.
-    // This is the same StateFlow that MyApp's ProvideNoteTheme observes, so toggling here
-    // immediately updates ProvideNoteTheme and NoteTheme colors everywhere in the app.
     val currentTheme by com.amvarpvtltd.swiftNote.theme.AppThemeState.themeMode.collectAsStateWithLifecycle()
 
     // View mode management
     val viewModeState = rememberViewModeState()
     var currentViewMode by viewModeState
 
-    // Adaptive icon colors — computed once, reused for both action buttons
-    // (was inside run{} blocks, recomputed on every recomposition — now memoized)
+    // Adaptive icon colors
     val (adaptiveIconContainer, adaptiveIconContent) = remember(NoteTheme.Background, NoteTheme.Secondary) {
         com.amvarpvtltd.swiftNote.components.adaptiveIconColors(NoteTheme.Background, NoteTheme.Secondary)
     }
@@ -132,7 +166,13 @@ fun NotesScreen(navController: NavHostController) {
     var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
     val reminderRepository = remember { com.amvarpvtltd.swiftNote.reminders.ReminderRepository(context) }
 
-    // Phase 0.4: Undo-delete Snackbar
+    // Quick stats (derived state — no extra recomposition)
+    val pinnedCount by remember { derivedStateOf { notes.count { it.isPinned } } }
+
+    // Pull-to-refresh state
+    val pullToRefreshState = rememberPullToRefreshState()
+
+    // Undo-delete Snackbar
     val snackbarHostState = remember { SnackbarHostState() }
     val pendingDelete by viewModel.pendingDelete.collectAsStateWithLifecycle()
 
@@ -151,8 +191,7 @@ fun NotesScreen(navController: NavHostController) {
         }
     }
 
-    // Monitor offline state — only key on isOnline, NOT on notes
-    // (was: LaunchedEffect(isOnline, notes) which restarted the 2s delay on every DB change)
+    // Monitor offline state
     LaunchedEffect(isOnline) {
         if (!isOnline) {
             showOfflineBanner = true
@@ -172,7 +211,7 @@ fun NotesScreen(navController: NavHostController) {
         searchAndSortManager.updateNotes(notes)
     }
 
-    // Save view mode when it changes — on IO to avoid main-thread SharedPreferences write
+    // Save view mode when it changes
     LaunchedEffect(currentViewMode) {
         withContext(Dispatchers.IO) {
             com.amvarpvtltd.swiftNote.components.ViewModeManager.setViewMode(context, currentViewMode)
@@ -197,15 +236,13 @@ fun NotesScreen(navController: NavHostController) {
     // Delete note delegates to ViewModel
     fun deleteNote(noteId: String) { viewModel.deleteNote(noteId) }
 
-    // Share note function (UI-only — no business logic)
+    // Share note function
     fun shareNote(note: dataclass) {
         ShareUtils.shareNote(context, note)
     }
 
     // Sync function delegates to ViewModel
     fun syncNotes() { viewModel.syncNotes() }
-
-    // Initial load handled by ViewModel init{}
 
     // Cleanup when screen is disposed
     DisposableEffect(Unit) {
@@ -228,146 +265,241 @@ fun NotesScreen(navController: NavHostController) {
         }
     }
 
-    // Theme persistence is handled inside AppThemeState.setTheme() — no LaunchedEffect needed here
-
-    // Theme already provided by MyApp's ProvideNoteTheme — no double-wrap needed
     NoteScreenBackground {
-            Scaffold(
-                containerColor = Color.Transparent,
-                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-                topBar = {
-                    Column {
+        Scaffold(
+            containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            topBar = {
+                Column(
+                    modifier = Modifier.animateContentSize(
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+                    )
+                ) {
+                    // Offline banner at the top
+                    OfflineBanner(
+                        isVisible = showOfflineBanner && !isOnline,
+                        message = "You're offline. Notes are cached locally and will sync when connected.",
+                        onDismiss = { showOfflineBanner = false }
+                    )
 
-                        // Add offline banner at the top
-                        OfflineBanner(
-                            isVisible = showOfflineBanner && !isOnline,
-                            message = "You're offline. Notes are cached locally and will sync when connected.",
-                            onDismiss = { showOfflineBanner = false }
-                        )
+                    // ─── Premium Top Bar ─────────────────────────────────────
+                    TopAppBar(
+                        title = {
+                            Column {
+                                // Greeting text
+                                Text(
+                                    text = getGreeting(),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = NoteTheme.OnSurfaceVariant,
+                                    fontWeight = FontWeight.Medium,
+                                    letterSpacing = 0.3.sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                // Title with note count
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "My Notes",
+                                        fontWeight = FontWeight.Black,
+                                        color = NoteTheme.OnSurface,
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontSize = 28.sp,
+                                        letterSpacing = (-0.8).sp
+                                    )
 
-                        // Main top bar with only title and theme toggle
-                        TopAppBar(
-                            title = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column {
-                                            Text(
-                                                text = "My Notes",
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = NoteTheme.OnSurface,
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontSize = 30.sp,
-                                                letterSpacing = (-0.8).sp
-                                            )
-                                            if (notes.isNotEmpty()) {
+                                    if (notes.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        // Animated note count badge
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    color = NoteTheme.Primary.copy(alpha = 0.1f),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            AnimatedContent(
+                                                targetState = notes.size,
+                                                transitionSpec = {
+                                                    (slideInVertically { -it } + fadeIn()).togetherWith(
+                                                        slideOutVertically { it } + fadeOut()
+                                                    )
+                                                },
+                                                label = "note_count"
+                                            ) { count ->
                                                 Text(
-                                                    text = "${notes.size} note${if (notes.size != 1) "s" else ""}",
+                                                    text = "$count",
                                                     style = MaterialTheme.typography.labelMedium,
-                                                    color = NoteTheme.OnSurfaceVariant,
-                                                    fontWeight = FontWeight.Normal
+                                                    color = NoteTheme.Primary,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         }
-
-                                        if (isRefreshingState) {
-                                            Spacer(modifier = Modifier.width(Constants.CORNER_RADIUS_SMALL.dp))
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp),
-                                                strokeWidth = 2.dp,
-                                                color = NoteTheme.Primary
-                                            )
-                                        }
                                     }
 
-                                    Row(verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.offset(x = (-15).dp)) {
-                                        // Only keep sync status and theme toggle in top bar
-                                        SyncStatusIndicator(
-                                            isOnline = isOnline,
-                                            hasPendingSync = hasPendingSync,
-                                            isSyncing = isSyncing,
-                                            onSyncClick = { syncNotes() }
-                                        )
-
+                                    if (isRefreshingState) {
                                         Spacer(modifier = Modifier.width(12.dp))
-
-                                        // Sync settings button (adaptive colors)
-                                        IconActionButton(
-                                            onClick = { navController.navigate("syncSettings") },
-                                            icon = Icons.Outlined.Person,
-                                            contentDescription = "Sync Settings",
-                                            containerColor = adaptiveIconContainer,
-                                            contentColor = adaptiveIconContent
-                                        )
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        // AI Settings button
-                                        IconActionButton(
-                                            onClick = { navController.navigate("aiSettings") },
-                                            icon = Icons.Outlined.AutoAwesome,
-                                            contentDescription = "AI Settings",
-                                            containerColor = adaptiveIconContainer,
-                                            contentColor = adaptiveIconContent
-                                        )
-
-                                        Spacer(modifier = Modifier.width(12.dp))
-
-                                        // Theme toggle button — updates global AppThemeState
-                                        ThemeToggleButton(
-                                            currentTheme = currentTheme,
-                                            onThemeChange = { newTheme ->
-                                                com.amvarpvtltd.swiftNote.theme.AppThemeState.setTheme(context, newTheme)
-                                            }
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = NoteTheme.Primary
                                         )
                                     }
                                 }
-                            },
-                            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                        )
+                            }
+                        },
+                        actions = {
+                            // Sync status
+                            SyncStatusIndicator(
+                                isOnline = isOnline,
+                                hasPendingSync = hasPendingSync,
+                                isSyncing = isSyncing,
+                                onSyncClick = { syncNotes() }
+                            )
 
-                        // Search bar
-                        SearchBar(
-                            searchQuery = searchAndSortState.searchQuery,
-                            onSearchQueryChange = { localSearchQuery = it },
-                            isSearchActive = isSearchActive,
-                            onSearchActiveChange = { isSearchActive = it },
-                            onClearSearch = {
-                                searchAndSortManager.clearSearch()
-                                isSearchActive = false
-                            },
-                            modifier = Modifier.padding(horizontal = Constants.PADDING_MEDIUM.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
 
-                        )
+                            // Sync settings
+                            IconActionButton(
+                                onClick = { navController.navigate("syncSettings") },
+                                icon = Icons.Outlined.Person,
+                                contentDescription = "Sync Settings",
+                                containerColor = adaptiveIconContainer,
+                                contentColor = adaptiveIconContent
+                            )
 
-                        // Move view mode and sort buttons below search bar
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // AI Settings
+                            IconActionButton(
+                                onClick = { navController.navigate("aiSettings") },
+                                icon = Icons.Outlined.AutoAwesome,
+                                contentDescription = "AI Settings",
+                                containerColor = adaptiveIconContainer,
+                                contentColor = adaptiveIconContent
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Theme toggle
+                            ThemeToggleButton(
+                                currentTheme = currentTheme,
+                                onThemeChange = { newTheme ->
+                                    com.amvarpvtltd.swiftNote.theme.AppThemeState.setTheme(context, newTheme)
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.width(4.dp))
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                    )
+
+                    // ─── Search bar ──────────────────────────────────────────
+                    SearchBar(
+                        searchQuery = searchAndSortState.searchQuery,
+                        onSearchQueryChange = { localSearchQuery = it },
+                        isSearchActive = isSearchActive,
+                        onSearchActiveChange = { isSearchActive = it },
+                        onClearSearch = {
+                            searchAndSortManager.clearSearch()
+                            isSearchActive = false
+                        },
+                        modifier = Modifier.padding(horizontal = Constants.PADDING_MEDIUM.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // ─── Quick Stats + Action Row ─────────────────────────────
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Constants.PADDING_MEDIUM.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left: Archive + Pinned quick stats
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = Constants.PADDING_MEDIUM.dp)
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.End, // Changed to Arrangement.End to move buttons to right
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Show search results count when active - moved to left side
-                            if (searchAndSortState.isSearchActive) {
+                            // Archive button with badge
+                            FilledTonalButton(
+                                onClick = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    navController.navigate("archive")
+                                },
+                                modifier = Modifier.height(36.dp),
+                                shape = RoundedCornerShape(NoteTheme.Radius.xl.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = NoteTheme.SecondaryContainer,
+                                    contentColor = NoteTheme.OnSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Archive,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Archive",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // Pinned count indicator (only show when pinned notes exist)
+                            AnimatedVisibility(
+                                visible = pinnedCount > 0,
+                                enter = scaleIn() + fadeIn(),
+                                exit = scaleOut() + fadeOut()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .background(
+                                            color = NoteTheme.Primary.copy(alpha = 0.08f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.PushPin,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = NoteTheme.Primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        "$pinnedCount",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = NoteTheme.Primary
+                                    )
+                                }
+                            }
+
+                            // Search results count
+                            AnimatedVisibility(
+                                visible = searchAndSortState.isSearchActive,
+                                enter = slideInVertically { -it } + fadeIn(),
+                                exit = slideOutVertically { -it } + fadeOut()
+                            ) {
                                 Text(
                                     text = "${searchAndSortState.filteredNotes.size} result${if (searchAndSortState.filteredNotes.size != 1) "s" else ""}",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = NoteTheme.Warning,
-                                    fontWeight = FontWeight.Medium
+                                    color = NoteTheme.Primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 6.dp)
                                 )
-
-                                Spacer(modifier = Modifier.weight(1f)) // Push buttons to right
-                            } else {
-                                Spacer(modifier = Modifier.weight(1f)) // Take up space when no search results
                             }
+                        }
 
-                            // View mode toggle button
+                        // Right: View mode + Sort
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             ViewModeToggleButton(
                                 currentViewMode = currentViewMode,
                                 onViewModeChange = { newViewMode ->
@@ -375,170 +507,240 @@ fun NotesScreen(navController: NavHostController) {
                                 }
                             )
 
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                                // Sort button (adaptive colors)
-                                IconActionButton(
-                                    onClick = {
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        showSortSheet = true
-                                    },
-                                    icon = Icons.AutoMirrored.Outlined.Sort,
-                                    contentDescription = "Sort",
-                                    containerColor = adaptiveIconContainer,
-                                    contentColor = adaptiveIconContent
-                                )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                },
-                floatingActionButton = {
-                    AnimatedFloatingActionButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            navController.navigate("addscreen")
-                        }
-                    )
-                }
-            ) { paddingValues ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                ) {
-                    when {
-                        isLoadingState -> {
-                            LoadingCard("Loading your notes...", "Please wait a moment")
-                        }
-
-                        searchAndSortState.isSearchActive && searchAndSortState.filteredNotes.isEmpty() -> {
-                            EmptyStateCard(
-                                icon = Icons.Outlined.SearchOff,
-                                title = "No results found",
-                                description = "Try adjusting your search query or filters.",
-                                buttonText = "Clear Filters",
-                                onButtonClick = {
-                                    localSearchQuery = ""
-                                    searchAndSortManager.clearSearch()
-                                }
-                            )
-                        }
-
-                        searchAndSortState.filteredNotes.isEmpty() -> {
-                            // Use the new OfflineEmptyStateCard for better offline handling
-                            OfflineEmptyStateCard(
-                                isOnline = isOnline,
-                                hasPendingSync = hasPendingSync,
-                                onCreateNoteClick = {
+                            IconActionButton(
+                                onClick = {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    navController.navigate("addscreen")
-                                }
+                                    showSortSheet = true
+                                },
+                                icon = Icons.AutoMirrored.Outlined.Sort,
+                                contentDescription = "Sort",
+                                containerColor = adaptiveIconContainer,
+                                contentColor = adaptiveIconContent
                             )
                         }
+                    }
 
-                        else -> {
-                            Column {
-                                // Notes display with different view modes
-                                NotesDisplay(
-                                    notes = searchAndSortState.filteredNotes,
-                                    viewMode = currentViewMode,
-                                    onView = { note ->
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        navController.navigate("viewnote/${note.id}")
+                    // ─── Category filter chips ────────────────────────────────
+                    val availableCategories by searchAndSortManager.availableCategories.collectAsStateWithLifecycle()
+                    if (availableCategories.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Constants.PADDING_MEDIUM.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = searchAndSortState.categoryFilter.isBlank(),
+                                    onClick = { searchAndSortManager.updateCategoryFilter("") },
+                                    label = { Text("All", fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = NoteTheme.Primary.copy(alpha = 0.18f),
+                                        selectedLabelColor = NoteTheme.Primary,
+                                        selectedLeadingIconColor = NoteTheme.Primary
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = searchAndSortState.categoryFilter.isBlank(),
+                                        borderColor = NoteTheme.Outline,
+                                        selectedBorderColor = NoteTheme.Primary.copy(alpha = 0.6f),
+                                        selectedBorderWidth = 1.5.dp
+                                    )
+                                )
+                            }
+                            items(availableCategories.size) { idx ->
+                                val cat = availableCategories[idx]
+                                val catColor = com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(context, cat)
+                                val isSelected = searchAndSortState.categoryFilter.equals(cat, ignoreCase = true)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { searchAndSortManager.updateCategoryFilter(cat) },
+                                    label = { Text(cat, fontSize = 12.sp) },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .background(
+                                                    catColor ?: NoteTheme.Primary,
+                                                    CircleShape
+                                                )
+                                        )
                                     },
-                                    onEdit = { note ->
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        navController.navigate("addscreen/${note.id}")
-                                    },
-                                    onDelete = { note -> deleteNote(note.id) },
-                                    onShare = { note -> shareNote(note) },
-                                    onReminder = { note ->
-                                        selectedNoteForReminder = note
-                                        // Check permissions before showing reminder sheet
-                                        val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
-                                        if (missing != null) {
-                                            missingPermissionType = missing
-                                            showPermissionRationale = true
-                                        } else {
-                                            showReminderSheet = true
-                                        }
-                                    }
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = (catColor ?: NoteTheme.Primary).copy(alpha = 0.06f),
+                                        labelColor = NoteTheme.OnSurface,
+                                        iconColor = catColor ?: NoteTheme.Primary,
+                                        selectedContainerColor = (catColor ?: NoteTheme.Primary).copy(alpha = 0.20f),
+                                        selectedLabelColor = catColor ?: NoteTheme.Primary,
+                                        selectedLeadingIconColor = catColor ?: NoteTheme.Primary
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = isSelected,
+                                        borderColor = (catColor ?: NoteTheme.Primary).copy(alpha = 0.4f),
+                                        selectedBorderColor = catColor ?: NoteTheme.Primary,
+                                        borderWidth = 1.dp,
+                                        selectedBorderWidth = 1.5.dp
+                                    )
                                 )
                             }
                         }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            },
+            floatingActionButton = {
+                AnimatedFloatingActionButton(
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("addscreen")
+                    }
+                )
+            }
+        ) { paddingValues ->
+            // ─── Pull to Refresh Wrapper ─────────────────────────────────
+            PullToRefreshBox(
+                isRefreshing = isRefreshingState,
+                onRefresh = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    refreshNotes()
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                state = pullToRefreshState
+            ) {
+                when {
+                    isLoadingState -> {
+                        LoadingCard("Loading your notes...", "Please wait a moment")
+                    }
+
+                    searchAndSortState.isSearchActive && searchAndSortState.filteredNotes.isEmpty() -> {
+                        EmptyStateCard(
+                            icon = Icons.Outlined.SearchOff,
+                            title = "No results found",
+                            description = "Try a different search term",
+                            buttonText = "Clear Search",
+                            onButtonClick = {
+                                localSearchQuery = ""
+                                searchAndSortManager.clearSearch()
+                            }
+                        )
+                    }
+
+                    searchAndSortState.filteredNotes.isEmpty() -> {
+                        OfflineEmptyStateCard(
+                            isOnline = isOnline,
+                            hasPendingSync = hasPendingSync,
+                            onCreateNoteClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                navController.navigate("addscreen")
+                            },
+                            onSeedDemoClick = { viewModel.seedDemoNotes() }
+                        )
+                    }
+
+                    else -> {
+                        // Notes display with different view modes
+                        NotesDisplay(
+                            notes = searchAndSortState.filteredNotes,
+                            viewMode = currentViewMode,
+                            onView = { note ->
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                navController.navigate("viewnote/${note.id}")
+                            },
+                            onEdit = { note ->
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                navController.navigate("addscreen/${note.id}")
+                            },
+                            onDelete = { note -> deleteNote(note.id) },
+                            onShare = { note -> shareNote(note) },
+                            onPin = { note -> viewModel.togglePin(note.id, note.isPinned) },
+                            onArchive = { note -> viewModel.archiveNote(note.id) },
+                            onReminder = { note ->
+                                selectedNoteForReminder = note
+                                val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                                if (missing != null) {
+                                    missingPermissionType = missing
+                                    showPermissionRationale = true
+                                } else {
+                                    showReminderSheet = true
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
+    }
 
-        // Sort options sheet
-        if (showSortSheet) {
-            SortOptionsSheet(
-                currentSort = searchAndSortState.sortOption,
-                onSortChange = { sortOption ->
-                    searchAndSortManager.updateSortOption(sortOption)
-                },
-                onDismiss = { showSortSheet = false }
-            )
-        }
+    // Sort options sheet
+    if (showSortSheet) {
+        SortOptionsSheet(
+            currentSort = searchAndSortState.sortOption,
+            onSortChange = { sortOption ->
+                searchAndSortManager.updateSortOption(sortOption)
+            },
+            onDismiss = { showSortSheet = false }
+        )
+    }
 
-        // Permission rationale sheet - shown before reminder sheet when permissions are missing
-        if (showPermissionRationale && missingPermissionType != null) {
-            com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet(
-                permissionType = missingPermissionType!!,
-                onDismiss = {
-                    showPermissionRationale = false
-                    missingPermissionType = null
-                    selectedNoteForReminder = null
-                },
-                onPermissionGranted = {
-                    showPermissionRationale = false
-                    missingPermissionType = null
-                    // Re-check: if there's another missing permission, show it; otherwise open reminder
-                    val nextMissing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
-                    if (nextMissing != null) {
-                        missingPermissionType = nextMissing
-                        showPermissionRationale = true
-                    } else {
-                        showReminderSheet = true
-                    }
+    // Permission rationale sheet
+    if (showPermissionRationale && missingPermissionType != null) {
+        com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet(
+            permissionType = missingPermissionType!!,
+            onDismiss = {
+                showPermissionRationale = false
+                missingPermissionType = null
+                selectedNoteForReminder = null
+            },
+            onPermissionGranted = {
+                showPermissionRationale = false
+                missingPermissionType = null
+                val nextMissing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                if (nextMissing != null) {
+                    missingPermissionType = nextMissing
+                    showPermissionRationale = true
+                } else {
+                    showReminderSheet = true
                 }
-            )
-        }
+            }
+        )
+    }
 
-        // Reminder sheet
-        val noteForReminder = selectedNoteForReminder
-        if (showReminderSheet && noteForReminder != null) {
-            com.amvarpvtltd.swiftNote.components.ReminderBottomSheet(
-                isVisible = showReminderSheet,
-                noteId = noteForReminder.id,
-                noteTitle = noteForReminder.title,
-                noteDescription = noteForReminder.description,
-                onDismiss = {
-                    showReminderSheet = false
-                    selectedNoteForReminder = null
-                },
-                onReminderSet = { reminderRequest ->
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val result = reminderRepository.createReminder(reminderRequest)
-                            withContext(Dispatchers.Main) {
-                                if (result.isSuccess) {
-                                    Toast.makeText(context, "⏰ Reminder set successfully!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "❌ Failed to set reminder", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "❌ Error setting reminder", Toast.LENGTH_SHORT).show()
+    // Reminder sheet
+    val noteForReminder = selectedNoteForReminder
+    if (showReminderSheet && noteForReminder != null) {
+        com.amvarpvtltd.swiftNote.components.ReminderBottomSheet(
+            isVisible = showReminderSheet,
+            noteId = noteForReminder.id,
+            noteTitle = noteForReminder.title,
+            noteDescription = noteForReminder.description,
+            onDismiss = {
+                showReminderSheet = false
+                selectedNoteForReminder = null
+            },
+            onReminderSet = { reminderRequest ->
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val result = reminderRepository.createReminder(reminderRequest)
+                        withContext(Dispatchers.Main) {
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "⏰ Reminder set successfully!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "❌ Failed to set reminder", Toast.LENGTH_SHORT).show()
                             }
                         }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "❌ Error setting reminder", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    showReminderSheet = false
-                    selectedNoteForReminder = null
                 }
-            )
-        }
+                showReminderSheet = false
+                selectedNoteForReminder = null
+            }
+        )
+    }
 }

@@ -142,10 +142,22 @@ object SyncManager {
                                         Log.w(TAG, "Skipping note ${noteData.id} because decryption failed for all keys")
                                     } else {
                                         val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
-                                        val entity = NoteEntityMapper.toEntity(localNote, synced = false)
+                                        // Preserve local pin/archive/category if note already exists locally
+                                        val existingEntity = noteDao.getNoteById(localNote.id)
+                                        val mergedNote = if (existingEntity != null) {
+                                            localNote.copy(
+                                                isPinned = existingEntity.isPinned,
+                                                isArchived = existingEntity.isArchived,
+                                                category = existingEntity.category.ifBlank { localNote.category },
+                                                colorKey = existingEntity.colorKey ?: localNote.colorKey
+                                            )
+                                        } else {
+                                            localNote
+                                        }
+                                        val entity = NoteEntityMapper.toEntity(mergedNote, synced = false)
                                         noteDao.insert(entity)
-                                        syncedNotes.add(localNote)
-                                        Log.d(TAG, "Synced note: ${localNote.title}")
+                                        syncedNotes.add(mergedNote)
+                                        Log.d(TAG, "Synced note: ${mergedNote.title}")
                                     }
                                 }
                             } else {
@@ -159,10 +171,22 @@ object SyncManager {
                                                 Log.w(TAG, "Skipping nested note ${noteData.id} because decryption failed for all keys")
                                             } else {
                                                 val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
-                                                val entity = NoteEntityMapper.toEntity(localNote, synced = false)
+                                                // Preserve local pin/archive/category if note already exists locally
+                                                val existingEntity = noteDao.getNoteById(localNote.id)
+                                                val mergedNote = if (existingEntity != null) {
+                                                    localNote.copy(
+                                                        isPinned = existingEntity.isPinned,
+                                                        isArchived = existingEntity.isArchived,
+                                                        category = existingEntity.category.ifBlank { localNote.category },
+                                                        colorKey = existingEntity.colorKey ?: localNote.colorKey
+                                                    )
+                                                } else {
+                                                    localNote
+                                                }
+                                                val entity = NoteEntityMapper.toEntity(mergedNote, synced = false)
                                                 noteDao.insert(entity)
-                                                syncedNotes.add(localNote)
-                                                Log.d(TAG, "Synced note: ${localNote.title}")
+                                                syncedNotes.add(mergedNote)
+                                                Log.d(TAG, "Synced note: ${mergedNote.title}")
                                             }
                                         }
                                     } catch (ie: Exception) {

@@ -34,6 +34,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudOff
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Card
@@ -94,6 +97,7 @@ import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
+import com.amvarpvtltd.swiftNote.categories.CategoryManager
 import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -297,6 +301,43 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                // Phase 4: Pin/Unpin button
+                                if (note != null) {
+                                    IconActionButton(
+                                        onClick = {
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            scope.launch(Dispatchers.IO) {
+                                                noteRepository.togglePin(note!!.id, !note!!.isPinned)
+                                                viewModel.loadNote(noteId) // reload
+                                            }
+                                            val msg = if (note!!.isPinned) "Unpinned" else "Pinned"
+                                            Toast.makeText(context, "📌 $msg", Toast.LENGTH_SHORT).show()
+                                        },
+                                        icon = Icons.Outlined.PushPin,
+                                        contentDescription = if (note!!.isPinned) "Unpin" else "Pin",
+                                        containerColor = if (note!!.isPinned) NoteTheme.Primary.copy(alpha = 0.15f) else NoteTheme.OnSurfaceVariant.copy(alpha = 0.08f),
+                                        contentColor = if (note!!.isPinned) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                    )
+
+                                    // Phase 4: Archive/Unarchive button
+                                    IconActionButton(
+                                        onClick = {
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            val isCurrentlyArchived = note!!.isArchived
+                                            scope.launch(Dispatchers.IO) {
+                                                noteRepository.toggleArchive(note!!.id, !isCurrentlyArchived)
+                                            }
+                                            val msg = if (isCurrentlyArchived) "📤 Note unarchived" else "📦 Note archived"
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            navController.navigateUp()
+                                        },
+                                        icon = if (note!!.isArchived) Icons.Outlined.Unarchive else Icons.Outlined.Archive,
+                                        contentDescription = if (note!!.isArchived) "Unarchive" else "Archive",
+                                        containerColor = if (note!!.isArchived) NoteTheme.Primary.copy(alpha = 0.12f) else NoteTheme.OnSurfaceVariant.copy(alpha = 0.08f),
+                                        contentColor = if (note!!.isArchived) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                    )
+                                }
+
                                 if (!isOnline) {
                                     Surface(
                                         shape = RoundedCornerShape(100.dp),
@@ -471,6 +512,34 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                                     icon = { Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
                                                     label = note?.let { dateFormatter.format(java.util.Date(it.timestamp)) } ?: ""
                                                 )
+                                            }
+
+                                            // ── Category chip ─────────────────────────────────
+                                            run {
+                                                val categoryName = note?.category?.takeIf { it.isNotBlank() } ?: "General"
+                                                val catColorHex = note?.category?.takeIf { it.isNotBlank() }?.let {
+                                                    CategoryManager.getColor(context, it)
+                                                }
+                                                val catColor = if (catColorHex != null) Color(catColorHex) else NoteTheme.OnSurfaceVariant
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .clip(CircleShape)
+                                                            .background(catColor)
+                                                    )
+                                                    Text(
+                                                        text = categoryName,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = catColor,
+                                                        letterSpacing = 0.3.sp
+                                                    )
+                                                }
                                             }
 
                                             if (!isValidChecklist && wordCount > 0) {

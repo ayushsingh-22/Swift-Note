@@ -23,6 +23,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.Warning
@@ -64,6 +66,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -72,6 +76,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -84,6 +89,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -152,6 +158,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var isChecklistMode by remember { mutableStateOf(false) }
     var checklistItems by remember { mutableStateOf(listOf(ChecklistItem(order = 0))) }
     var focusedItemIndex by remember { mutableStateOf(-1) }
+    // Phase 4: Category state
+    var selectedCategory by remember { mutableStateOf("") }
     // Formatted preview states (when clipboard HTML is pasted)
     var titleFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
     var descriptionFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
@@ -166,6 +174,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     val scope = rememberCoroutineScope()
     val titleFocusRequester = remember { FocusRequester() }
     val hapticFeedback = LocalHapticFeedback.current
+    var categoryOptions by remember { mutableStateOf(com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(context)) }
+    var showCustomCategoryDialog by remember { mutableStateOf(false) }
+    var customCategoryName by remember { mutableStateOf("") }
+    var customCategoryColor by remember {
+        mutableStateOf(com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.first())
+    }
 
     val isEditing = noteId != null
     // Performance: derivedStateOf prevents recomposition unless the derived value actually changes
@@ -378,6 +392,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 if (result.isSuccess) {
                     val note = result.getOrNull()
                     note?.let {
+                        // Phase 4: Load category
+                        selectedCategory = it.category
+
                         // If stored content contains HTML tags, render formatted preview and keep plain text in fields
                         val titleCandidate = it.title ?: ""
                         val descCandidate = it.description ?: ""
@@ -438,6 +455,19 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
+    // Phase 5: Consume shared data from share intent or widget
+    LaunchedEffect(Unit) {
+        if (noteId == null && com.amvarpvtltd.swiftNote.share.SharedNoteData.hasPendingData) {
+            val (sharedTitle, sharedDescription, asChecklist) = com.amvarpvtltd.swiftNote.share.SharedNoteData.consume()
+            if (sharedTitle.isNotEmpty()) title = sharedTitle
+            if (sharedDescription.isNotEmpty()) description = sharedDescription
+            if (asChecklist) {
+                isChecklistMode = true
+                checklistItems = listOf(com.amvarpvtltd.swiftNote.checklist.ChecklistItem(order = 0))
+            }
+        }
+    }
+
     // Save note function - OFFLINE FIRST
     fun saveNote() {
         if (isSaving) return  // BUG-021 FIX: Prevent double-tap duplicate saves
@@ -458,7 +488,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     descriptionHtml ?: description
                 }
 
-                val result = noteRepository.saveNote(titleToSave, descToSave, noteId, context)
+                val result = noteRepository.saveNote(
+                    title = titleToSave,
+                    description = descToSave,
+                    noteId = noteId,
+                    context = context,
+                    category = selectedCategory
+                )
 
                // kotlin
                // Add debug + safe navigation inside saveNote() success branch
@@ -1095,6 +1131,188 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
                     }
                     } // end AnimatedVisibility heroVisible
+
+                    // Phase 4: Category Picker
+                    AnimatedVisibility(
+                        visible = contentVisible,
+                        enter = fadeIn(tween(350)) + slideInVertically(
+                            spring(Spring.DampingRatioMediumBouncy),
+                            initialOffsetY = { it / 3 }
+                        )
+                    ) {
+                        var showCategoryPicker by remember { mutableStateOf(false) }
+
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showCategoryPicker = !showCategoryPicker }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Label,
+                                    contentDescription = null,
+                                    tint = NoteTheme.OnSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = if (selectedCategory.isBlank()) "Add category" else selectedCategory,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selectedCategory.isBlank()) NoteTheme.OnSurfaceVariant.copy(alpha = 0.6f) else NoteTheme.OnSurface,
+                                    fontWeight = if (selectedCategory.isNotBlank()) FontWeight.Medium else FontWeight.Normal
+                                )
+                                if (selectedCategory.isNotBlank()) {
+                                    val catColor = com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(context, selectedCategory)
+                                    if (catColor != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .background(catColor, CircleShape)
+                                        )
+                                    }
+                                }
+                            }
+
+                            AnimatedVisibility(visible = showCategoryPicker) {
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                ) {
+                                    // "None" option
+                                    item {
+                                        FilterChip(
+                                            selected = selectedCategory.isBlank(),
+                                            onClick = { selectedCategory = ""; showCategoryPicker = false },
+                                            label = { Text("None", fontSize = 12.sp) }
+                                        )
+                                    }
+                                    items(categoryOptions.size) { idx ->
+                                        val cat = categoryOptions[idx]
+                                        FilterChip(
+                                            selected = selectedCategory.equals(cat.name, ignoreCase = true),
+                                            onClick = { selectedCategory = cat.name; showCategoryPicker = false },
+                                            label = { Text(cat.name, fontSize = 12.sp) },
+                                            leadingIcon = {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .background(cat.color, CircleShape)
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = cat.color.copy(alpha = 0.15f),
+                                                selectedLabelColor = cat.color
+                                            )
+                                        )
+                                    }
+                                    item {
+                                        FilterChip(
+                                            selected = false,
+                                            onClick = {
+                                                customCategoryName = ""
+                                                customCategoryColor = com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.first()
+                                                showCustomCategoryDialog = true
+                                            },
+                                            label = { Text("Add custom", fontSize = 12.sp) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (showCustomCategoryDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showCustomCategoryDialog = false },
+                            title = {
+                                Text(
+                                    text = "Create Category",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = NoteTheme.OnSurface
+                                )
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    OutlinedTextField(
+                                        value = customCategoryName,
+                                        onValueChange = { customCategoryName = it.take(24) },
+                                        singleLine = true,
+                                        label = { Text("Category name") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = NoteTheme.Primary,
+                                            focusedLabelColor = NoteTheme.Primary
+                                        )
+                                    )
+
+                                    Text(
+                                        text = "Choose a color",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = NoteTheme.OnSurfaceVariant
+                                    )
+
+                                    androidx.compose.foundation.layout.FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.forEach { colorHex ->
+                                            val swatchColor = Color(colorHex)
+                                            val isSelected = customCategoryColor == colorHex
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(swatchColor)
+                                                    .border(
+                                                        width = if (isSelected) 3.dp else 1.dp,
+                                                        color = if (isSelected) NoteTheme.OnSurface else swatchColor.copy(alpha = 0.25f),
+                                                        shape = CircleShape
+                                                    )
+                                                    .clickable { customCategoryColor = colorHex }
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        val trimmedName = customCategoryName.trim()
+                                        if (trimmedName.isEmpty()) {
+                                            Toast.makeText(context, "Category name can't be empty", Toast.LENGTH_SHORT).show()
+                                            return@TextButton
+                                        }
+
+                                        val added = com.amvarpvtltd.swiftNote.categories.CategoryManager.addCustom(
+                                            context = context,
+                                            name = trimmedName,
+                                            colorHex = customCategoryColor
+                                        )
+                                        if (added) {
+                                            categoryOptions = com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(context)
+                                            selectedCategory = trimmedName
+                                            showCustomCategoryDialog = false
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "Category already exists or limit reached",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                ) {
+                                    Text("Save")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showCustomCategoryDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
 
                     // Phase 1: Note Mode Toggle (Text / Checklist)
                     AnimatedVisibility(

@@ -32,6 +32,9 @@ class MyApplication : Application() {
         // Create notification channels at startup before any notification is posted
         createNotificationChannels()
 
+        // Phase 5B: Enqueue widget update worker
+        com.amvarpvtltd.swiftNote.widget.WidgetUpdateWorker.enqueue(this)
+
         // Ensure we have a stable device/account id available globally for older code paths
         try {
             val storedPass = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(this)
