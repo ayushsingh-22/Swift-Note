@@ -5,7 +5,9 @@ import android.util.Log
 import androidx.core.content.edit
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.room.AppDatabase
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -227,6 +229,40 @@ object DataCleanupManager {
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to clear data for reset", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Clear only local notes (Room DB + pending deletions) without touching preferences or files.
+     * Used during onboarding when switching between "Start Fresh" or restoring from another device.
+     */
+    suspend fun clearLocalNotesOnly(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            Log.d(TAG, "Clearing local notes only...")
+            val db = AppDatabase.getInstance(context)
+            db.noteDao().deleteAllNotes()
+            db.pendingDeletionDao().clearAllPendingDeletions()
+            Log.i(TAG, "✅ Local notes cleared successfully")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to clear local notes", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Best-effort deletion of all notes stored in Firebase under the given passphrase/accountId.
+     * Errors are swallowed — caller should treat this as fire-and-forget cleanup.
+     */
+    suspend fun deleteFirebaseNotesForAccount(accountId: String) = withContext(Dispatchers.IO) {
+        if (accountId.isBlank()) return@withContext
+        try {
+            PassphraseManager.ensureAuthenticated()
+            val database = FirebaseDatabase.getInstance()
+            database.getReference("users").child(accountId).child("notes").removeValue().await()
+            Log.i(TAG, "✅ Firebase notes deleted for account: $accountId")
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Failed to delete Firebase notes (best-effort, ignoring): ${e.message}")
         }
     }
 }

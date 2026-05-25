@@ -18,11 +18,13 @@ SwiftNote is an offline-first Android note-taking app (package: `com.amvarpvtltd
 ```
 app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── ai/SmartReminderAI.kt          # ML Kit entity extraction + regex fallback
+├── auth/                           # DeviceIdManager, DeviceManager, PassphraseManager
 ├── viewmodel/                      # AddNoteViewModel, NotesViewModel, ViewNoteViewModel
 ├── room/                           # Room DB: AppDatabase, NoteDao, NoteEntity, PendingDeletionDao
 ├── repository/NoteRepository.kt    # Offline-first CRUD, Firebase sync
 ├── offline/OfflineNoteManager.kt   # Local Room operations, StateFlow for pending notes
 ├── sync/SyncManager.kt             # Cross-device sync via passphrase decryption
+├── share/                          # QuickCaptureSheet, SharedNoteData, ShareReceiverActivity
 ├── design/                         # All Compose screens (add_Note.kt, note_screen.kt, ViewNoteScreen.kt)
 ├── components/                     # Reusable UI composables (ReminderComponents)
 ├── notifications/                  # System notification scheduling
@@ -34,10 +36,13 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── settings/DataManagementScreen.kt # Data management settings UI
 ├── permissions/                    # PermissionUtils, PermissionManager
 ├── cleanup/DataCleanupManager.kt   # Complete app data cleanup
+├── widget/                         # QuickNoteWidget, QuickNoteWidgetReceiver, WidgetUpdateWorker (Glance)
 ├── utils/                          # ValidationUtils, UIUtils, ShareUtils, QRUtils, PreferenceManager, NetworkManager, AutoSyncManager, AppContext, Constants
 ├── ui/theme/                       # Theme.kt, Colors.kt, Type.kt
 ├── theme/ThemeManager.kt           # Theme state management
+├── Application.kt                  # Custom Application class
 ├── dataclass.kt                    # Note model with encryption methods
+├── fetchUniqueDeveiceId.kt         # Device ID fetching utility
 ├── navbar.kt                       # NavHost + app initialization logic
 └── MainActivity.kt                 # Entry point, permissions, TextClassifier init
 ```
@@ -52,9 +57,10 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ```
 
 - **compileSdk = 36**, **minSdk = 31**, **targetSdk = 36**
-- Uses Kotlin 2.2.10 with Compose compiler plugin (not the old kotlinCompilerExtensionVersion approach)
-- Room uses `kapt` (not KSP). Schema output: `app/schemas/`. Current DB version: **8**.
+- Uses Kotlin 2.2.10 with Compose compiler plugin (not the old kotlinCompilerExtensionVersion approach). AGP 9.2.1.
+- Room 2.7.1 uses `kapt` (not KSP). Schema output: `app/schemas/`. Current DB version: **8**.
 - Version catalog: `gradle/libs.versions.toml`
+- App version: `versionCode = 9`, `versionName = "2.0.1"`
 
 ## Conventions
 
@@ -77,8 +83,12 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 
 ## External Services
 
-- **Firebase**: Realtime Database (note sync), Auth (anonymous), Firestore, Crashlytics
+- **Firebase**: Realtime Database (note sync), Auth (anonymous), Firestore, Crashlytics, Analytics
+- **Google AI (Gemini)**: `generativeai:0.9.0` for AI-powered features (API key stored in EncryptedSharedPreferences)
 - **ML Kit**: `entity-extraction:16.0.0-beta6` for NLP reminder detection
 - **CameraX + ML Kit Barcode**: QR code scanning for device pairing
 - **ZXing**: QR code generation
+- **Glance**: App widget framework (`QuickNoteWidget`) for home screen quick capture
+- **AndroidX PDF Viewer**: `pdf-viewer:1.0.0-alpha10`
+- **AndroidX Browser**: Custom Tabs for Smart Action Chips
 

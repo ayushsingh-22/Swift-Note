@@ -61,4 +61,8 @@ interface NoteDao {
     /** Reactive count of all non-archived notes — used by widget header */
     @Query("SELECT COUNT(*) FROM notes WHERE isArchived = 0")
     fun observeNoteCount(): Flow<Int>
+
+    /** Delete every note row — used by onboarding reset and full data wipe */
+    @Query("DELETE FROM notes")
+    fun deleteAllNotes()
 }

@@ -103,15 +103,70 @@ import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 /**
- * Dynamic greeting based on time of day
+ * Dynamic greeting based on time of day with varied messages
  */
 private fun getGreeting(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    return when (hour) {
-        in 5..11 -> "Good morning ☀️"
-        in 12..16 -> "Good afternoon"
-        in 17..20 -> "Good evening 🌅"
-        else -> "Good night 🌙"
+    val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+
+    // Weekend special greetings
+    val isWeekend = dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY
+
+    return when {
+        // Early morning (5-7)
+        hour in 5..6 -> listOf(
+            "Rise and shine! ✨",
+            "Early bird! 🐦",
+            "Fresh start! 🌅"
+        ).random()
+
+        // Morning (7-11)
+        hour in 7..11 -> if (isWeekend) {
+            listOf(
+                "Lazy morning? ☕",
+                "Weekend vibes! 🎉",
+                "Relax mode on! 😌"
+            ).random()
+        } else {
+            listOf(
+                "Good morning! ☀️",
+                "Ready to conquer! 💪",
+                "Let's do this! 🚀",
+                "Morning sunshine! 🌻"
+            ).random()
+        }
+
+        // Afternoon (12-16)
+        hour in 12..16 -> listOf(
+            "Good afternoon! 🌤️",
+            "Crushing it! 🔥",
+            "Keep going! 💫",
+            "Halfway there! ⚡"
+        ).random()
+
+        // Evening (17-20)
+        hour in 17..20 -> listOf(
+            "Good evening! 🌆",
+            "Winding down? 🎯",
+            "Evening thoughts! 💭",
+            "Golden hour! ✨"
+        ).random()
+
+        // Night (21-23)
+        hour in 21..23 -> listOf(
+            "Night owl! 🦉",
+            "Burning midnight oil? 🔮",
+            "Late thoughts! 🌙",
+            "Still creating! ⭐"
+        ).random()
+
+        // Late night / very early (0-4)
+        else -> listOf(
+            "Can't sleep? 🌌",
+            "Night thinker! 💫",
+            "Stargazing? ✨",
+            "Midnight magic! 🔮"
+        ).random()
     }
 }
 

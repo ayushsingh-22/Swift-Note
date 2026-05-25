@@ -1,5 +1,6 @@
 package com.amvarpvtltd.swiftNote.design
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -32,9 +33,12 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
+import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,8 +63,11 @@ fun OnboardingScreen(navController: NavController) {
         cardsVisible = true
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // ── Gradient hero background ──────────────────────────────────────
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(NoteTheme.Background)
+    ) {
+        // ── Gradient hero background — drawn first, visible through transparent hero section ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -70,18 +77,16 @@ fun OnboardingScreen(navController: NavController) {
                         colors = listOf(
                             NoteTheme.Primary,
                             NoteTheme.PrimaryVariant,
-                            NoteTheme.PrimaryContainer
+                            // Fade into theme background for smooth transition in both modes
+                            NoteTheme.Background
                         )
                     )
                 )
         )
-        // Bottom half background
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight()
-                .background(NoteTheme.Background)
-        )
+        // NOTE: The previous full-height background box that was here used to cover this
+        // gradient entirely, making hero text appear on a flat background → invisible in light mode.
+        // It has been removed. The root Box background + card section background achieve the same
+        // visual without hiding the gradient.
 
         Column(
             modifier = Modifier
@@ -210,16 +215,28 @@ fun OnboardingScreen(navController: NavController) {
                             scope.launch {
                                 isLoading = true
                                 try {
-                                    val deviceId = DeviceManager.getOrCreateDeviceId(context)
-                                    PassphraseManager.storePassphrase(context, deviceId).getOrThrow()
-                                    try {
-                                        SyncManager.syncDataFromPassphrase(context, deviceId, deviceId)
-                                    } catch (_: Exception) {}
+                                    // Clear any residual local notes from previous installs/sessions
+                                    val hasLocalData = withContext(Dispatchers.IO) {
+                                        com.amvarpvtltd.swiftNote.room.AppDatabase
+                                            .getInstance(context).noteDao().getAllNotesIncludingArchived().isNotEmpty()
+                                    }
+                                    if (hasLocalData) {
+                                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
+                                    }
+
+                                    // Use a brand-new UUID as the passphrase so the app creates a
+                                    // completely fresh Firebase path (users/{freshUUID}/notes/…).
+                                    // This sidesteps the permission-denied delete problem and guarantees
+                                    // that background sync cannot pull any old notes from Firebase.
+                                    val freshPassphrase = java.util.UUID.randomUUID().toString()
+                                    PassphraseManager.storePassphrase(context, freshPassphrase).getOrThrow()
+
                                     navController.navigate("main") {
                                         popUpTo("onboarding") { inclusive = true }
                                     }
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Setup failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    Log.e("OnboardingScreen", "Setup failed: ${e.message}", e)
                                 } finally {
                                     isLoading = false
                                 }
@@ -333,6 +350,10 @@ fun OnboardingScreen(navController: NavController) {
                         }
                         val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
                         PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
+
+                        // Clear any existing local notes before restoring from source device
+                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
+
                         val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
                         if (result.isFailure) {
                             Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
@@ -364,6 +385,10 @@ fun OnboardingScreen(navController: NavController) {
                         val sourcePassphrase = inputPassphrase
                         val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
                         PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
+
+                        // Clear any existing local notes before restoring from source device
+                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
+
                         val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
                         if (result.isFailure) {
                             Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()

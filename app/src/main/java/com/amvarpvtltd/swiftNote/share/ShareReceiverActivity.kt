@@ -43,11 +43,11 @@ class ShareReceiverActivity : ComponentActivity() {
                 QuickCaptureSheet(
                     initialTitle = title,
                     initialDescription = description,
-                    onSave = { savedTitle, savedDescription ->
-                        saveAndFinish(savedTitle, savedDescription)
+                    onSave = { savedTitle, savedDescription, category ->
+                        saveAndFinish(savedTitle, savedDescription, category)
                     },
-                    onEdit = { editTitle, editDescription ->
-                        openFullEditor(editTitle, editDescription)
+                    onEdit = { editTitle, editDescription, category ->
+                        openFullEditor(editTitle, editDescription, category)
                     },
                     onDismiss = { finish() }
                 )
@@ -55,22 +55,24 @@ class ShareReceiverActivity : ComponentActivity() {
         }
     }
 
-    private fun saveAndFinish(title: String, description: String) {
+    private fun saveAndFinish(title: String, description: String, category: String) {
         val intent = Intent(this, com.amvarpvtltd.swiftNote.MainActivity::class.java).apply {
             action = "com.amvarpvtltd.swiftNote.ACTION_QUICK_SAVE"
             putExtra("quick_title", title)
             putExtra("quick_description", description)
+            putExtra("quick_category", category)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(intent)
         finish()
     }
 
-    private fun openFullEditor(title: String, description: String) {
+    private fun openFullEditor(title: String, description: String, category: String) {
         val intent = Intent(this, com.amvarpvtltd.swiftNote.MainActivity::class.java).apply {
             action = "com.amvarpvtltd.swiftNote.ACTION_OPEN_EDITOR"
             putExtra("shared_title", title)
             putExtra("shared_description", description)
+            putExtra("shared_category", category)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         startActivity(intent)
