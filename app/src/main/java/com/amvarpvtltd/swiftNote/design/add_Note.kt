@@ -47,6 +47,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ExitToApp
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
@@ -54,7 +55,6 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.Warning
@@ -94,7 +94,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -114,7 +113,6 @@ import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.ai.SmartReminderAI
 import com.amvarpvtltd.swiftNote.checklist.ChecklistItem
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
-import com.amvarpvtltd.swiftNote.components.ChecklistItemRow
 import com.amvarpvtltd.swiftNote.reminders.ReminderManager
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
@@ -131,6 +129,14 @@ import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 
+// Top-level Regex constants — avoids recreating on every recomposition
+private val MINUTE_REGEX = Regex(
+    "\\b(\\d{1,3})\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b",
+    RegexOption.IGNORE_CASE
+)
+private val DIGIT_REGEX = Regex("(\\d+)")
+private val HTML_TAG_REGEX = Regex("<[^>]+>")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddScreen(navController: NavHostController, noteId: String?) {
@@ -140,13 +146,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var isSaving by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
-    var titleFocused by remember { mutableStateOf(false) }
-    var descriptionFocused by remember { mutableStateOf(false) }
 
     // Smart Reminders state
     var detectedReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
     var pendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
-    var showReminderSuggestions by remember { mutableStateOf(false) }
     var isAnalyzingText by remember { mutableStateOf(false) }
 
     // Permission state for notification/alarm access (Phase 0.2: point-of-use)
@@ -259,12 +262,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             val plain = item?.coerceToText(context)?.toString()
 
             if (!htmlText.isNullOrBlank() && !plain.isNullOrBlank()) {
-                val spanned: Spanned = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY)
-                } else {
-                    @Suppress("DEPRECATION")
-                    (fromHtml(htmlText))
-                }
+                val spanned: Spanned = fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY)
 
                 val annotated = spannedToAnnotatedString(spanned)
                 if (plain.trim() == title.trim() && title.isNotBlank()) {
@@ -310,8 +308,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
         // Run minute-pattern fallback first (lightweight regex — OK after debounce)
         try {
-            val minuteRegex = Regex("\\b(\\d{1,3})\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b", RegexOption.IGNORE_CASE)
-            val match = minuteRegex.find(combinedText)
+            val match = MINUTE_REGEX.find(combinedText)
             if (match != null) {
                 val n = match.groupValues[1].toIntOrNull()
                 if (n != null && n > 0) {
@@ -396,8 +393,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         selectedCategory = it.category
 
                         // If stored content contains HTML tags, render formatted preview and keep plain text in fields
-                        val titleCandidate = it.title ?: ""
-                        val descCandidate = it.description ?: ""
+                        val titleCandidate = it.title
+                        val descCandidate = it.description
 
                         // Phase 1: Detect checklist content
                         if (ChecklistParser.isChecklistContent(descCandidate)) {
@@ -408,15 +405,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             description = "" // Keep description empty in checklist mode
                         } else {
 
-                        fun looksLikeHtml(s: String) = s.contains(Regex("<[^>]+>"))
+                        fun looksLikeHtml(s: String) = HTML_TAG_REGEX.containsMatchIn(s)
 
                         if (looksLikeHtml(titleCandidate)) {
-                            val sp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                                Html.fromHtml(titleCandidate, Html.FROM_HTML_MODE_LEGACY)
-                            } else {
-                                @Suppress("DEPRECATION")
-                                Html.fromHtml(titleCandidate)
-                            }
+                            val sp = fromHtml(titleCandidate, Html.FROM_HTML_MODE_LEGACY)
                             titleFormatted = spannedToAnnotatedString(sp as Spanned)
                             titleHtml = titleCandidate
                             title = sp.toString()
@@ -425,12 +417,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
 
                         if (looksLikeHtml(descCandidate)) {
-                            val spd = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                                Html.fromHtml(descCandidate, Html.FROM_HTML_MODE_LEGACY)
-                            } else {
-                                @Suppress("DEPRECATION")
-                                Html.fromHtml(descCandidate)
-                            }
+                            val spd = fromHtml(descCandidate, Html.FROM_HTML_MODE_LEGACY)
                             descriptionFormatted = spannedToAnnotatedString(spd as Spanned)
                             descriptionHtml = descCandidate
                             description = spd.toString()
@@ -463,7 +450,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             if (sharedDescription.isNotEmpty()) description = sharedDescription
             if (asChecklist) {
                 isChecklistMode = true
-                checklistItems = listOf(com.amvarpvtltd.swiftNote.checklist.ChecklistItem(order = 0))
+                checklistItems = listOf(ChecklistItem(order = 0))
             }
         }
     }
@@ -514,8 +501,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                       if (reminder.confidence >= 0.6f) {
                                           try {
                                               // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
-                                              val actualReminder = if (reminder.entityType == "MinuteFallback") {
-                                                  val minuteMatch = Regex("(\\d+)").find(reminder.extractedText)
+                                               val actualReminder = if (reminder.entityType == "MinuteFallback") {
+                                                   val minuteMatch = DIGIT_REGEX.find(reminder.extractedText)
                                                   val minutes = minuteMatch?.value?.toIntOrNull()
                                                   if (minutes != null) {
                                                       val freshCal = java.util.Calendar.getInstance()
@@ -976,7 +963,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                     LaunchedEffect(fabPressed) {
                         if (fabPressed) {
-                            kotlinx.coroutines.delay(Constants.SPRING_ANIMATION_DELAY.toLong())
+                            delay(Constants.SPRING_ANIMATION_DELAY.toLong())
                             fabPressed = false
                         }
                     }
@@ -1082,8 +1069,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .focusRequester(titleFocusRequester)
-                                    .onFocusChanged { titleFocused = it.isFocused },
+                                    .focusRequester(titleFocusRequester),
                                 placeholder = {
                                     Text(
                                         "Enter a compelling title...",
@@ -1152,7 +1138,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    Icons.Outlined.Label,
+                                    Icons.AutoMirrored.Outlined.Label,
                                     contentDescription = null,
                                     tint = NoteTheme.OnSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
@@ -1534,7 +1520,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 // Reset focusedItemIndex after it has been consumed
                                 LaunchedEffect(focusedItemIndex) {
                                     if (focusedItemIndex >= 0) {
-                                        kotlinx.coroutines.delay(100)
+                                        delay(100)
                                         focusedItemIndex = -1
                                     }
                                 }
@@ -1658,8 +1644,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 120.dp) // Set minimum height for text field
-                                    .onFocusChanged { descriptionFocused = it.isFocused },
+                                    .heightIn(min = 120.dp), // Set minimum height for text field
                                 placeholder = {
                                     Text(
                                         "Write your thoughts here...\n\nExpress your ideas, capture important information, or jot down anything that comes to mind.",
@@ -1827,9 +1812,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                     pendingReminderAction = {
                                                         scope.launch {
                                                             try {
-                                                                if (isEditing && noteId != null) {
+                                                                if (isEditing) {
                                                                     withContext(Dispatchers.IO) {
-                                                                        reminderManager.createReminderFromDetection(reminder, noteId)
+                                                                        reminderManager.createReminderFromDetection(reminder, noteId!!)
                                                                     }
                                                                 }
                                                                 pendingReminders = pendingReminders.filter { it.id != reminder.id }
@@ -1848,9 +1833,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                     // Permission already granted — create the reminder
                                                     scope.launch {
                                                         try {
-                                                            if (isEditing && noteId != null) {
+                                                            if (isEditing) {
                                                                 withContext(Dispatchers.IO) {
-                                                                    reminderManager.createReminderFromDetection(reminder, noteId)
+                                                                    reminderManager.createReminderFromDetection(reminder, noteId!!)
                                                                 }
                                                             }
                                                             // Move from pending to confirmed
@@ -1973,7 +1958,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         // Auto-focus title when creating new note
         LaunchedEffect(Unit) {
             if (!isEditing && !isLoading) {
-                kotlinx.coroutines.delay(Constants.LOADING_DELAY)
+                delay(Constants.LOADING_DELAY)
                 titleFocusRequester.requestFocus()
             }
         }
@@ -2012,7 +1997,7 @@ fun spannedToAnnotatedString(spanned: Spanned): AnnotatedString {
                     }
                     is android.text.style.UnderlineSpan -> SpanStyle(textDecoration = TextDecoration.Underline)
                     is android.text.style.StrikethroughSpan -> SpanStyle(textDecoration = TextDecoration.LineThrough)
-                    is android.text.style.ForegroundColorSpan -> SpanStyle(color = androidx.compose.ui.graphics.Color(span.foregroundColor))
+                    is android.text.style.ForegroundColorSpan -> SpanStyle(color = Color(span.foregroundColor))
                     is android.text.style.RelativeSizeSpan -> SpanStyle(fontSize = (14 * span.sizeChange).sp)
                     else -> null
                 }

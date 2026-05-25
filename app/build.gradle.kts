@@ -4,10 +4,10 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
+    alias(libs.plugins.jetbrains.kotlin.kapt)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.google.gms.google.services)
     alias(libs.plugins.firebase.crashlytics)
-    id("kotlin-kapt")
 }
 
 // Load local.properties for signing credentials
@@ -71,8 +71,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions { jvmTarget = "11" }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -95,6 +93,13 @@ android {
         jniLibs {
             useLegacyPackaging = false
         }
+    }
+}
+
+// Kotlin compiler options
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
