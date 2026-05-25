@@ -25,14 +25,21 @@ object SyncManager {
     private val uploadMutex = Mutex()
 
     /**
-     * Sync data from another device's passphrase to current device
+     * Sync data from another device's passphrase to current device.
      * This is a one-time copy operation, not continuous sync.
      * Protected by syncMutex to prevent concurrent syncs causing data races.
+     *
+     * @param cleanTargetBeforeUpload When true and source != current, the destination
+     *   Firebase path (users/{currentPassphrase}/notes + /reminders) is wiped before
+     *   re-uploading the restored notes. Pass true from the Restore flow to guarantee
+     *   the destination starts clean (belt-and-suspenders on top of the local+remote
+     *   wipe already performed by DataCleanupManager.wipeLocalAndPreviousRemoteNotes).
      */
     suspend fun syncDataFromPassphrase(
         context: Context,
         sourcePassphrase: String,
-        currentPassphrase: String
+        currentPassphrase: String,
+        cleanTargetBeforeUpload: Boolean = false
     ): Result<SyncResult> = withContext(Dispatchers.IO) {
         // Acquire mutex — if another sync is running, this coroutine suspends until it finishes
         syncMutex.withLock {
@@ -212,6 +219,21 @@ object SyncManager {
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to sync reminder: ${reminderChild.key}", e)
                         }
+                    }
+                }
+
+                // Belt-and-suspenders: clean destination path before re-uploading
+                // restored notes so no stale data from a previous identity mixes in.
+                // Only applies when the caller opted in AND source != current identity
+                // (self-sync on reinstall doesn't need this).
+                if (cleanTargetBeforeUpload && sourcePassphrase != currentPassphrase) {
+                    try {
+                        val destRef = database.getReference("users").child(currentPassphrase)
+                        destRef.child("notes").removeValue().await()
+                        destRef.child("reminders").removeValue().await()
+                        Log.d(TAG, "Cleaned destination path before restore upload")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to clean destination path (non-fatal): ${e.message}")
                     }
                 }
 

@@ -40,6 +40,66 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared restore helper — called by both QR and Manual Passphrase paths so the
+// two flows can never drift out of sync.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Unified restore flow:
+ *  1. Wipe local notes + reminders + pending-deletions
+ *     AND best-effort delete Firebase data from the previous identity.
+ *  2. Store new identity (= this device's hardware ID).
+ *  3. Sync notes FROM sourcePassphrase INTO the new identity, cleaning the
+ *     destination Firebase path first (cleanTargetBeforeUpload = true) to
+ *     prevent old data from mixing with restored notes.
+ *
+ * [onError] is called with a user-visible message if any step fails.
+ * [onSuccess] is called when the user should be navigated to "main".
+ * Neither callback throws — the caller's finally{} block always runs.
+ */
+private suspend fun performRestore(
+    context: android.content.Context,
+    sourcePassphrase: String,
+    onError: (String) -> Unit,
+    onSuccess: () -> Unit
+) {
+    // Step 1 — Unified local + remote wipe.
+    val cleanupResult = DataCleanupManager.wipeLocalAndPreviousRemoteNotes(context)
+    if (cleanupResult.isFailure) {
+        Log.e("Onboarding/Restore", "Cleanup failed", cleanupResult.exceptionOrNull())
+        onError("Couldn't clear existing data. Please try again.")
+        return
+    }
+    Log.d("Onboarding/Restore", "Cleanup summary: ${cleanupResult.getOrNull()}")
+
+    // Step 2 — Adopt new identity (deviceId becomes the new passphrase).
+    val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
+    val storeResult = PassphraseManager.storePassphrase(context, currentPassphrase)
+    if (storeResult.isFailure) {
+        Log.e("Onboarding/Restore", "storePassphrase failed", storeResult.exceptionOrNull())
+        onError("Failed to create new identity: ${storeResult.exceptionOrNull()?.message}")
+        return
+    }
+
+    // Step 3 — Sync from source; clean destination first to avoid cross-contamination.
+    val syncResult = SyncManager.syncDataFromPassphrase(
+        context = context,
+        sourcePassphrase = sourcePassphrase,
+        currentPassphrase = currentPassphrase,
+        cleanTargetBeforeUpload = true
+    )
+    if (syncResult.isFailure) {
+        onError("Restore failed: ${syncResult.exceptionOrNull()?.message ?: "Unknown error"}")
+        return
+    }
+
+    Log.d("Onboarding/Restore", "Restore complete: ${syncResult.getOrNull()}")
+    onSuccess()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(navController: NavController) {
@@ -63,11 +123,12 @@ fun OnboardingScreen(navController: NavController) {
         cardsVisible = true
     }
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(NoteTheme.Background)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NoteTheme.Background)
     ) {
-        // ── Gradient hero background — drawn first, visible through transparent hero section ──
+        // Gradient hero background — drawn first, visible through the transparent hero section
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -77,16 +138,11 @@ fun OnboardingScreen(navController: NavController) {
                         colors = listOf(
                             NoteTheme.Primary,
                             NoteTheme.PrimaryVariant,
-                            // Fade into theme background for smooth transition in both modes
-                            NoteTheme.Background
+                            NoteTheme.Background   // smooth fade into background
                         )
                     )
                 )
         )
-        // NOTE: The previous full-height background box that was here used to cover this
-        // gradient entirely, making hero text appear on a flat background → invisible in light mode.
-        // It has been removed. The root Box background + card section background achieve the same
-        // visual without hiding the gradient.
 
         Column(
             modifier = Modifier
@@ -94,7 +150,7 @@ fun OnboardingScreen(navController: NavController) {
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── Hero Section ────────────────────────────────────────────
+            // ── Hero Section ────────────────────────────────────────────────
             AnimatedVisibility(
                 visible = heroVisible,
                 enter = fadeIn(tween(600)) + slideInVertically(
@@ -177,7 +233,7 @@ fun OnboardingScreen(navController: NavController) {
                 }
             }
 
-            // ── Options Card Sheet ─────────────────────────────────────
+            // ── Options Card Sheet ───────────────────────────────────────────
             AnimatedVisibility(
                 visible = cardsVisible,
                 enter = fadeIn(tween(500)) + slideInVertically(
@@ -215,19 +271,24 @@ fun OnboardingScreen(navController: NavController) {
                             scope.launch {
                                 isLoading = true
                                 try {
-                                    // Clear any residual local notes from previous installs/sessions
-                                    val hasLocalData = withContext(Dispatchers.IO) {
-                                        com.amvarpvtltd.swiftNote.room.AppDatabase
-                                            .getInstance(context).noteDao().getAllNotesIncludingArchived().isNotEmpty()
+                                    // Unified wipe: local notes/reminders/pending-deletions
+                                    // + best-effort Firebase delete of the previous identity.
+                                    val cleanupResult =
+                                        DataCleanupManager.wipeLocalAndPreviousRemoteNotes(context)
+                                    if (cleanupResult.isFailure) {
+                                        Toast.makeText(
+                                            context,
+                                            "Couldn't clear existing data. Please try again.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        Log.e("Onboarding/StartFresh", "Cleanup failed",
+                                            cleanupResult.exceptionOrNull())
+                                        return@launch
                                     }
-                                    if (hasLocalData) {
-                                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
-                                    }
+                                    Log.d("Onboarding/StartFresh",
+                                        "Cleanup summary: ${cleanupResult.getOrNull()}")
 
-                                    // Use a brand-new UUID as the passphrase so the app creates a
-                                    // completely fresh Firebase path (users/{freshUUID}/notes/…).
-                                    // This sidesteps the permission-denied delete problem and guarantees
-                                    // that background sync cannot pull any old notes from Firebase.
+                                    // Fresh UUID passphrase → brand-new empty Firebase path.
                                     val freshPassphrase = java.util.UUID.randomUUID().toString()
                                     PassphraseManager.storePassphrase(context, freshPassphrase).getOrThrow()
 
@@ -236,7 +297,7 @@ fun OnboardingScreen(navController: NavController) {
                                     }
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Setup failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                    Log.e("OnboardingScreen", "Setup failed: ${e.message}", e)
+                                    Log.e("Onboarding/StartFresh", "Unexpected error", e)
                                 } finally {
                                     isLoading = false
                                 }
@@ -348,19 +409,18 @@ fun OnboardingScreen(navController: NavController) {
                             Toast.makeText(context, "Invalid QR code format", Toast.LENGTH_SHORT).show()
                             return@launch
                         }
-                        val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
-                        PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
-
-                        // Clear any existing local notes before restoring from source device
-                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
-
-                        val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
-                        if (result.isFailure) {
-                            Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
-                        }
-                        navController.navigate("main") { popUpTo("onboarding") { inclusive = true } }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        performRestore(
+                            context = context,
+                            sourcePassphrase = sourcePassphrase,
+                            onError = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            },
+                            onSuccess = {
+                                navController.navigate("main") {
+                                    popUpTo("onboarding") { inclusive = true }
+                                }
+                            }
+                        )
                     } finally {
                         isLoading = false
                         showQRScanner = false
@@ -382,20 +442,18 @@ fun OnboardingScreen(navController: NavController) {
                     if (inputPassphrase.isBlank()) { errorMessage = "Please enter a passphrase"; return@launch }
                     isLoading = true; errorMessage = ""
                     try {
-                        val sourcePassphrase = inputPassphrase
-                        val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
-                        PassphraseManager.storePassphrase(context, currentPassphrase).getOrThrow()
-
-                        // Clear any existing local notes before restoring from source device
-                        DataCleanupManager.clearLocalNotesOnly(context).getOrThrow()
-
-                        val result = SyncManager.syncDataFromPassphrase(context, sourcePassphrase, currentPassphrase)
-                        if (result.isFailure) {
-                            Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}", Toast.LENGTH_LONG).show()
-                        }
-                        navController.navigate("main") { popUpTo("onboarding") { inclusive = true } }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        performRestore(
+                            context = context,
+                            sourcePassphrase = inputPassphrase.trim(),
+                            onError = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            },
+                            onSuccess = {
+                                navController.navigate("main") {
+                                    popUpTo("onboarding") { inclusive = true }
+                                }
+                            }
+                        )
                     } finally {
                         isLoading = false; showManualDialog = false
                         inputPassphrase = ""; errorMessage = ""

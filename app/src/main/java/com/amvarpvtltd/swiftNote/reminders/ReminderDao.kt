@@ -59,4 +59,8 @@ interface ReminderDao {
     /** Get the parent reminder of a recurring chain */
     @Query("SELECT * FROM reminders WHERE id = :parentId")
     suspend fun getParentReminder(parentId: String): ReminderEntity?
+
+    /** Wipe all reminders — used during onboarding identity reset */
+    @Query("DELETE FROM reminders")
+    fun clearAll()
 }
