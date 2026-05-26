@@ -34,14 +34,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
+import com.amvarpvtltd.swiftNote.auth.DeviceManager
+import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.DeviceIdentity
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import com.amvarpvtltd.swiftNote.room.AppDatabase
+import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
+import com.amvarpvtltd.swiftNote.components.DisconnectSyncDialog
+import com.amvarpvtltd.swiftNote.components.InAppNotificationBanner
+import com.amvarpvtltd.swiftNote.components.NotificationHelper
+import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +70,11 @@ fun SyncSettingsScreen(navController: NavController) {
     var errorMessage by remember { mutableStateOf("") }
     var syncStats by remember { mutableStateOf<com.amvarpvtltd.swiftNote.sync.SyncStats?>(null) }
 
+    // Phase 5 — Disconnect from Continuous Sync
+    var syncMode by remember { mutableStateOf(SyncMode.LOCAL_ONLY) }
+    var showDisconnectDialog by remember { mutableStateOf(false) }
+    var disconnectIsLoading by remember { mutableStateOf(false) }
+
     // Animation states for enhanced UX
     var statsVisible by remember { mutableStateOf(false) }
     var cardsVisible by remember { mutableStateOf(false) }
@@ -73,9 +86,11 @@ fun SyncSettingsScreen(navController: NavController) {
     LaunchedEffect(Unit) {
         // BUG-026 FIX: Never use empty string as Firebase path — always fallback to deviceId
         val stored = PassphraseManager.getStoredPassphrase(context)
-        val deviceId = com.amvarpvtltd.swiftNote.auth.DeviceManager.getOrCreateDeviceId(context)
+        val deviceId = DeviceManager.getOrCreateDeviceId(context)
         currentPassphrase = stored ?: deviceId
         DeviceIdentity.setIfEmpty(currentPassphrase, "SyncSettingsScreen")
+        // Phase 5: read sync mode so Disconnect card renders correctly
+        syncMode = PassphraseManager.getSyncMode(context)
         if (currentPassphrase.isNotEmpty()) {
             // Load sync stats with animation
             scope.launch {
@@ -152,6 +167,7 @@ fun SyncSettingsScreen(navController: NavController) {
                         currentPassphrase = currentPassphrase,
                         syncStats = syncStats,
                         statsVisible = statsVisible,
+                        syncMode = syncMode,
                         onCopyPassphrase = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             clipboardManager.setText(AnnotatedString(currentPassphrase))
@@ -184,10 +200,31 @@ fun SyncSettingsScreen(navController: NavController) {
                         }
                     )
 
+                    // ── Continuous Sync Active card (Phase 5) ──────────────────
+                    // Visible ONLY when this device has joined a shared account via
+                    // Continuous Restore. Hidden for LOCAL_ONLY and ONE_TIME_IMPORTED.
+                    AnimatedVisibility(visible = syncMode == SyncMode.CONTINUOUS) {
+                        ContinuousSyncActiveCard(
+                            passphrase = currentPassphrase,
+                            onDisconnect = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showDisconnectDialog = true
+                            }
+                        )
+                    }
+
                     // Enhanced Info Card
                     AnimatedInfoCard()
                 }
             }
+
+            // ── In-app notification banner overlay (Phase 5) ──────────────
+            // Slides in from the top; displaces nothing; auto-dismisses.
+            InAppNotificationBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
     }
 
@@ -320,6 +357,390 @@ fun SyncSettingsScreen(navController: NavController) {
         )
     }
     } // end NoteScreenBackground
+
+    // ── Disconnect from Continuous Sync dialog (Phase 5) ──────────────────────
+    if (showDisconnectDialog) {
+        DisconnectSyncDialog(
+            isLoading = disconnectIsLoading,
+            onKeepNotes = {
+                scope.launch {
+                    disconnectIsLoading = true
+                    try {
+                        val result = disconnectKeepNotes(context)
+                        if (result.isSuccess) {
+                            syncMode = SyncMode.LOCAL_ONLY
+                            currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
+                            showDisconnectDialog = false
+                            Toast.makeText(context, "✅ Disconnected. Notes kept on this device.", Toast.LENGTH_LONG).show()
+                        } else {
+                            // Local part succeeds; Firebase upload may have failed.
+                            // We still update UI since the identity switch is done.
+                            syncMode = PassphraseManager.getSyncMode(context)
+                            if (syncMode == SyncMode.LOCAL_ONLY) {
+                                currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
+                                showDisconnectDialog = false
+                            }
+                            Toast.makeText(
+                                context,
+                                "Disconnected (notes kept), but upload to new account failed: ${result.exceptionOrNull()?.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } finally {
+                        disconnectIsLoading = false
+                    }
+                }
+            },
+            onRemoveNotes = {
+                scope.launch {
+                    disconnectIsLoading = true
+                    try {
+                        val result = disconnectRemoveNotes(context)
+                        syncMode = SyncMode.LOCAL_ONLY
+                        currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
+                        showDisconnectDialog = false
+                        if (result.isSuccess) {
+                            Toast.makeText(context, "✅ Disconnected. Notes removed from this device.", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "Disconnected, but some cleanup failed: ${result.exceptionOrNull()?.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } finally {
+                        disconnectIsLoading = false
+                    }
+                }
+            },
+            onCancel = { showDisconnectDialog = false }
+        )
+    }
+}
+
+// ─── Phase 5: Disconnect helpers ─────────────────────────────────────────────
+
+/**
+ * Disconnects from Continuous Sync while KEEPING all local notes.
+ *
+ * Steps:
+ *  1. Switch identity to deviceId (storePassphrase + setSyncMode LOCAL_ONLY).
+ *  2. Mark all local notes as unsynced so the upload cycle re-syncs them to the
+ *     new deviceId-rooted path (not the old shared account path).
+ *  3. Upload to users/{deviceId}/notes/{deviceId}/.
+ *
+ * ⚠️  Deliberately does NOT touch users/{sourcePassphrase}/ — other devices
+ *      in the shared account keep their data.
+ */
+private suspend fun disconnectKeepNotes(context: android.content.Context): Result<Unit> =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val deviceId = DeviceManager.getOrCreateDeviceId(context)
+            // 1 — Switch identity back to deviceId
+            PassphraseManager.storePassphrase(context, deviceId).getOrThrow()
+            PassphraseManager.setSyncMode(context, SyncMode.LOCAL_ONLY)
+            // 2 — Force re-upload: all notes marked unsynced go to users/{deviceId}/
+            AppDatabase.getInstance(context).noteDao().markAllUnsynced()
+            // 3 — Upload to the new identity path
+            SyncManager.uploadLocalDataToFirebase(context, deviceId).getOrThrow()
+            android.util.Log.d("Disconnect", "keepNotes complete — identity now $deviceId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("Disconnect", "keepNotes failed", e)
+            Result.failure(e)
+        }
+    }
+
+/**
+ * Disconnects from Continuous Sync and REMOVES all local notes.
+ *
+ * Steps:
+ *  1. Delete local notes, reminders, pending-deletions from Room.
+ *  2. Switch identity to deviceId (storePassphrase + setSyncMode LOCAL_ONLY).
+ *  3. Skip the next cloud-pull so the sync cycle doesn't re-fetch the old notes.
+ *
+ * ⚠️  Deliberately does NOT touch users/{sourcePassphrase}/ — other devices
+ *      in the shared account keep their data.
+ */
+private suspend fun disconnectRemoveNotes(context: android.content.Context): Result<Unit> =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val deviceId = DeviceManager.getOrCreateDeviceId(context)
+            val db = AppDatabase.getInstance(context)
+            // 1 — Wipe local data ONLY (NOT the shared Firebase account)
+            db.noteDao().deleteAllNotes()
+            db.pendingDeletionDao().clearAllPendingDeletions()
+            db.reminderDao().clearAll()
+            // 2 — Restore device identity
+            PassphraseManager.storePassphrase(context, deviceId).getOrThrow()
+            PassphraseManager.setSyncMode(context, SyncMode.LOCAL_ONLY)
+            // 3 — Prevent next sync cycle from re-pulling the shared account's notes
+            NoteRepository.markSkipNextCloudPull(context)
+            android.util.Log.d("Disconnect", "removeNotes complete — identity now $deviceId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("Disconnect", "removeNotes failed", e)
+            Result.failure(e)
+        }
+    }
+
+// ─── Phase 5: Continuous Sync Active card ────────────────────────────────────
+
+/**
+ * Shown in SyncSettingsScreen when [SyncMode.CONTINUOUS] is active.
+ *
+ * Design language mirrors the other [ElevatedCard]s on this screen:
+ *  – [NoteTheme.Surface] container (not a coloured tint)
+ *  – [EnhancedSectionHeader]-style icon badge (Card + Icon)
+ *  – Pulsing "● LIVE" badge to signal an active connection
+ *  – Account info row styled like the passphrase card in [AnimatedDeviceInfoCard]
+ *  – [FilledTonalButton] with error-tint and spring press-scale for the disconnect CTA
+ */
+@Composable
+private fun ContinuousSyncActiveCard(
+    passphrase: String,
+    onDisconnect: () -> Unit
+) {
+    val preview = if (passphrase.length > 14) passphrase.take(14) + "…" else passphrase
+
+    // ── Pulsing glow for the LIVE badge ──────────────────────────────────
+    val infiniteTransition = rememberInfiniteTransition(label = "sync_live")
+    val liveAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(950, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live_alpha"
+    )
+
+    // ── Press animation for disconnect button ─────────────────────────────
+    var disconnectPressed by remember { mutableStateOf(false) }
+    val disconnectBtnScale by animateFloatAsState(
+        targetValue = if (disconnectPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.45f, stiffness = 600f),
+        label = "disconnect_btn_scale"
+    )
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = NoteTheme.Surface,
+            contentColor = NoteTheme.OnSurface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // ── Header — mirrors EnhancedSectionHeader ────────────────────
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = NoteTheme.SuccessContainer.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = null,
+                        tint = NoteTheme.Success,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .padding(4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Continuous Sync Active",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = NoteTheme.OnSurface
+                    )
+                    Text(
+                        text = "Sharing notes across devices",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NoteTheme.OnSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                // ── Pulsing LIVE pill ─────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = NoteTheme.SuccessContainer.copy(alpha = liveAlpha * 0.75f),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(
+                                    NoteTheme.Success.copy(alpha = liveAlpha),
+                                    shape = RoundedCornerShape(50)
+                                )
+                        )
+                        Text(
+                            text = "LIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NoteTheme.OnSuccessContainer,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+                }
+            }
+
+            // ── Linked account info — matches passphrase card style ────────
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = NoteTheme.PrimaryContainer.copy(alpha = 0.3f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Link,
+                        contentDescription = null,
+                        tint = NoteTheme.Primary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Shared account  ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NoteTheme.OnSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = NoteTheme.OnSurface,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = NoteTheme.Outline.copy(alpha = 0.3f)
+            )
+
+            // ── Description ───────────────────────────────────────────────
+            Text(
+                text = "Note changes on this device are synced to the shared account. To switch to a private account, disconnect below.",
+                style = MaterialTheme.typography.bodySmall,
+                color = NoteTheme.OnSurfaceVariant,
+                lineHeight = 18.sp
+            )
+
+            // ── Disconnect CTA ────────────────────────────────────────────
+            FilledTonalButton(
+                onClick = {
+                    disconnectPressed = true
+                    onDisconnect()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .scale(disconnectBtnScale),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = NoteTheme.ErrorContainer.copy(alpha = 0.6f),
+                    contentColor = NoteTheme.Error
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LinkOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Disconnect from Shared Account",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            LaunchedEffect(disconnectPressed) {
+                if (disconnectPressed) {
+                    delay(150)
+                    disconnectPressed = false
+                }
+            }
+        }
+    }
+}
+
+// ─── Phase 6: Sync Mode status chip ─────────────────────────────────────────
+
+/**
+ * A compact chip displayed in [AnimatedDeviceInfoCard] that shows the current [SyncMode]
+ * with a matching icon and colour so the user always knows at a glance how their
+ * identity is configured.
+ *
+ *  LOCAL_ONLY        → neutral phone icon  — "Local only"
+ *  CONTINUOUS        → green sync icon     — "Continuous Sync"
+ *  ONE_TIME_IMPORTED → indigo cloud↓ icon  — "Imported (one-time)"
+ */
+@Composable
+private fun SyncModeStatusChip(syncMode: SyncMode) {
+    val chipIcon = when (syncMode) {
+        SyncMode.CONTINUOUS      -> Icons.Default.Sync
+        SyncMode.ONE_TIME_IMPORTED -> Icons.Default.CloudDownload
+        SyncMode.LOCAL_ONLY      -> Icons.Default.PhoneAndroid
+    }
+    val chipLabel = when (syncMode) {
+        SyncMode.CONTINUOUS      -> "Continuous Sync"
+        SyncMode.ONE_TIME_IMPORTED -> "Imported (one-time)"
+        SyncMode.LOCAL_ONLY      -> "Local only"
+    }
+    val containerColor = when (syncMode) {
+        SyncMode.CONTINUOUS      -> NoteTheme.SuccessContainer.copy(alpha = 0.8f)
+        SyncMode.ONE_TIME_IMPORTED -> NoteTheme.PrimaryContainer.copy(alpha = 0.8f)
+        SyncMode.LOCAL_ONLY      -> NoteTheme.SecondaryContainer.copy(alpha = 0.5f)
+    }
+    val contentColor = when (syncMode) {
+        SyncMode.CONTINUOUS      -> NoteTheme.OnSuccessContainer
+        SyncMode.ONE_TIME_IMPORTED -> NoteTheme.OnPrimaryContainer
+        SyncMode.LOCAL_ONLY      -> NoteTheme.OnSecondaryContainer
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(color = containerColor, shape = RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Icon(
+            imageVector = chipIcon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = chipLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 // Enhanced animated device info card
@@ -328,6 +749,7 @@ private fun AnimatedDeviceInfoCard(
     currentPassphrase: String,
     syncStats: com.amvarpvtltd.swiftNote.sync.SyncStats?,
     statsVisible: Boolean,
+    syncMode: SyncMode,
     onCopyPassphrase: () -> Unit
 ) {
     ElevatedCard(
@@ -345,6 +767,10 @@ private fun AnimatedDeviceInfoCard(
                 title = "This Device",
                 subtitle = "Your sync identity"
             )
+
+            // Phase 6 — Sync mode indicator chip
+            Spacer(modifier = Modifier.height(8.dp))
+            SyncModeStatusChip(syncMode = syncMode)
 
             Spacer(modifier = Modifier.height(12.dp))
 

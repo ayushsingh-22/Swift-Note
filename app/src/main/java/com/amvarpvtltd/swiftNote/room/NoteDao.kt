@@ -65,4 +65,13 @@ interface NoteDao {
     /** Delete every note row — used by onboarding reset and full data wipe */
     @Query("DELETE FROM notes")
     fun deleteAllNotes()
+
+    /**
+     * Mark every note as unsynced (synced = 0).
+     * Call this after switching device identity (e.g. disconnect from Continuous Sync)
+     * so the normal sync cycle re-uploads all notes to the new Firebase account path.
+     * Without this, notes marked synced=1 would silently stay on the OLD path only.
+     */
+    @Query("UPDATE notes SET synced = 0")
+    fun markAllUnsynced()
 }

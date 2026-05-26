@@ -17,6 +17,7 @@ object PassphraseManager {
     private const val KEY_PASSPHRASE = "device_passphrase"
     private const val KEY_PASSPHRASE_ENCRYPTED = "device_passphrase_enc"
     private const val KEY_MIGRATED = "passphrase_migrated_v2"
+    private const val KEY_SYNC_MODE = "sync_mode"
 
     /**
      * Retrieve the stored passphrase.
@@ -343,6 +344,27 @@ object PassphraseManager {
                parts[0].isNotEmpty() &&
                parts[1].isNotEmpty() &&
                parts[2].matches(Regex("\\d{3}"))
+    }
+
+    /**
+     * Returns the current [SyncMode] stored in passphrase_prefs.
+     * Falls back to [SyncMode.LOCAL_ONLY] for existing installs that have no marker yet —
+     * this is safe: those users are on device-ID-rooted accounts (effectively LOCAL_ONLY).
+     */
+    fun getSyncMode(context: Context): SyncMode {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_SYNC_MODE, null)
+        return SyncMode.fromStorage(raw)
+    }
+
+    /**
+     * Persists the [SyncMode] atomically to passphrase_prefs.
+     * Call this immediately after any identity change (storePassphrase, disconnect, etc.)
+     * so the mode is always coherent with the stored passphrase.
+     */
+    fun setSyncMode(context: Context, mode: SyncMode) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit { putString(KEY_SYNC_MODE, mode.name) }
     }
 
     fun clearStoredPassphrase(context: Context) {

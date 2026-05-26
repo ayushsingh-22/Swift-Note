@@ -42,6 +42,7 @@ import com.amvarpvtltd.swiftNote.design.ViewNoteScreen
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.share.SharedNoteData
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.theme.AppThemeState
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.google.firebase.database.FirebaseDatabase
@@ -49,6 +50,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.core.content.edit
 
 @Composable
 fun MyApp(modifier: Modifier = Modifier) {
@@ -168,6 +170,32 @@ fun MyApp(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         try {
             Log.d("MyApp", "🚀 Starting app initialization...")
+
+            // ── One-time SyncMode migration ──────────────────────────────────────
+            // Existing installs have no KEY_SYNC_MODE stored. We infer the correct
+            // mode from whether the stored passphrase equals the device ID:
+            //   • equal (or empty) → LOCAL_ONLY   (never joined a shared account)
+            //   • different        → CONTINUOUS    (user previously did a Restore)
+            // This runs exactly once per install and is a no-op on fresh installs.
+            withContext(Dispatchers.IO) {
+                val migrationPrefs = context.getSharedPreferences("auth_migration", android.content.Context.MODE_PRIVATE)
+                val alreadyMigrated = migrationPrefs.getBoolean("synced_mode_v1", false)
+                if (!alreadyMigrated) {
+                    val storedPass = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(context).orEmpty()
+                    val deviceId = DeviceManager.getOrCreateDeviceId(context)
+                    // Only infer CONTINUOUS if the stored passphrase is non-empty and doesn't
+                    // match the device ID — that means the user previously did a Continuous Restore.
+                    val inferredMode = if (storedPass.isNotEmpty() && storedPass != deviceId) {
+                        SyncMode.CONTINUOUS
+                    } else {
+                        SyncMode.LOCAL_ONLY
+                    }
+                    com.amvarpvtltd.swiftNote.auth.PassphraseManager.setSyncMode(context, inferredMode)
+                    migrationPrefs.edit { putBoolean("synced_mode_v1", true) }
+                    Log.d("MyApp", "SyncMode migration complete — inferred: $inferredMode")
+                }
+            }
+            // ── End SyncMode migration ────────────────────────────────────────────
 
             // Check if we have a stored passphrase (new system)
             val storedPassphrase = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(context)

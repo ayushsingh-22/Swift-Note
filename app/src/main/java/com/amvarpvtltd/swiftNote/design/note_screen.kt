@@ -32,6 +32,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
@@ -91,6 +93,8 @@ import com.amvarpvtltd.swiftNote.components.ViewModeToggleButton
 import com.amvarpvtltd.swiftNote.components.rememberViewModeState
 import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.search.rememberSearchAndSortManager
+import com.amvarpvtltd.swiftNote.auth.PassphraseManager
+import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.utils.AutoSyncManager
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
@@ -213,6 +217,28 @@ fun NotesScreen(navController: NavHostController) {
 
     // Offline banner state
     var showOfflineBanner by remember { mutableStateOf(false) }
+
+    // Phase 6 — Sync mode for top-bar icon indicator
+    var syncMode by remember { mutableStateOf(SyncMode.LOCAL_ONLY) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            syncMode = PassphraseManager.getSyncMode(context)
+        }
+    }
+    // Re-read sync mode when the user navigates back from SyncSettingsScreen
+    DisposableEffect(navController) {
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, _ ->
+            if (destination.route == "main") {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        syncMode = PassphraseManager.getSyncMode(context)
+                    }
+                }
+            }
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
 
     // Reminder functionality state
     var selectedNoteForReminder by remember { mutableStateOf<dataclass?>(null) }
@@ -413,13 +439,31 @@ fun NotesScreen(navController: NavHostController) {
 
                             Spacer(modifier = Modifier.width(6.dp))
 
-                            // Sync settings
+                            // Sync settings — icon/colour changes with SyncMode (Phase 6)
+                            val (syncSettingsIcon, syncSettingsContainer, syncSettingsContent) =
+                                when (syncMode) {
+                                    SyncMode.CONTINUOUS -> Triple(
+                                        Icons.Filled.Sync,
+                                        NoteTheme.SuccessContainer.copy(alpha = 0.8f),
+                                        NoteTheme.OnSuccessContainer
+                                    )
+                                    SyncMode.ONE_TIME_IMPORTED -> Triple(
+                                        Icons.Filled.CloudDownload,
+                                        NoteTheme.PrimaryContainer.copy(alpha = 0.8f),
+                                        NoteTheme.OnPrimaryContainer
+                                    )
+                                    SyncMode.LOCAL_ONLY -> Triple(
+                                        Icons.Outlined.Person,
+                                        adaptiveIconContainer,
+                                        adaptiveIconContent
+                                    )
+                                }
                             IconActionButton(
                                 onClick = { navController.navigate("syncSettings") },
-                                icon = Icons.Outlined.Person,
+                                icon = syncSettingsIcon,
                                 contentDescription = "Sync Settings",
-                                containerColor = adaptiveIconContainer,
-                                contentColor = adaptiveIconContent
+                                containerColor = syncSettingsContainer,
+                                contentColor = syncSettingsContent
                             )
 
                             Spacer(modifier = Modifier.width(6.dp))

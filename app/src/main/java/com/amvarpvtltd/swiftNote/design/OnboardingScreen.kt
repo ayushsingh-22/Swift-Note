@@ -33,66 +33,138 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
+import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
+import com.amvarpvtltd.swiftNote.components.SyncModeDialog
 import com.amvarpvtltd.swiftNote.sync.SyncManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared restore helper — called by both QR and Manual Passphrase paths so the
-// two flows can never drift out of sync.
+// Restore helpers — split by sync mode so Phase 3's dialog can call each path
+// independently. Both helpers share the same contract:
+//   [onError]   → called with a user-visible message if any step fails (no throw)
+//   [onSuccess] → called when navigation to "main" should happen
+//   The caller's finally{} block always runs regardless.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Unified restore flow (QR scan + manual passphrase entry):
- *  1. Store the SOURCE passphrase as the local identity so both devices share the same
- *     users/{sourcePassphrase}/ Firebase account root.
- *  2. Sync notes FROM that account — SyncManager reads every sub-device folder under
- *     users/{sourcePassphrase}/notes/ and MERGES them into local Room DB
- *     (timestamp-based conflict resolution; local wins if newer).
- *     Existing local notes are kept; only missing / older notes are added.
- *     Then this device's full note set is uploaded to
- *     users/{sourcePassphrase}/notes/{thisDeviceId}/.
+ * Continuous Sync restore (QR + Manual legacy path, and what the user picks after Phase 3).
  *
- * ⚠️  No local wipe is performed here — that is intentional.
- *      Start Fresh is the only flow that wipes.  Restore is additive.
+ * Adopts [sourcePassphrase] as the local identity so both devices share the same
+ * users/{sourcePassphrase}/ Firebase account root. Future reads/writes on both
+ * devices go through that shared account — true multi-device sync.
  *
- * [onError] is called with a user-visible message if any step fails.
- * [onSuccess] is called when the user should be navigated to "main".
- * Neither callback throws — the caller's finally{} block always runs.
+ * ⚠️  No local wipe is performed — this is intentional. Restore is additive.
+ *      Start Fresh is the only flow that wipes.
  */
-private suspend fun performRestore(
+private suspend fun performContinuousRestore(
     context: android.content.Context,
     sourcePassphrase: String,
     onError: (String) -> Unit,
     onSuccess: () -> Unit
 ) {
-    // Step 1 — Adopt the SOURCE passphrase as the local identity.
-    // Both this device and the source device now operate under the same Firebase account
-    // root (users/{sourcePassphrase}/), enabling true multi-device sync.
-    val storeResult = PassphraseManager.storePassphrase(context, sourcePassphrase)
-    if (storeResult.isFailure) {
-        Log.e("Onboarding/Restore", "storePassphrase failed", storeResult.exceptionOrNull())
-        onError("Failed to connect to account: ${storeResult.exceptionOrNull()?.message}")
+    // Step 0 — Safety net: confirm the source account exists BEFORE adopting its
+    // passphrase. storePassphrase() writes to Firebase (updateChildren), which would
+    // silently CREATE a new node for a non-existent account — this is the reported bug.
+    // Primary validation happens in onSync/onQRScanned (better UX); this guard prevents
+    // the bug even if the UI check is bypassed or a race condition occurs.
+    val verifyResult = PassphraseManager.verifyPassphrase(sourcePassphrase)
+    if (verifyResult.isFailure) {
+        val errMsg = verifyResult.exceptionOrNull()?.message ?: "Network error"
+        Log.e("Onboarding/Continuous", "verifyPassphrase failed: $errMsg")
+        onError("Could not verify account: $errMsg")
+        return
+    }
+    if (verifyResult.getOrDefault(false) == false) {
+        Log.w("Onboarding/Continuous", "Account not found for passphrase (len=${sourcePassphrase.length})")
+        onError("Account not found. Please double-check the passphrase and try again.")
         return
     }
 
-    // Step 2 — Merge: SyncManager reads ALL sub-device folders under
-    // users/{sourcePassphrase}/notes/ and merges them into local Room DB.
-    // Local notes that are newer win (timestamp-based conflict resolution).
-    // After merging, this device's full note set is uploaded to
+    // Step 1 — Adopt the source passphrase as the local identity.
+    val storeResult = PassphraseManager.storePassphrase(context, sourcePassphrase)
+    if (storeResult.isFailure) {
+        Log.e("Onboarding/Continuous", "storePassphrase failed", storeResult.exceptionOrNull())
+        onError("Failed to connect to account: ${storeResult.exceptionOrNull()?.message}")
+        return
+    }
+    // Mark device as CONTINUOUS so SyncSettingsScreen can show the Disconnect card.
+    PassphraseManager.setSyncMode(context, SyncMode.CONTINUOUS)
+
+    // Step 2 — Merge all sub-device folders from users/{sourcePassphrase}/notes/ into
+    // local Room. Timestamp-based conflict resolution: local wins if newer.
+    // After merging, this device's full note set is uploaded back to
     // users/{sourcePassphrase}/notes/{thisDeviceId}/.
     val syncResult = SyncManager.syncDataFromPassphrase(
         context = context,
         sourcePassphrase = sourcePassphrase,
-        currentPassphrase = sourcePassphrase  // same account — multi-device sharing
+        currentPassphrase = sourcePassphrase   // same account — multi-device sharing
     )
     if (syncResult.isFailure) {
         onError("Sync failed: ${syncResult.exceptionOrNull()?.message ?: "Unknown error"}")
         return
     }
 
-    Log.d("Onboarding/Restore", "Restore complete: ${syncResult.getOrNull()}")
+    Log.d("Onboarding/Continuous", "Continuous restore complete: ${syncResult.getOrNull()}")
+    onSuccess()
+}
+
+/**
+ * One-Time Sync restore — imports a snapshot of the source account then severs the link.
+ *
+ * This device KEEPS its own identity (deviceId). The source device is never
+ * affected after this call — future edits on either device do NOT propagate.
+ *
+ * Steps:
+ *  1. Ensure this device's passphrase is set to its own deviceId (not the source).
+ *  2. Pull notes from all sub-device folders under users/{sourcePassphrase}/notes/.
+ *  3. Merge them into local Room (additive — existing local notes are preserved).
+ *  4. Re-upload the merged set to users/{deviceId}/notes/{deviceId}/
+ *     (the device's own account, not the source account).
+ *
+ * ⚠️  No local wipe is performed — the import is strictly additive.
+ */
+private suspend fun performOneTimeRestore(
+    context: android.content.Context,
+    sourcePassphrase: String,
+    onError: (String) -> Unit,
+    onSuccess: () -> Unit
+) {
+    val deviceId = DeviceManager.getOrCreateDeviceId(context)
+
+    // Step 1 — Ensure the local identity is set to the device's OWN id, NOT the source.
+    // (If the user was previously in Continuous mode this overwrites back to deviceId.)
+    val storeResult = PassphraseManager.storePassphrase(context, deviceId)
+    if (storeResult.isFailure) {
+        Log.e("Onboarding/OneTime", "storePassphrase failed", storeResult.exceptionOrNull())
+        onError("Failed to set up local account: ${storeResult.exceptionOrNull()?.message}")
+        return
+    }
+    // Mark as ONE_TIME_IMPORTED — no shared account, no Disconnect card needed.
+    PassphraseManager.setSyncMode(context, SyncMode.ONE_TIME_IMPORTED)
+
+    // Step 2 & 3 — Pull from source, keep own identity as the upload target.
+    //   source != current → SyncManager reads all sub-folders under
+    //                        users/{sourcePassphrase}/notes/ and uploads merged notes
+    //                        to users/{deviceId}/notes/{deviceId}/
+    //   cleanTargetBeforeUpload = false → additive merge (existing local notes are kept)
+    //
+    // Decryption still works: SyncManager.tryDecryptWithCandidates includes sourcePassphrase
+    // in its candidate list, so source-encrypted notes decrypt successfully even though
+    // currentPassphrase is now deviceId.
+    val syncResult = SyncManager.syncDataFromPassphrase(
+        context = context,
+        sourcePassphrase = sourcePassphrase,
+        currentPassphrase = deviceId,
+        cleanTargetBeforeUpload = false
+    )
+    if (syncResult.isFailure) {
+        onError("Import failed: ${syncResult.exceptionOrNull()?.message ?: "Unknown error"}")
+        return
+    }
+
+    Log.d("Onboarding/OneTime", "One-time import complete: ${syncResult.getOrNull()}")
     onSuccess()
 }
 
@@ -108,6 +180,9 @@ fun OnboardingScreen(navController: NavController) {
     var isLoading by remember { mutableStateOf(false) }
     var inputPassphrase by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
+    // Non-null when a passphrase has been captured (QR or manual) and the user
+    // needs to choose a sync mode before the actual sync begins.
+    var pendingSyncSourcePassphrase by remember { mutableStateOf<String?>(null) }
 
     // Staggered animation states
     var heroVisible by remember { mutableStateOf(false) }
@@ -321,6 +396,8 @@ fun OnboardingScreen(navController: NavController) {
                                     // Step 4 — Adopt the fresh identity and navigate.
                                     PassphraseManager.storePassphrase(context, freshPassphrase)
                                         .getOrThrow()
+                                    // This device has no shared account — mark it as local-only.
+                                    PassphraseManager.setSyncMode(context, SyncMode.LOCAL_ONLY)
 
                                     // Belt-and-suspenders: even if forceWipeFirebaseAccount above
                                     // didn't fully complete (e.g. no network), tell NoteRepository
@@ -439,28 +516,40 @@ fun OnboardingScreen(navController: NavController) {
         QRScannerSection(
             onQRScanned = { qrContent ->
                 scope.launch {
+                    val sourcePassphrase = PassphraseManager.extractPassphraseFromQR(qrContent)
+                    if (sourcePassphrase == null) {
+                        Toast.makeText(context, "Invalid QR code format", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    // Validate the account exists before closing the scanner.
                     isLoading = true
                     try {
-                        val sourcePassphrase = PassphraseManager.extractPassphraseFromQR(qrContent)
-                        if (sourcePassphrase == null) {
-                            Toast.makeText(context, "Invalid QR code format", Toast.LENGTH_SHORT).show()
-                            return@launch
-                        }
-                        performRestore(
-                            context = context,
-                            sourcePassphrase = sourcePassphrase,
-                            onError = { msg ->
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                            },
-                            onSuccess = {
-                                navController.navigate("main") {
-                                    popUpTo("onboarding") { inclusive = true }
-                                }
+                        val verifyResult = PassphraseManager.verifyPassphrase(sourcePassphrase)
+                        when {
+                            verifyResult.isFailure -> {
+                                showQRScanner = false
+                                Toast.makeText(
+                                    context,
+                                    "Could not verify QR account. Check your connection and try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
-                        )
+                            verifyResult.getOrDefault(false) == false -> {
+                                showQRScanner = false
+                                Toast.makeText(
+                                    context,
+                                    "QR code account not found. Please scan a valid SwiftNote QR code.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            else -> {
+                                // ✅ Valid account — proceed to mode selection
+                                showQRScanner = false
+                                pendingSyncSourcePassphrase = sourcePassphrase
+                            }
+                        }
                     } finally {
                         isLoading = false
-                        showQRScanner = false
                     }
                 }
             },
@@ -476,12 +565,61 @@ fun OnboardingScreen(navController: NavController) {
             isLoading = isLoading,
             onSync = {
                 scope.launch {
-                    if (inputPassphrase.isBlank()) { errorMessage = "Please enter a passphrase"; return@launch }
-                    isLoading = true; errorMessage = ""
+                    if (inputPassphrase.isBlank()) {
+                        errorMessage = "Please enter a passphrase"
+                        return@launch
+                    }
+                    val trimmed = inputPassphrase.trim()
+                    isLoading = true
+                    errorMessage = ""
                     try {
-                        performRestore(
+                        // Validate the account exists BEFORE closing the dialog.
+                        // Error renders inside the dialog (errorMessage field) so
+                        // the user can correct the passphrase without starting over.
+                        val verifyResult = PassphraseManager.verifyPassphrase(trimmed)
+                        when {
+                            verifyResult.isFailure -> {
+                                errorMessage = "Connection error: ${verifyResult.exceptionOrNull()?.message ?: "Could not reach server"}"
+                            }
+                            verifyResult.getOrDefault(false) == false -> {
+                                errorMessage = "Account not found. Please check the passphrase."
+                            }
+                            else -> {
+                                // ✅ Valid — dismiss dialog and show SyncModeDialog
+                                showManualDialog = false
+                                inputPassphrase = ""
+                                errorMessage = ""
+                                pendingSyncSourcePassphrase = trimmed
+                            }
+                        }
+                    } finally {
+                        isLoading = false
+                    }
+                }
+            },
+            onCancel = { showManualDialog = false; inputPassphrase = ""; errorMessage = "" }
+        )
+    }
+
+    // ── Sync Mode Dialog ─────────────────────────────────────────────────────
+    // Shown after the user provides a passphrase via QR or manual entry.
+    // Intercepts the flow so the user can choose One-Time vs Continuous before
+    // any network call is made.
+    //
+    // Use a local val snapshot so Kotlin can smart-cast the nullable String
+    // inside the if-block (Compose 'var' delegates aren't smart-castable directly).
+    val pendingPassphrase = pendingSyncSourcePassphrase
+    if (pendingPassphrase != null) {
+        SyncModeDialog(
+            sourcePassphrasePreview = pendingPassphrase.take(8) + "…",
+            isLoading = isLoading,
+            onOneTimePicked = {
+                scope.launch {
+                    isLoading = true
+                    try {
+                        performOneTimeRestore(
                             context = context,
-                            sourcePassphrase = inputPassphrase.trim(),
+                            sourcePassphrase = pendingPassphrase,
                             onError = { msg ->
                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             },
@@ -492,12 +630,34 @@ fun OnboardingScreen(navController: NavController) {
                             }
                         )
                     } finally {
-                        isLoading = false; showManualDialog = false
-                        inputPassphrase = ""; errorMessage = ""
+                        isLoading = false
+                        pendingSyncSourcePassphrase = null
                     }
                 }
             },
-            onCancel = { showManualDialog = false; inputPassphrase = ""; errorMessage = "" }
+            onContinuousPicked = {
+                scope.launch {
+                    isLoading = true
+                    try {
+                        performContinuousRestore(
+                            context = context,
+                            sourcePassphrase = pendingPassphrase,
+                            onError = { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            },
+                            onSuccess = {
+                                navController.navigate("main") {
+                                    popUpTo("onboarding") { inclusive = true }
+                                }
+                            }
+                        )
+                    } finally {
+                        isLoading = false
+                        pendingSyncSourcePassphrase = null
+                    }
+                }
+            },
+            onCancel = { pendingSyncSourcePassphrase = null }
         )
     }
 }
