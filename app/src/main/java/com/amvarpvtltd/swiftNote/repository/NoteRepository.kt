@@ -2,6 +2,7 @@ package com.amvarpvtltd.swiftNote.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
@@ -38,6 +39,20 @@ class NoteRepository(val context: Context? = null) {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: NoteRepository(context.applicationContext).also { INSTANCE = it }
             }
+        }
+
+        /**
+         * SharedPreferences key written by the Start Fresh flow.
+         * When present-and-true, [syncFromCloudInBackground] skips the cloud-download step once
+         * so that old Firebase notes cannot be pulled back immediately after a wipe.
+         */
+        private const val PREFS_SYNC = "note_repo_prefs"
+        private const val KEY_SKIP_CLOUD_PULL = "skip_cloud_pull_once"
+
+        /** Call from the Start Fresh handler (after wipe, before navigation). */
+        fun markSkipNextCloudPull(context: Context) {
+            context.getSharedPreferences(PREFS_SYNC, Context.MODE_PRIVATE)
+                .edit { putBoolean(KEY_SKIP_CLOUD_PULL, true) }
         }
     }
 
@@ -334,6 +349,10 @@ class NoteRepository(val context: Context? = null) {
      * Background sync from cloud to update local database.
      * Handles pending deletions first, then downloads cloud data.
      * Uses timestamp-based conflict resolution: local edits (newer) win over cloud (older).
+     *
+     * Skips the cloud-download phase if the "fresh_start" preference flag is set — that
+     * flag is written by the Start Fresh flow to prevent old Firebase notes from being
+     * pulled back during the very first fetchNotes() call after the wipe.
      */
     private suspend fun syncFromCloudInBackground(offlineManager: OfflineNoteManager) {
         try {
@@ -365,6 +384,20 @@ class NoteRepository(val context: Context? = null) {
             val pendingSyncIds = pendingSyncNotes.map { it.id }.toSet()
 
             // THIRD: Download from Firebase
+            // Skip this phase once after a Start Fresh — the flag was set to prevent old
+            // Firebase notes (which may not have been fully deleted yet on slow connections)
+            // from being pulled back into local storage immediately after the wipe.
+            val ctx = context
+            val skipFlag = ctx?.getSharedPreferences(PREFS_SYNC, Context.MODE_PRIVATE)
+                ?.getBoolean(KEY_SKIP_CLOUD_PULL, false) ?: false
+            if (skipFlag) {
+                // Clear the flag so normal sync resumes on the next call
+                ctx?.getSharedPreferences(PREFS_SYNC, Context.MODE_PRIVATE)
+                    ?.edit { putBoolean(KEY_SKIP_CLOUD_PULL, false) }
+                Log.i(TAG, "Skipping cloud-download phase (Start Fresh flag set) — local is authoritative")
+                return
+            }
+
             val snapshot = resolveNotesRef().get().await()
             val cloudNotes = mutableListOf<dataclass>()
 

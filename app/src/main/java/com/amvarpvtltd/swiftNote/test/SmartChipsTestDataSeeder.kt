@@ -2,27 +2,22 @@ package com.amvarpvtltd.swiftNote.test
 
 import android.content.Context
 import android.util.Log
-import com.amvarpvtltd.swiftNote.Note
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
-import com.amvarpvtltd.swiftNote.security.EncryptionUtil
-import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
- * Call this from any Activity/Composable to seed test data that exercises Smart Action Chips.
- * The notes will be saved locally AND synced to Firebase under device ID "2ae571a095343c67".
+ * Call this from any Activity/Composable (DEBUG builds only) to seed test data
+ * that exercises Smart Action Chips.
+ *
+ * Notes are saved locally via the standard NoteRepository and will sync to
+ * whatever Firebase identity this device is currently using. No hardcoded paths.
  *
  * Usage: SmartChipsTestDataSeeder.seedTestData(context)
- *
- * This seeds data both locally (via NoteRepository) and directly to Firebase under the
- * target device ID path so that the Smart Action Chips feature can be verified.
  */
 object SmartChipsTestDataSeeder {
     private const val TAG = "TestDataSeeder"
-    private const val TARGET_DEVICE_ID = "2ae571a095343c67"
 
     private val testNotes = listOf(
         "Smart Chips: Phone Test" to
@@ -42,15 +37,14 @@ object SmartChipsTestDataSeeder {
     )
 
     /**
-     * Seeds test notes both locally and to Firebase under device "2ae571a095343c67".
-     * Call once to populate test data that exercises the Smart Action Chips feature.
+     * Seeds test notes locally via NoteRepository.
+     * Notes will sync to Firebase under the current device identity — no hardcoded paths.
      */
     fun seedTestData(context: Context) {
         val repository = NoteRepository.getInstance(context)
         val scope = CoroutineScope(Dispatchers.IO)
 
         scope.launch {
-            // Save locally via standard repository (uses current device identity)
             testNotes.forEach { (title, description) ->
                 try {
                     repository.saveNote(
@@ -64,50 +58,7 @@ object SmartChipsTestDataSeeder {
                     Log.e(TAG, "❌ Failed to seed locally: $title", e)
                 }
             }
-
-            // Also push directly to Firebase under the target device ID path
-            pushToFirebaseForDevice()
-
-            Log.d(TAG, "🎉 All test notes seeded! Check Firebase path: users/$TARGET_DEVICE_ID/notes/$TARGET_DEVICE_ID")
-        }
-    }
-
-    /**
-     * Push encrypted test notes directly to Firebase under the target device ID.
-     * This ensures data exists on Firebase for device "2ae571a095343c67" regardless
-     * of what the current device's identity is.
-     */
-    private suspend fun pushToFirebaseForDevice() {
-        val db = FirebaseDatabase.getInstance()
-        val basePath = "users/$TARGET_DEVICE_ID/notes/$TARGET_DEVICE_ID"
-
-        testNotes.forEach { (title, description) ->
-            try {
-                val note = Note(
-                    title = title,
-                    description = description,
-                    mymobiledeviceid = TARGET_DEVICE_ID
-                )
-                // Encrypt using the target device ID as key
-                val encTitle = EncryptionUtil.encrypt(title, TARGET_DEVICE_ID)
-                val encDesc = EncryptionUtil.encrypt(description, TARGET_DEVICE_ID)
-
-                val noteData = mapOf(
-                    "title" to encTitle,
-                    "description" to encDesc,
-                    "id" to note.id,
-                    "mymobiledeviceid" to TARGET_DEVICE_ID,
-                    "timestamp" to note.timestamp,
-                    "updatedAt" to note.updatedAt
-                )
-
-                db.getReference(basePath).child(note.id).setValue(noteData).await()
-                Log.d(TAG, "✅ Pushed to Firebase: $title (id=${note.id})")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Firebase push failed: $title", e)
-            }
+            Log.d(TAG, "🎉 Test notes seeded locally — they will sync to the current device's Firebase identity.")
         }
     }
 }
-
-

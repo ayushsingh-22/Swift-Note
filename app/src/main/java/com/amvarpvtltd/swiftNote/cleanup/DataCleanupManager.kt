@@ -164,6 +164,51 @@ object DataCleanupManager {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Start-Fresh dedicated helper
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Forcefully deletes the **entire** `users/{accountId}` Firebase node (notes, reminders,
+     * metadata) and waits for the operation to complete before returning.
+     *
+     * Unlike the best-effort delete inside [wipeLocalAndPreviousRemoteNotes] (capped at 3 s),
+     * this function uses a 10-second timeout and returns a typed [Result] so the caller can
+     * decide whether to block navigation or show an error.
+     *
+     * Intended for the Start Fresh flow where we must guarantee Firebase is clean **before**
+     * navigating to main — otherwise [NoteRepository.fetchNotes] will pull old notes back from
+     * Firebase during its background sync and defeat the wipe.
+     *
+     * @param accountId The Firebase account key to delete (typically the device ID).
+     */
+    suspend fun forceWipeFirebaseAccount(accountId: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            if (accountId.isBlank()) return@withContext Result.success(Unit)
+            try {
+                PassphraseManager.ensureAuthenticated()
+                val result = withTimeoutOrNull(10_000L) {
+                    try {
+                        FirebaseDatabase.getInstance()
+                            .getReference("users")
+                            .child(accountId)
+                            .removeValue()
+                            .await()
+                        Log.i(TAG, "✅ Force-wiped Firebase account for Start Fresh")
+                        true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "⚠️ forceWipeFirebaseAccount inner delete failed: ${e.message}")
+                        false
+                    }
+                }
+                if (result == true) Result.success(Unit)
+                else Result.failure(Exception("Firebase wipe timed out or failed — old notes may still exist remotely"))
+            } catch (e: Exception) {
+                Log.w(TAG, "forceWipeFirebaseAccount outer failed: ${e.message}")
+                Result.failure(e)
+            }
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Legacy / specialised helpers — kept for existing callers
     // ─────────────────────────────────────────────────────────────────────────
 

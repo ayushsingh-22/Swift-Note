@@ -1,0 +1,16 @@
+{
+  "name": "swiftnote-firebase-tools",
+  "version": "1.0.0",
+  "description": "One-off Firebase admin scripts for SwiftNote database maintenance",
+  "scripts": {
+    "cleanup:dry": "node cleanup.js",
+    "cleanup:live": "cross-env DELETE=true node cleanup.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
+  }
+}
+

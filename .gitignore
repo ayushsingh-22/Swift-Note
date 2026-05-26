@@ -16,3 +16,8 @@ local.properties
 /google-services.json
 /app-release.aab
 generate_screens.ps1
+
+# Firebase admin tools — secret key MUST NOT be committed
+/tools/service-account-key.json
+/tools/node_modules/
+

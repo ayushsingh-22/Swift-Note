@@ -35,10 +35,8 @@ import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
 import com.amvarpvtltd.swiftNote.sync.SyncManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restore helper — called by both QR and Manual Passphrase paths so the
@@ -46,13 +44,18 @@ import kotlinx.coroutines.withContext
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Unified restore flow:
- *  1. Wipe local notes + reminders + pending-deletions
- *     AND best-effort delete Firebase data from the previous identity.
- *  2. Store new identity (= this device's hardware ID).
- *  3. Sync notes FROM sourcePassphrase INTO the new identity, cleaning the
- *     destination Firebase path first (cleanTargetBeforeUpload = true) to
- *     prevent old data from mixing with restored notes.
+ * Unified restore flow (QR scan + manual passphrase entry):
+ *  1. Store the SOURCE passphrase as the local identity so both devices share the same
+ *     users/{sourcePassphrase}/ Firebase account root.
+ *  2. Sync notes FROM that account — SyncManager reads every sub-device folder under
+ *     users/{sourcePassphrase}/notes/ and MERGES them into local Room DB
+ *     (timestamp-based conflict resolution; local wins if newer).
+ *     Existing local notes are kept; only missing / older notes are added.
+ *     Then this device's full note set is uploaded to
+ *     users/{sourcePassphrase}/notes/{thisDeviceId}/.
+ *
+ * ⚠️  No local wipe is performed here — that is intentional.
+ *      Start Fresh is the only flow that wipes.  Restore is additive.
  *
  * [onError] is called with a user-visible message if any step fails.
  * [onSuccess] is called when the user should be navigated to "main".
@@ -64,33 +67,28 @@ private suspend fun performRestore(
     onError: (String) -> Unit,
     onSuccess: () -> Unit
 ) {
-    // Step 1 — Unified local + remote wipe.
-    val cleanupResult = DataCleanupManager.wipeLocalAndPreviousRemoteNotes(context)
-    if (cleanupResult.isFailure) {
-        Log.e("Onboarding/Restore", "Cleanup failed", cleanupResult.exceptionOrNull())
-        onError("Couldn't clear existing data. Please try again.")
-        return
-    }
-    Log.d("Onboarding/Restore", "Cleanup summary: ${cleanupResult.getOrNull()}")
-
-    // Step 2 — Adopt new identity (deviceId becomes the new passphrase).
-    val currentPassphrase = DeviceManager.getOrCreateDeviceId(context)
-    val storeResult = PassphraseManager.storePassphrase(context, currentPassphrase)
+    // Step 1 — Adopt the SOURCE passphrase as the local identity.
+    // Both this device and the source device now operate under the same Firebase account
+    // root (users/{sourcePassphrase}/), enabling true multi-device sync.
+    val storeResult = PassphraseManager.storePassphrase(context, sourcePassphrase)
     if (storeResult.isFailure) {
         Log.e("Onboarding/Restore", "storePassphrase failed", storeResult.exceptionOrNull())
-        onError("Failed to create new identity: ${storeResult.exceptionOrNull()?.message}")
+        onError("Failed to connect to account: ${storeResult.exceptionOrNull()?.message}")
         return
     }
 
-    // Step 3 — Sync from source; clean destination first to avoid cross-contamination.
+    // Step 2 — Merge: SyncManager reads ALL sub-device folders under
+    // users/{sourcePassphrase}/notes/ and merges them into local Room DB.
+    // Local notes that are newer win (timestamp-based conflict resolution).
+    // After merging, this device's full note set is uploaded to
+    // users/{sourcePassphrase}/notes/{thisDeviceId}/.
     val syncResult = SyncManager.syncDataFromPassphrase(
         context = context,
         sourcePassphrase = sourcePassphrase,
-        currentPassphrase = currentPassphrase,
-        cleanTargetBeforeUpload = true
+        currentPassphrase = sourcePassphrase  // same account — multi-device sharing
     )
     if (syncResult.isFailure) {
-        onError("Restore failed: ${syncResult.exceptionOrNull()?.message ?: "Unknown error"}")
+        onError("Sync failed: ${syncResult.exceptionOrNull()?.message ?: "Unknown error"}")
         return
     }
 
@@ -271,7 +269,7 @@ fun OnboardingScreen(navController: NavController) {
                             scope.launch {
                                 isLoading = true
                                 try {
-                                    // Unified wipe: local notes/reminders/pending-deletions
+                                    // Step 1 — Unified wipe: local notes/reminders/pending-deletions
                                     // + best-effort Firebase delete of the previous identity.
                                     val cleanupResult =
                                         DataCleanupManager.wipeLocalAndPreviousRemoteNotes(context)
@@ -288,9 +286,48 @@ fun OnboardingScreen(navController: NavController) {
                                     Log.d("Onboarding/StartFresh",
                                         "Cleanup summary: ${cleanupResult.getOrNull()}")
 
-                                    // Fresh UUID passphrase → brand-new empty Firebase path.
-                                    val freshPassphrase = java.util.UUID.randomUUID().toString()
-                                    PassphraseManager.storePassphrase(context, freshPassphrase).getOrThrow()
+                                    // Step 2 — Resolve the incoming identity (device ID).
+                                    // Use the stable device ID as the passphrase so that
+                                    // after reinstall the navbar.kt recovery probe at
+                                    // users/{deviceId}/ can auto-restore the user's notes.
+                                    // UUID.randomUUID() was the old approach — it created an
+                                    // unrecoverable orphan account on every reinstall.
+                                    val freshPassphrase = DeviceManager.getOrCreateDeviceId(context)
+
+                                    // Step 3 — Force-delete the entire users/{deviceId} Firebase
+                                    // node and WAIT for it to complete before navigating.
+                                    //
+                                    // WHY: wipeLocalAndPreviousRemoteNotes caps its remote wipe at
+                                    // 3 s (best-effort). On a slow connection the delete may not
+                                    // have finished when NotesScreen loads and calls fetchNotes()
+                                    // → syncFromCloudInBackground() reads from Firebase and
+                                    // re-fetches the old notes back into local Room storage —
+                                    // defeating the whole wipe.  Waiting here (up to 10 s) for the
+                                    // full node removal guarantees Firebase is clean before the
+                                    // main screen starts its background sync.
+                                    val firebaseWipeResult =
+                                        DataCleanupManager.forceWipeFirebaseAccount(freshPassphrase)
+                                    if (firebaseWipeResult.isFailure) {
+                                        Log.w(
+                                            "Onboarding/StartFresh",
+                                            "Firebase wipe incomplete — proceeding anyway: " +
+                                                "${firebaseWipeResult.exceptionOrNull()?.message}"
+                                        )
+                                        // Non-fatal: we still navigate. Local notes are already
+                                        // wiped; any remaining remote notes will eventually be
+                                        // overwritten when the user adds new content.
+                                    }
+
+                                    // Step 4 — Adopt the fresh identity and navigate.
+                                    PassphraseManager.storePassphrase(context, freshPassphrase)
+                                        .getOrThrow()
+
+                                    // Belt-and-suspenders: even if forceWipeFirebaseAccount above
+                                    // didn't fully complete (e.g. no network), tell NoteRepository
+                                    // to skip its cloud-download pass on the very first fetchNotes()
+                                    // call so it never pulls stale remote notes into local storage.
+                                    com.amvarpvtltd.swiftNote.repository.NoteRepository
+                                        .markSkipNextCloudPull(context)
 
                                     navController.navigate("main") {
                                         popUpTo("onboarding") { inclusive = true }
