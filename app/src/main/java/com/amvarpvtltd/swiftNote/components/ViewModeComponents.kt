@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.design.NoteTheme
+import com.amvarpvtltd.swiftNote.richtext.RichTextRenderer
 import com.amvarpvtltd.swiftNote.utils.Constants
 import kotlinx.coroutines.delay
 
@@ -513,8 +514,13 @@ private fun NoteCardItem(
                     }
 
                     // Title row
+                    val titleAnnotated = remember(note.title) {
+                        if (note.title.contains('<')) {
+                            RichTextRenderer.htmlToAnnotatedFull(note.title, NoteTheme.Primary).annotated
+                        } else null
+                    }
                     Text(
-                        text = note.title,
+                        text = titleAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.title),
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = 18.sp,
                             lineHeight = 24.sp,
@@ -548,8 +554,13 @@ private fun NoteCardItem(
                                 overflow = TextOverflow.Ellipsis
                             )
                         } else {
+                        val descAnnotated = remember(note.description) {
+                            if (note.description.contains('<')) {
+                                RichTextRenderer.htmlToAnnotatedFull(note.description, NoteTheme.Primary).annotated
+                            } else null
+                        }
                         Text(
-                            text = note.description,
+                            text = descAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.description),
                             style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                             color = NoteTheme.OnSurfaceVariant,
                             maxLines = 3,
@@ -732,8 +743,13 @@ private fun NoteListItem(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val listTitleAnnotated = remember(note.title) {
+                            if (note.title.contains('<')) {
+                                RichTextRenderer.htmlToAnnotatedFull(note.title, NoteTheme.Primary).annotated
+                            } else null
+                        }
                         Text(
-                            text = note.title,
+                            text = listTitleAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = NoteTheme.OnSurface,
@@ -767,8 +783,13 @@ private fun NoteListItem(
                                 overflow = TextOverflow.Ellipsis
                             )
                         } else {
+                        val listDescAnnotated = remember(note.description) {
+                            if (note.description.contains('<')) {
+                                RichTextRenderer.htmlToAnnotatedFull(note.description, NoteTheme.Primary).annotated
+                            } else null
+                        }
                         Text(
-                            text = note.description,
+                            text = listDescAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.description),
                             style = MaterialTheme.typography.bodySmall,
                             color = NoteTheme.OnSurfaceVariant,
                             maxLines = 2,
@@ -946,8 +967,13 @@ private fun NoteGridItem(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            val gridTitleAnnotated = remember(note.title) {
+                                if (note.title.contains('<')) {
+                                    RichTextRenderer.htmlToAnnotatedFull(note.title, NoteTheme.Primary).annotated
+                                } else null
+                            }
                             Text(
-                                text = note.title,
+                                text = gridTitleAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.title),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = NoteTheme.OnSurface,
@@ -980,8 +1006,13 @@ private fun NoteGridItem(
                                     maxLines = 1
                                 )
                             } else {
+                            val gridDescAnnotated = remember(note.description) {
+                                if (note.description.contains('<')) {
+                                    RichTextRenderer.htmlToAnnotatedFull(note.description, NoteTheme.Primary).annotated
+                                } else null
+                            }
                             Text(
-                                text = note.description,
+                                text = gridDescAnnotated ?: androidx.compose.ui.text.AnnotatedString(note.description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = NoteTheme.OnSurfaceVariant,
                                 maxLines = 3,

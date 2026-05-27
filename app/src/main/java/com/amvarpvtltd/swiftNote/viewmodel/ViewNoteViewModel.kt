@@ -107,6 +107,55 @@ class ViewNoteViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+
+    /**
+     * Toggle a checkbox in the note's description HTML and persist the change.
+     * @param noteId the note ID
+     * @param checkboxIndex zero-based index of the checkbox in the HTML
+     * @param newChecked the new checked state
+     */
+    fun toggleCheckbox(noteId: String?, checkboxIndex: Int, newChecked: Boolean) {
+        if (noteId == null) return
+        val currentNote = _note.value ?: return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val updatedHtml = toggleCheckboxInHtml(currentNote.description, checkboxIndex, newChecked)
+                val result = noteRepository.saveNote(
+                    title = currentNote.title,
+                    description = updatedHtml,
+                    noteId = noteId,
+                    context = context,
+                    category = currentNote.category
+                )
+                if (result.isSuccess) {
+                    // Reload note to refresh UI
+                    loadNote(noteId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error toggling checkbox", e)
+            }
+        }
+    }
+
+    /**
+     * Toggles the Nth checkbox in an HTML string between checked and unchecked.
+     */
+    private fun toggleCheckboxInHtml(html: String, index: Int, checked: Boolean): String {
+        val checkboxRegex = Regex("""<input\b[^>]*type=["']checkbox["'][^>]*>""", RegexOption.IGNORE_CASE)
+        var count = 0
+        return checkboxRegex.replace(html) { match ->
+            if (count++ == index) {
+                if (checked) {
+                    "<input type=\"checkbox\" checked>"
+                } else {
+                    "<input type=\"checkbox\">"
+                }
+            } else {
+                match.value
+            }
+        }
+    }
 }
 
 

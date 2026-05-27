@@ -98,6 +98,8 @@ import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.categories.CategoryManager
+import com.amvarpvtltd.swiftNote.components.RichTextDisplay
+import com.amvarpvtltd.swiftNote.richtext.RichTextRenderer
 import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -179,7 +181,9 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
         metaVisible = true
 
         // Detect entities for Smart Action Chips
-        val textToAnalyze = "${currentNote.title} ${currentNote.description}"
+        // Strip HTML tags first so detectors see clean prose (e.g. <b>9876543210</b> → 9876543210)
+        val rawText = "${currentNote.title} ${currentNote.description}"
+        val textToAnalyze = RichTextRenderer.stripHtmlToPlainText(rawText)
         if (textToAnalyze.isNotBlank()) {
             detectedEntities = SmartEntityDetector.analyze(
                 context = context,
@@ -693,16 +697,22 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
-                                            SelectionContainer {
-                                                Text(
-                                                    text = note?.description ?: "",
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = NoteTheme.OnSurface,
-                                                    lineHeight = 28.sp,
-                                                    textAlign = TextAlign.Start,
+                                            // Phase 1: RichTextDisplay handles HTML headings, lists,
+                                            // links, code blocks and checkboxes natively.
+                                            // SelectionContainer removed — conflicts with tap-to-open links.
+                                            RichTextDisplay(
+                                                html = note?.description ?: "",
+                                                style = MaterialTheme.typography.bodyLarge.copy(
+                                                    lineHeight   = 28.sp,
+                                                    textAlign    = TextAlign.Start,
                                                     letterSpacing = 0.2.sp
-                                                )
-                                            }
+                                                ),
+                                                color    = NoteTheme.OnSurface,
+                                                modifier = Modifier.fillMaxWidth(),
+                                                onCheckboxToggle = { index, newChecked ->
+                                                    viewModel.toggleCheckbox(noteId, index, newChecked)
+                                                }
+                                            )
                                         }
                                     }
                                 }
