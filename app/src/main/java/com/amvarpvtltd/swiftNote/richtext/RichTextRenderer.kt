@@ -193,7 +193,10 @@ object RichTextRenderer {
                         }
                         is TypefaceSpan -> {
                             if (span.family == "monospace") {
-                                addStyle(SpanStyle(fontFamily = FontFamily.Monospace), start, end)
+                                addStyle(SpanStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    background = Color(0x2664748B)
+                                ), start, end)
                             }
                         }
                         // BulletSpan / LeadingMarginSpan are dropped; lists are already

@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
-import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.FormatListNumbered
 import androidx.compose.material.icons.outlined.FormatUnderlined
 import androidx.compose.material.icons.outlined.Link
@@ -130,7 +129,8 @@ fun RichTextToolbar(
                     }
                     DropdownMenu(
                         expanded    = showHeadingMenu,
-                        onDismissRequest = { showHeadingMenu = false }
+                        onDismissRequest = { showHeadingMenu = false },
+                        modifier = Modifier.background(NoteTheme.Surface)
                     ) {
                         listOf("H1" to 1, "H2" to 2, "Normal" to 0).forEach { (label, level) ->
                             DropdownMenuItem(
@@ -138,6 +138,7 @@ fun RichTextToolbar(
                                     Text(
                                         label,
                                         style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (level > 0) FontWeight.Bold else FontWeight.Normal,
                                         color = NoteTheme.OnSurface
                                     )
                                 },
@@ -399,42 +400,51 @@ private data class ActiveFormats(
 
 /**
  * Detects which HTML formatting tags surround the given cursor position.
- * Checks if the cursor is inside open/close tag pairs.
+ * Uses regex-based exact tag matching to avoid false positives
+ * (e.g., "<li>" should not trigger italic detection for "<i>").
  */
 private fun detectActiveFormats(text: String, cursorPos: Int): ActiveFormats {
     if (text.isEmpty()) return ActiveFormats()
 
     val pos = cursorPos.coerceIn(0, text.length)
-
-    // Get the text before cursor to check for open tags without matching close tags
     val before = text.substring(0, pos)
-    val after = text.substring(pos)
 
-    fun isInsideTag(openTag: String, closeTag: String): Boolean {
-        // Find the last occurrence of open tag before cursor
-        val lastOpen = before.lastIndexOf(openTag, ignoreCase = true)
-        if (lastOpen == -1) return false
-        // Check if there's a close tag between the open tag and cursor
-        val closeBeforeCursor = before.indexOf(closeTag, startIndex = lastOpen + openTag.length, ignoreCase = true)
-        return closeBeforeCursor == -1  // No close tag found before cursor = we're inside
+    fun isInsideTag(tagName: String): Boolean {
+        // Build regex for exact opening tag: <tagName> or <tagName ...attributes...>
+        val openRegex = Regex("<$tagName(\\s[^>]*)?>", RegexOption.IGNORE_CASE)
+        val closeRegex = Regex("</$tagName>", RegexOption.IGNORE_CASE)
+
+        // Find the last opening tag match before cursor
+        val openMatches = openRegex.findAll(before).toList()
+        if (openMatches.isEmpty()) return false
+
+        val lastOpen = openMatches.last()
+        val afterOpenTag = lastOpen.range.last + 1
+
+        // Check if there's a matching close tag between the open tag and cursor
+        val closeInBetween = closeRegex.find(before, startIndex = afterOpenTag)
+        return closeInBetween == null  // No close tag found = we're inside
     }
 
     // For line-level formats, get the current line
     val lineStart = before.lastIndexOf('\n') + 1
+    val after = text.substring(pos)
     val lineEnd = after.indexOf('\n').let { if (it == -1) text.length else pos + it }
     val currentLine = text.substring(lineStart, lineEnd)
 
     return ActiveFormats(
-        bold = isInsideTag("<b>", "</b>") || isInsideTag("<strong>", "</strong>"),
-        italic = isInsideTag("<i>", "</i>") || isInsideTag("<em>", "</em>"),
-        underline = isInsideTag("<u>", "</u>"),
+        bold = isInsideTag("b") || isInsideTag("strong"),
+        italic = isInsideTag("i") || isInsideTag("em"),
+        underline = isInsideTag("u"),
         heading = currentLine.trimStart().startsWith("<h1>", ignoreCase = true) ||
                   currentLine.trimStart().startsWith("<h2>", ignoreCase = true),
-        bulletList = currentLine.trimStart().startsWith("<ul>", ignoreCase = true),
-        numberedList = currentLine.trimStart().startsWith("<ol>", ignoreCase = true),
-        code = isInsideTag("<code>", "</code>") && !isInsideTag("<pre>", "</pre>"),
-        codeBlock = isInsideTag("<pre>", "</pre>"),
-        link = isInsideTag("<a ", "</a>")
+        bulletList = currentLine.trimStart().startsWith("<ul>", ignoreCase = true) ||
+                     currentLine.trimStart().contains("<ul><li>", ignoreCase = true),
+        numberedList = currentLine.trimStart().startsWith("<ol>", ignoreCase = true) ||
+                       currentLine.trimStart().contains("<ol><li>", ignoreCase = true),
+        code = isInsideTag("code") && !isInsideTag("pre"),
+        codeBlock = isInsideTag("pre"),
+        link = isInsideTag("a")
     )
 }
 

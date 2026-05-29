@@ -44,6 +44,10 @@ class RichTextVisualTransformation(
     }
 
     private fun parseAndTransform(raw: String): ParseResult {
+        // PRE-PASS: compute the displayed number for each <ol><li> line,
+        // grouping contiguous <ol> lines as one logical numbered list.
+        val olLineNumbers = computeOrderedListNumbers(raw)
+
         // Build the visual string by walking through the raw text and removing tags
         val visualBuilder = StringBuilder()
         val spans = mutableListOf<SpanRange>()
@@ -53,6 +57,7 @@ class RichTextVisualTransformation(
 
         // Track open tags using a stack
         val tagStack = mutableListOf<OpenTag>()
+
 
         var i = 0
         while (i < raw.length) {
@@ -125,11 +130,16 @@ class RichTextVisualTransformation(
                     // Extract attributes for <a href="...">
                     val attributes = extractAttributes(fullTag)
 
-                    // For list wrappers <ul>, <ol> — just skip the tag
+                    // For list wrappers <ul>, <ol> — skip visually but push to stack
                     if (tagName == "ul" || tagName == "ol") {
                         for (j in i..tagEnd) {
                             rawToVisual[j] = visualBuilder.length
                         }
+                        // Attach the precomputed number to the OpenTag so <li> can read it.
+                        val attrsWithNumber = if (tagName == "ol") {
+                            attributes + ("_displayNumber" to (olLineNumbers[i] ?: 1).toString())
+                        } else attributes
+                        tagStack.add(OpenTag(tagName, visualBuilder.length, attrsWithNumber))
                         i = tagEnd + 1
                         continue
                     }
@@ -139,9 +149,8 @@ class RichTextVisualTransformation(
                         // Determine if inside <ol> or <ul>
                         val parentList = tagStack.lastOrNull { it.tagName == "ol" || it.tagName == "ul" }
                         val prefix = if (parentList?.tagName == "ol") {
-                            // Count existing <li> in this list
-                            val olLiCount = tagStack.count { it.tagName == "li" } + 1
-                            "$olLiCount. "
+                            val n = parentList.attributes["_displayNumber"] ?: "1"
+                            "$n. "
                         } else {
                             "• "
                         }
@@ -195,11 +204,17 @@ class RichTextVisualTransformation(
             }
 
             override fun transformedToOriginal(offset: Int): Int {
+                val coerced = offset.coerceIn(0, visualBuilder.length)
+                
+                // Find the first raw index that maps to this visual offset
+                val firstRaw = finalRawToVisual.indexOfFirst { it == coerced }
+                if (firstRaw != -1) return firstRaw
+                
+                // Fallback: use visualToRaw exact character mapping
                 if (finalVisualToRaw.isEmpty()) return 0
-                return if (offset < finalVisualToRaw.size) {
-                    finalVisualToRaw[offset]
+                return if (coerced < finalVisualToRaw.size) {
+                    finalVisualToRaw[coerced]
                 } else {
-                    // For positions at or past the end, return the raw length
                     raw.length
                 }
             }
@@ -211,12 +226,20 @@ class RichTextVisualTransformation(
     private fun getSpanStyleForTag(tagName: String, attributes: Map<String, String>): SpanStyle? {
         return when (tagName) {
             "b", "strong" -> SpanStyle(fontWeight = FontWeight.Bold)
-            "i", "em" -> SpanStyle(fontStyle = FontStyle.Italic)
+            "i", "em" -> SpanStyle(
+                fontStyle = FontStyle.Italic,
+                fontFamily = FontFamily.Serif,
+                letterSpacing = 0.3.sp
+            )
             "u" -> SpanStyle(textDecoration = TextDecoration.Underline)
             "s", "strike", "del" -> SpanStyle(textDecoration = TextDecoration.LineThrough)
-            "code", "pre" -> SpanStyle(
+            "code" -> SpanStyle(
                 fontFamily = FontFamily.Monospace,
-                background = Color(0x1A64748B)
+                background = Color(0x2664748B)
+            )
+            "pre" -> SpanStyle(
+                fontFamily = FontFamily.Monospace,
+                background = Color(0x2664748B)
             )
             "h1" -> SpanStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp)
             "h2" -> SpanStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -235,6 +258,39 @@ class RichTextVisualTransformation(
             attrs[match.groupValues[1].lowercase()] = match.groupValues[2]
         }
         return attrs
+    }
+
+    /**
+     * Walks the raw text line by line and assigns a displayed number to each
+     * line that starts with `<ol><li>`. Contiguous OL lines share an incrementing
+     * counter; any non-OL line resets the counter.
+     *
+     * Returns a map from the raw character index of `<ol>` opening tag → display number.
+     */
+    private fun computeOrderedListNumbers(raw: String): Map<Int, Int> {
+        val result = mutableMapOf<Int, Int>()
+        var counter = 0
+        var i = 0
+
+        while (i < raw.length) {
+            // Find end of this line
+            val lineEnd = raw.indexOf('\n', i).let { if (it == -1) raw.length else it }
+            val line = raw.substring(i, lineEnd)
+
+            if (line.trimStart().startsWith("<ol><li>")) {
+                counter++
+                // Record the position of the <ol> opening
+                val olPos = i + line.indexOf("<ol>")
+                result[olPos] = counter
+            } else if (line.isNotBlank()) {
+                // Non-empty, non-OL line — reset
+                counter = 0
+            }
+            // Empty lines neither increment nor reset (allow blank lines between items)
+
+            i = lineEnd + 1
+        }
+        return result
     }
 
     private data class OpenTag(

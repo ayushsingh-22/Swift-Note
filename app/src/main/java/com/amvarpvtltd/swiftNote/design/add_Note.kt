@@ -2076,8 +2076,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             value = description,
                                             onValueChange = {
                                                 if (it.text.length <= Constants.DESCRIPTION_MAX_LENGTH) {
+                                                    // Auto-continue lists/checkboxes on Enter
+                                                    val processed = com.amvarpvtltd.swiftNote.richtext.RichTextEditorHelpers.handleNewLine(description, it)
                                                     description =
-                                                        it
+                                                        processed
                                                     // Fix: immediately clear stale HTML so save always uses latest text
                                                     if (descriptionHtml != null) {
                                                         descriptionHtml =
