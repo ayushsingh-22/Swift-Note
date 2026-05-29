@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 
 object ShareUtils {
 
@@ -48,21 +49,24 @@ object ShareUtils {
     }
 
     /**
-     * Format a single note for sharing with enhanced formatting
+     * Format a single note for sharing with enhanced formatting.
+     * Strips HTML tags so the shared/copied text is clean plain text.
      */
     private fun formatNoteForSharing(note: dataclass): String {
         return buildString {
-
-            // Description Section
-            if (note.description.isNotEmpty()) {
-                appendLine(note.description.trim())
-                appendLine()
-            } else {
-                appendLine("")
+            // Title
+            val plainTitle = RichTextBridge.stripHtmlToPlainText(note.title)
+            if (plainTitle.isNotBlank()) {
+                appendLine(plainTitle)
                 appendLine()
             }
 
-        }
+            // Description — strip HTML so recipients see formatted text, not tags
+            if (note.description.isNotEmpty()) {
+                val plainDescription = RichTextBridge.stripHtmlToPlainText(note.description)
+                appendLine(plainDescription.trim())
+            }
+        }.trim()
     }
 
 }

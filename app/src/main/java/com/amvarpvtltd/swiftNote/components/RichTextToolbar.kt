@@ -19,9 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
-import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListNumbered
@@ -41,6 +39,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,70 +49,78 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.amvarpvtltd.swiftNote.design.NoteTheme
-import com.amvarpvtltd.swiftNote.richtext.RichTextEditorHelpers
+import com.mohamedrejeb.richeditor.model.RichTextState
 
 /**
- * Horizontal scrollable formatting toolbar shown above the description text field.
+ * Horizontal scrollable formatting toolbar for the rich text editor.
  *
  * Groups:
  * 1. Bold · Italic · Underline
- * 2. Heading ▾ · Bullet list · Numbered list · Checkbox
+ * 2. Heading ▾ · Bullet list · Numbered list
  * 3. Code · Link
  *
- * The toolbar is hidden when the description field is not focused or when the note
- * is in checklist mode — the caller controls visibility via [AnimatedVisibility].
- *
- * @param value         Current [TextFieldValue] of the description field.
- * @param onValueChange Callback invoked with the updated [TextFieldValue] after a formatting action.
- * @param modifier      Optional modifier (e.g. padding / background from the parent).
+ * @param state    The [RichTextState] from compose-rich-editor library.
+ * @param modifier Optional modifier (e.g. padding / background from the parent).
  */
 @Composable
 fun RichTextToolbar(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
+    state: RichTextState,
     modifier: Modifier = Modifier
 ) {
     var showHeadingMenu by remember { mutableStateOf(false) }
     var showLinkDialog  by remember { mutableStateOf(false) }
 
-    // Detect active formats at cursor position
-    val activeFormats = remember(value.text, value.selection) {
-        detectActiveFormats(value.text, value.selection.start)
-    }
+    // Detect active formats from library state
+    val isBold by remember { derivedStateOf { state.currentSpanStyle.fontWeight == FontWeight.Bold } }
+    val isItalic by remember { derivedStateOf { state.currentSpanStyle.fontStyle == FontStyle.Italic } }
+    val isUnderline by remember { derivedStateOf {
+        state.currentSpanStyle.textDecoration?.contains(TextDecoration.Underline) == true
+    } }
+    val isHeading by remember { derivedStateOf { (state.currentSpanStyle.fontSize.value) >= 18f } }
+    val isBulletList = state.isUnorderedList
+    val isNumberedList = state.isOrderedList
+    val isCode = state.isCodeSpan
+    val isLink = state.isLink
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(NoteTheme.SurfaceVariant.copy(alpha = 0.85f))
+            .clip(RoundedCornerShape(12.dp))
+            .background(NoteTheme.SurfaceVariant.copy(alpha = 0.85f)),
+        contentAlignment = Alignment.Center
     ) {
         LazyRow(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment     = Alignment.CenterVertically
         ) {
             // Group 1 — Inline styles
             item {
-                ToolbarIconBtn(Icons.Outlined.FormatBold, "Bold", isActive = activeFormats.bold) {
-                    onValueChange(RichTextEditorHelpers.toggleBold(value))
+                ToolbarIconBtn(Icons.Outlined.FormatBold, "Bold", isActive = isBold) {
+                    state.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 }
             }
             item {
-                ToolbarIconBtn(Icons.Outlined.FormatItalic, "Italic", isActive = activeFormats.italic) {
-                    onValueChange(RichTextEditorHelpers.toggleItalic(value))
+                ToolbarIconBtn(Icons.Outlined.FormatItalic, "Italic", isActive = isItalic) {
+                    state.toggleSpanStyle(SpanStyle(
+                        fontStyle = FontStyle.Italic,
+                        fontFamily = FontFamily.Serif
+                    ))
                 }
             }
             item {
-                ToolbarIconBtn(Icons.Outlined.FormatUnderlined, "Underline", isActive = activeFormats.underline) {
-                    onValueChange(RichTextEditorHelpers.toggleUnderline(value))
+                ToolbarIconBtn(Icons.Outlined.FormatUnderlined, "Underline", isActive = isUnderline) {
+                    state.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
                 }
             }
 
@@ -124,7 +131,7 @@ fun RichTextToolbar(
             item {
                 // Heading with drop-down
                 Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
-                    ToolbarIconBtn(Icons.Outlined.Title, "Heading", isActive = activeFormats.heading) {
+                    ToolbarIconBtn(Icons.Outlined.Title, "Heading", isActive = isHeading) {
                         showHeadingMenu = true
                     }
                     DropdownMenu(
@@ -132,38 +139,48 @@ fun RichTextToolbar(
                         onDismissRequest = { showHeadingMenu = false },
                         modifier = Modifier.background(NoteTheme.Surface)
                     ) {
-                        listOf("H1" to 1, "H2" to 2, "Normal" to 0).forEach { (label, level) ->
-                            DropdownMenuItem(
-                                text    = {
-                                    Text(
-                                        label,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (level > 0) FontWeight.Bold else FontWeight.Normal,
-                                        color = NoteTheme.OnSurface
-                                    )
-                                },
-                                onClick = {
-                                    onValueChange(RichTextEditorHelpers.applyHeading(value, level))
-                                    showHeadingMenu = false
-                                }
-                            )
-                        }
+                        DropdownMenuItem(
+                            text = {
+                                Text("H1", style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold, color = NoteTheme.OnSurface)
+                            },
+                            onClick = {
+                                state.toggleSpanStyle(SpanStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold))
+                                showHeadingMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text("H2", style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold, color = NoteTheme.OnSurface)
+                            },
+                            onClick = {
+                                state.toggleSpanStyle(SpanStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold))
+                                showHeadingMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text("Normal", style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Normal, color = NoteTheme.OnSurface)
+                            },
+                            onClick = {
+                                state.removeSpanStyle(SpanStyle(fontSize = 24.sp))
+                                state.removeSpanStyle(SpanStyle(fontSize = 20.sp))
+                                showHeadingMenu = false
+                            }
+                        )
                     }
                 }
             }
             item {
-                ToolbarIconBtn(Icons.AutoMirrored.Outlined.FormatListBulleted, "Bullet list", isActive = activeFormats.bulletList) {
-                    onValueChange(RichTextEditorHelpers.toggleBulletList(value))
+                ToolbarIconBtn(Icons.AutoMirrored.Outlined.FormatListBulleted, "Bullet list", isActive = isBulletList) {
+                    state.toggleUnorderedList()
                 }
             }
             item {
-                ToolbarIconBtn(Icons.Outlined.FormatListNumbered, "Numbered list", isActive = activeFormats.numberedList) {
-                    onValueChange(RichTextEditorHelpers.toggleNumberedList(value))
-                }
-            }
-            item {
-                ToolbarIconBtn(Icons.Outlined.CheckBoxOutlineBlank, "Checkbox") {
-                    onValueChange(RichTextEditorHelpers.insertCheckbox(value))
+                ToolbarIconBtn(Icons.Outlined.FormatListNumbered, "Numbered list", isActive = isNumberedList) {
+                    state.toggleOrderedList()
                 }
             }
 
@@ -172,34 +189,31 @@ fun RichTextToolbar(
 
             // Group 3 — Code / link
             item {
-                ToolbarIconBtn(Icons.Outlined.Code, "Inline code", isActive = activeFormats.code) {
-                    onValueChange(RichTextEditorHelpers.toggleCode(value))
+                ToolbarIconBtn(Icons.Outlined.Code, "Code", isActive = isCode) {
+                    state.toggleSpanStyle(SpanStyle(
+                        fontFamily = FontFamily.Monospace,
+                        background = Color(0x2664748B)
+                    ))
+                    state.toggleCodeSpan()
                 }
             }
             item {
-                ToolbarIconBtn(Icons.Outlined.DataObject, "Code block", isActive = activeFormats.codeBlock) {
-                    onValueChange(RichTextEditorHelpers.insertCodeBlock(value))
-                }
-            }
-            item {
-                ToolbarIconBtn(Icons.Outlined.Link, "Insert link", isActive = activeFormats.link) {
+                ToolbarIconBtn(Icons.Outlined.Link, "Insert link", isActive = isLink) {
                     showLinkDialog = true
                 }
             }
         }
     }
 
-
     // ── Link insert dialog ────────────────────────────────────────────────────
     if (showLinkDialog) {
-        val selectedText = value.text.substring(
-            value.selection.min,
-            value.selection.max
-        )
+        val selectedText = state.selectedLinkText.orEmpty()
         LinkInsertDialog(
             initialDisplayText = selectedText,
             onConfirm = { displayText, url ->
-                onValueChange(RichTextEditorHelpers.insertLink(value, url, displayText))
+                val finalUrl = if (!url.startsWith("http://") && !url.startsWith("https://"))
+                    "https://$url" else url
+                state.addLink(text = displayText.ifBlank { finalUrl }, url = finalUrl)
                 showLinkDialog = false
             },
             onDismiss = { showLinkDialog = false }
@@ -265,10 +279,6 @@ private fun ToolbarDividerLine() {
  *
  * Pre-fills [initialDisplayText] when the user had a selection in the editor.
  * Validates the URL and auto-prepends `"https://"` if missing.
- *
- * @param initialDisplayText  Pre-filled display text (the selected text in the editor, if any).
- * @param onConfirm           Called with (displayText, url) when the user taps "Insert link".
- * @param onDismiss           Called when the dialog is cancelled.
  */
 @Composable
 fun LinkInsertDialog(
@@ -378,75 +388,6 @@ private fun linkDialogFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedTextColor   = NoteTheme.OnSurface,
     cursorColor          = NoteTheme.Primary
 )
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Active format detection
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Holds which formatting styles are currently active at the cursor position.
- */
-private data class ActiveFormats(
-    val bold: Boolean = false,
-    val italic: Boolean = false,
-    val underline: Boolean = false,
-    val heading: Boolean = false,
-    val bulletList: Boolean = false,
-    val numberedList: Boolean = false,
-    val code: Boolean = false,
-    val codeBlock: Boolean = false,
-    val link: Boolean = false
-)
-
-/**
- * Detects which HTML formatting tags surround the given cursor position.
- * Uses regex-based exact tag matching to avoid false positives
- * (e.g., "<li>" should not trigger italic detection for "<i>").
- */
-private fun detectActiveFormats(text: String, cursorPos: Int): ActiveFormats {
-    if (text.isEmpty()) return ActiveFormats()
-
-    val pos = cursorPos.coerceIn(0, text.length)
-    val before = text.substring(0, pos)
-
-    fun isInsideTag(tagName: String): Boolean {
-        // Build regex for exact opening tag: <tagName> or <tagName ...attributes...>
-        val openRegex = Regex("<$tagName(\\s[^>]*)?>", RegexOption.IGNORE_CASE)
-        val closeRegex = Regex("</$tagName>", RegexOption.IGNORE_CASE)
-
-        // Find the last opening tag match before cursor
-        val openMatches = openRegex.findAll(before).toList()
-        if (openMatches.isEmpty()) return false
-
-        val lastOpen = openMatches.last()
-        val afterOpenTag = lastOpen.range.last + 1
-
-        // Check if there's a matching close tag between the open tag and cursor
-        val closeInBetween = closeRegex.find(before, startIndex = afterOpenTag)
-        return closeInBetween == null  // No close tag found = we're inside
-    }
-
-    // For line-level formats, get the current line
-    val lineStart = before.lastIndexOf('\n') + 1
-    val after = text.substring(pos)
-    val lineEnd = after.indexOf('\n').let { if (it == -1) text.length else pos + it }
-    val currentLine = text.substring(lineStart, lineEnd)
-
-    return ActiveFormats(
-        bold = isInsideTag("b") || isInsideTag("strong"),
-        italic = isInsideTag("i") || isInsideTag("em"),
-        underline = isInsideTag("u"),
-        heading = currentLine.trimStart().startsWith("<h1>", ignoreCase = true) ||
-                  currentLine.trimStart().startsWith("<h2>", ignoreCase = true),
-        bulletList = currentLine.trimStart().startsWith("<ul>", ignoreCase = true) ||
-                     currentLine.trimStart().contains("<ul><li>", ignoreCase = true),
-        numberedList = currentLine.trimStart().startsWith("<ol>", ignoreCase = true) ||
-                       currentLine.trimStart().contains("<ol><li>", ignoreCase = true),
-        code = isInsideTag("code") && !isInsideTag("pre"),
-        codeBlock = isInsideTag("pre"),
-        link = isInsideTag("a")
-    )
-}
 
 
 
