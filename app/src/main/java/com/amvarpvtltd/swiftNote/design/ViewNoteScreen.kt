@@ -91,6 +91,9 @@ import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.components.ReminderBottomSheet
+import com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet
+import com.amvarpvtltd.swiftNote.components.PermissionType
+import com.amvarpvtltd.swiftNote.components.checkReminderPermissions
 import com.amvarpvtltd.swiftNote.components.SmartActionChipRow
 import com.amvarpvtltd.swiftNote.reminders.ReminderRepository
 import com.amvarpvtltd.swiftNote.utils.Constants
@@ -121,6 +124,8 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var copyConfirmed by remember { mutableStateOf(false) }
     var showReminderSheet by remember { mutableStateOf(false) }
+    var showPermissionRationale by remember { mutableStateOf(false) }
+    var missingPermissionType by remember { mutableStateOf<PermissionType?>(null) }
 
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -225,6 +230,28 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
         title = note?.title ?: "",
         message = "Are you sure you want to delete this note? This action cannot be undone."
     )
+
+    // ── Permission Rationale Sheet (shown when notification/alarm permission is missing)
+    if (showPermissionRationale && missingPermissionType != null) {
+        PermissionRationaleSheet(
+            permissionType = missingPermissionType!!,
+            onDismiss = {
+                showPermissionRationale = false
+                missingPermissionType = null
+            },
+            onPermissionGranted = {
+                showPermissionRationale = false
+                missingPermissionType = null
+                val nextMissing = checkReminderPermissions(context)
+                if (nextMissing != null) {
+                    missingPermissionType = nextMissing
+                    showPermissionRationale = true
+                } else {
+                    showReminderSheet = true
+                }
+            }
+        )
+    }
 
     // ── Reminder Bottom Sheet (triggered by Smart Action Chips DateTime → Add Reminder)
     if (showReminderSheet && note != null) {
@@ -737,7 +764,13 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                         entities = detectedEntities,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                         onAddReminderClick = { _ ->
-                                            showReminderSheet = true
+                                            val missing = checkReminderPermissions(context)
+                                            if (missing != null) {
+                                                missingPermissionType = missing
+                                                showPermissionRationale = true
+                                            } else {
+                                                showReminderSheet = true
+                                            }
                                         }
                                     )
                                 }

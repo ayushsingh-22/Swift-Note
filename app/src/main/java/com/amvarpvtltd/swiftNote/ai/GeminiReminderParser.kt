@@ -8,6 +8,7 @@ import android.widget.Toast
 import com.amvarpvtltd.swiftNote.security.GeminiKeyManager
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.GenerationConfig
+import com.google.ai.client.generativeai.type.ResponseStoppedException
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,7 +76,7 @@ class GeminiReminderParser private constructor(private val context: Context) {
                 apiKey = userKey,
                 generationConfig = GenerationConfig.Builder().apply {
                     temperature = 0.1f  // Low temperature for structured extraction
-                    maxOutputTokens = 512
+                    maxOutputTokens = 1024  // Increased from 512 — long notes produced MAX_TOKENS
                     topP = 0.8f
                 }.build()
             )
@@ -142,6 +143,13 @@ class GeminiReminderParser private constructor(private val context: Context) {
             return@withContext null
         }
 
+        // Truncate input to prevent MAX_TOKENS on long shared content.
+        // Reminder intent is almost always in the first portion of a note.
+        val truncatedText = if (text.length > 800) {
+            Log.d(TAG, "✂️ Truncating input from ${text.length} to 800 chars to avoid MAX_TOKENS")
+            text.take(800) + "…"
+        } else text
+
         try {
             recordCall()
             // Track usage for the active key
@@ -150,12 +158,20 @@ class GeminiReminderParser private constructor(private val context: Context) {
             val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss EEEE", Locale.ENGLISH)
                 .format(Calendar.getInstance().time)
 
-            val prompt = buildPrompt(text, noteTitle, currentTime)
+            val prompt = buildPrompt(truncatedText, noteTitle, currentTime)
 
             Log.d(TAG, "🤖 Sending to Gemini Developer API for analysis...")
 
-            val response = model.generateContent(content { text(prompt) })
-            val responseText = response.text?.trim() ?: return@withContext null
+            val response = try {
+                model.generateContent(content { text(prompt) })
+            } catch (e: ResponseStoppedException) {
+                // MAX_TOKENS: model generated partial output — try to salvage it
+                Log.w(TAG, "⚠️ Gemini hit MAX_TOKENS — attempting to parse partial response")
+                e.response
+            }
+
+            val responseText = response.text?.trim()
+            if (responseText.isNullOrBlank()) return@withContext null
 
             Log.d(TAG, "🤖 Gemini response received (${responseText.length} chars)")
 

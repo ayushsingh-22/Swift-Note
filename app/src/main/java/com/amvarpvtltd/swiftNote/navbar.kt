@@ -7,8 +7,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,6 +80,9 @@ fun MyApp(modifier: Modifier = Modifier) {
     var isInitializing by remember { mutableStateOf(true) }
     var startDestination by remember { mutableStateOf("onboarding") }
 
+    // Top-level SnackbarHostState — used for quick-save undo notifications from share
+    val snackbarHostState = remember { SnackbarHostState() }
+
     // Observe the noteId from notification to navigate directly to a specific note
     // Use a state variable to track the noteId from notification
     val noteIdToOpen = remember { mutableStateOf<String?>(null) }
@@ -126,19 +134,45 @@ fun MyApp(modifier: Modifier = Modifier) {
         if (action != null && !isInitializing) {
             when (action) {
                 is MainActivity.QuickAction.QuickSave -> {
-                    // Save the note directly via repository
+                    // Save the note directly via repository, then show snackbar with Undo.
+                    // If the user does NOT undo, navigate to the newly saved note.
                     Log.d("MyApp", "💾 Quick saving note from share")
                     try {
                         val repo = com.amvarpvtltd.swiftNote.repository.NoteRepository.getInstance(context)
-                        repo.saveNote(
-                            title = action.title,
-                            description = action.description,
-                            context = context
-                        )
-                        android.widget.Toast.makeText(context, "Note saved!", android.widget.Toast.LENGTH_SHORT).show()
+                        val result = withContext(Dispatchers.IO) {
+                            repo.saveNote(
+                                title = action.title,
+                                description = action.description,
+                                category = action.category.ifBlank { null },
+                                context = context
+                            )
+                        }
+                        val savedNoteId = result.getOrNull()
+                        if (result.isSuccess && savedNoteId != null) {
+                            val snackResult = snackbarHostState.showSnackbar(
+                                message = "Note saved",
+                                actionLabel = "Undo",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (snackResult == SnackbarResult.ActionPerformed) {
+                                // Undo tapped — delete the note and stay on current screen
+                                withContext(Dispatchers.IO) {
+                                    repo.deleteNote(savedNoteId, context)
+                                }
+                                Log.d("MyApp", "↩️ Quick-save undone: deleted $savedNoteId")
+                            } else {
+                                // Snackbar dismissed — open the saved note
+                                Log.d("MyApp", "📖 Opening saved note: $savedNoteId")
+                                navController.navigate("viewnote/$savedNoteId") {
+                                    popUpTo("main") { inclusive = false }
+                                }
+                            }
+                        } else {
+                            snackbarHostState.showSnackbar("Failed to save note")
+                        }
                     } catch (e: Exception) {
                         Log.e("MyApp", "Failed to quick save", e)
-                        android.widget.Toast.makeText(context, "Failed to save note", android.widget.Toast.LENGTH_SHORT).show()
+                        snackbarHostState.showSnackbar("Failed to save note")
                     }
                 }
                 is MainActivity.QuickAction.OpenEditor -> {
@@ -255,15 +289,25 @@ fun MyApp(modifier: Modifier = Modifier) {
 
     // Apply theme to entire app
     ProvideNoteTheme(themeMode = currentTheme) {
-        Surface(
-            color = MaterialTheme.colorScheme.background,
-            modifier = modifier
-        ) {
-            if (isInitializing) {
-                LoadingScreen()
-            } else {
-                NavigationComponent(navController, startDestination)
+        Box(modifier = modifier) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (isInitializing) {
+                    LoadingScreen()
+                } else {
+                    NavigationComponent(navController, startDestination)
+                }
             }
+            // Top-level snackbar overlay — only used for quick-save undo from share intents.
+            // Individual screens manage their own snackbars inside their Scaffold.
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+            )
         }
     }
 }

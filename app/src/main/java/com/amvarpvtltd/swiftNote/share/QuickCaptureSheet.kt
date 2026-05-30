@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.amvarpvtltd.swiftNote.R
+import com.amvarpvtltd.swiftNote.ai.AITitleGenerator
 import com.amvarpvtltd.swiftNote.ai.DetectedEntity
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.ai.SmartEntityDetector
@@ -83,7 +84,10 @@ import com.amvarpvtltd.swiftNote.ai.SmartReminderAI
 import com.amvarpvtltd.swiftNote.categories.Category
 import com.amvarpvtltd.swiftNote.categories.CategoryManager
 import com.amvarpvtltd.swiftNote.components.SmartActionChipRow
+import com.amvarpvtltd.swiftNote.utils.AutoTitleGenerator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,6 +109,10 @@ private class QuickCaptureState(
     var detectedReminders by mutableStateOf<List<DetectedReminder>>(emptyList())
     var isAnalyzing by mutableStateOf(false)
     var hasAnalyzed by mutableStateOf(false)
+
+    // AI title suggestion (LLM-powered, same key as AI Settings)
+    var aiSuggestedTitle by mutableStateOf("")
+    var isAiTitleLoading by mutableStateOf(false)
 
     val allCategories: List<Category> = CategoryManager.getAll(context)
     private val urlRegex = Regex("^https?://\\S+.*")
@@ -260,6 +268,33 @@ private fun SheetContent(
     onEdit: (String, String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // ── AI title suggestion (same LLM key as AI Settings / AddScreen) ──────────
+    LaunchedEffect(state.description) {
+        state.aiSuggestedTitle = ""
+        // Only trigger when there's content to generate from
+        if (state.description.isBlank()) return@LaunchedEffect
+
+        // Shorter debounce than AddScreen (800ms) — share sheet is transient
+        delay(800)
+
+        val aiGen = AITitleGenerator.getInstance(context)
+        if (!aiGen.isAvailable()) return@LaunchedEffect
+
+        state.isAiTitleLoading = true
+        try {
+            val result = withContext(Dispatchers.IO) { aiGen.generate(state.description) }
+            // Only surface the suggestion if it's non-empty and different from what's in the field
+            if (result.isNotBlank() && result != state.title) {
+                state.aiSuggestedTitle = result
+            }
+        } catch (_: Exception) {
+            // Silent fallback — rule-based title used at save time
+        } finally {
+            state.isAiTitleLoading = false
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     Column(
         modifier = Modifier
             .padding(horizontal = 20.dp)
@@ -270,6 +305,7 @@ private fun SheetContent(
         SmartEntitiesSection(state, context)
         Spacer(modifier = Modifier.height(18.dp))
         TitleField(state, colors)
+        AiTitleSuggestionChip(state, colors)
         Spacer(modifier = Modifier.height(16.dp))
         CategorySelector(state, colors)
         Spacer(modifier = Modifier.height(16.dp))
@@ -439,6 +475,70 @@ private fun SmartEntitiesSection(state: QuickCaptureState, context: Context) {
                 Toast.makeText(context, "Reminder will be set after saving", Toast.LENGTH_SHORT).show()
             }
         )
+    }
+}
+
+// ─── AI Title Suggestion Chip ──────────────────────────────────────────────────
+
+/**
+ * Mirrors the suggestion chip from AddScreen — shows an LLM-generated title
+ * below the title field when the title is blank. Tapping it fills the title.
+ */
+@Composable
+private fun AiTitleSuggestionChip(state: QuickCaptureState, colors: CaptureColors) {
+    // Show chip when:
+    //  • AI is loading, OR
+    //  • AI suggestion exists AND is different from what's currently in the title field
+    //    (hides itself once the user taps it so the field matches the suggestion)
+    val showChip = state.isAiTitleLoading ||
+            (state.aiSuggestedTitle.isNotBlank() && state.aiSuggestedTitle != state.title)
+
+    AnimatedVisibility(
+        visible = showChip,
+        enter = fadeIn(tween(200)) + slideInVertically(initialOffsetY = { -it / 4 }),
+        exit = fadeOut(tween(150)) + slideOutVertically(targetOffsetY = { -it / 4 })
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 2.dp)
+                .then(
+                    if (state.aiSuggestedTitle.isNotBlank()) {
+                        Modifier.clickable { state.title = state.aiSuggestedTitle }
+                    } else Modifier
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (state.isAiTitleLoading && state.aiSuggestedTitle.isBlank()) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 1.5.dp,
+                    color = colors.primary
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = when {
+                    state.isAiTitleLoading && state.aiSuggestedTitle.isBlank() ->
+                        "✨ Generating AI title…"
+                    state.aiSuggestedTitle.isNotBlank() ->
+                        "✨ Use \"${state.aiSuggestedTitle}\""
+                    else -> ""
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.primary,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -685,10 +785,16 @@ private fun ActionButtons(
 
         Button(
             onClick = {
-                if (state.title.isBlank()) {
-                    Toast.makeText(context, "Title is required", Toast.LENGTH_SHORT).show()
+                // Priority: user-typed title → AI-suggested → rule-based → error
+                val effectiveTitle = when {
+                    state.title.isNotBlank() -> state.title
+                    state.aiSuggestedTitle.isNotBlank() -> state.aiSuggestedTitle
+                    else -> AutoTitleGenerator.generate(state.description)
+                }
+                if (effectiveTitle.isBlank()) {
+                    Toast.makeText(context, "Please add a title or some content", Toast.LENGTH_SHORT).show()
                 } else {
-                    onSave(state.title, state.description, state.selectedCategory)
+                    onSave(effectiveTitle, state.description, state.selectedCategory)
                 }
             },
             modifier = Modifier

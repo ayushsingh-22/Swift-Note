@@ -168,6 +168,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var showPermissionRationale by remember { mutableStateOf(false) }
     var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
     var pendingReminderAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // True when the permission sheet was triggered from saveNote() (not from a "Set" chip tap)
+    var isSaveReminderPending by remember { mutableStateOf(false) }
 
     // Phase 1: Checklist mode state
     var isChecklistMode by remember { mutableStateOf(false) }
@@ -513,6 +515,21 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             return
         }
 
+        // Pre-save permission check: if there are pending smart reminders, ensure notification/alarm
+        // permissions are granted BEFORE saving so the user sees a clear prompt rather than silently
+        // losing their reminder.
+        val hasPendingReminders = (pendingReminders + confirmedPendingReminders).any { it.confidence >= 0.6f }
+        if (hasPendingReminders) {
+            val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+            if (missing != null) {
+                isSaveReminderPending = true
+                pendingReminderAction = { saveNote() }
+                missingPermissionType = missing
+                showPermissionRationale = true
+                return // pause save — resume after permission decision
+            }
+        }
+
         isSaving = true
         scope.launch(Dispatchers.IO) {
             try {
@@ -684,6 +701,17 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 showPermissionRationale = false
                 missingPermissionType = null
                 pendingReminderAction = null
+                if (isSaveReminderPending) {
+                    // User dismissed without granting from the save flow:
+                    // Clear pending reminders and save the note anyway (without reminder).
+                    isSaveReminderPending = false
+                    pendingReminders = emptyList()
+                    confirmedPendingReminders = emptyList()
+                    Toast.makeText(context, "📝 Saving note without reminder", Toast.LENGTH_SHORT).show()
+                    saveNote()
+                } else {
+                    isSaveReminderPending = false
+                }
             },
             onPermissionGranted = {
                 showPermissionRationale = false
@@ -695,6 +723,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     showPermissionRationale = true
                 } else {
                     // Permission granted — execute the pending reminder action
+                    isSaveReminderPending = false
                     pendingReminderAction?.invoke()
                     pendingReminderAction = null
                 }

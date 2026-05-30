@@ -2,7 +2,9 @@ package com.amvarpvtltd.swiftNote.design
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -30,13 +32,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import com.amvarpvtltd.swiftNote.BuildConfig
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
 import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
-import com.amvarpvtltd.swiftNote.test.ReminderTestDataSeeder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -112,22 +112,6 @@ fun TodayScreen(navController: NavHostController) {
     val pinnedEntities by db.noteDao().observePinnedNotes()
         .collectAsState(initial = emptyList())
 
-    // ── Diagnostic log (DEBUG only) ──
-    if (BuildConfig.DEBUG) {
-        android.util.Log.d("TodayScreen_DEBUG", "═══════════════════════════════════════")
-        android.util.Log.d("TodayScreen_DEBUG", "now=$now  todayStart=$todayStart  todayEnd=$todayEnd")
-        android.util.Log.d("TodayScreen_DEBUG", "allReminders.size=${allReminders.size}  active=${activeReminders.size}")
-        allReminders.forEach { r ->
-            val bucket = when {
-                r.reminderTime in todayStart..todayEnd -> "TODAY"
-                r.reminderTime > todayEnd && r.isActive -> "UPCOMING"
-                r.reminderTime < todayStart || (r.reminderTime < now && !r.isActive) -> "PAST"
-                else -> "OVERDUE_ACTIVE"
-            }
-            android.util.Log.d("TodayScreen_DEBUG",
-                "  [$bucket] id=${r.id.take(8)} title='${r.noteTitle}' time=${r.reminderTime} isActive=${r.isActive}")
-        }
-    }
 
     // Filter state
     var selectedFilter by remember { mutableStateOf(ReminderFilter.TODAY) }
@@ -225,20 +209,7 @@ fun TodayScreen(navController: NavHostController) {
                             }
                         }
                     },
-                    actions = {
-                        if (BuildConfig.DEBUG) {
-                            IconButton(onClick = {
-                                ReminderTestDataSeeder.seedPastReminders(context)
-                            }) {
-                                Icon(
-                                    Icons.Outlined.BugReport,
-                                    contentDescription = "Seed past reminders (debug)",
-                                    tint = NoteTheme.OnSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    },
+                    actions = {},
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
             }
@@ -444,8 +415,13 @@ private fun FilterTabRow(
                     isDark -> NoteTheme.SurfaceVariant
                     else -> NoteTheme.Surface
                 },
-                shadowElevation = if (isSelected || isDark) 0.dp else 0.5.dp,
-                border = if (!isSelected && !isDark) ButtonDefaults.outlinedButtonBorder(true) else null
+                shadowElevation = 0.dp,
+                // Stronger border — visible in both light and dark mode
+                border = when {
+                    isSelected -> null
+                    isDark -> BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.2f))
+                    else -> BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.15f))
+                }
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -503,9 +479,16 @@ private fun ReminderRow(
     val isDark = NoteTheme.Background.luminance() < 0.2f
     val rowBackground = if (isDark) NoteTheme.SurfaceVariant else NoteTheme.Surface
 
+    // Border is more visible in light mode; dark mode uses a slightly brighter stroke
+    val rowBorderColor = if (isDark)
+        NoteTheme.OnSurface.copy(alpha = 0.15f)
+    else
+        NoteTheme.OnSurface.copy(alpha = 0.12f)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .border(1.dp, rowBorderColor, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .background(rowBackground)
             .clickable(
@@ -641,7 +624,8 @@ private fun PinnedNoteChip(
         modifier = Modifier.width(150.dp),
         shape = RoundedCornerShape(12.dp),
         color = NoteTheme.Surface,
-        shadowElevation = 0.5.dp
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.12f))
     ) {
         Column(
             modifier = Modifier.padding(12.dp)

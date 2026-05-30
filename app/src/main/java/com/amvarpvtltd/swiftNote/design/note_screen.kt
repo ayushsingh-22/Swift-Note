@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.components.AnimatedFloatingActionButton
+import com.amvarpvtltd.swiftNote.components.FloatingToolbar
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
@@ -664,21 +665,28 @@ fun NotesScreen(navController: NavHostController) {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             },
-            floatingActionButton = {
-                ExpandableFloatingActionButton(
-                    onNewNote = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("addscreen")
-                    },
-                    onArchive = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("archive")
-                    },
-                    onToday = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("today")
-                    }
-                )
+            bottomBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 35.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    FloatingToolbar(
+                        onNewNote = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("addscreen")
+                        },
+                        onArchive = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("archive")
+                        },
+                        onToday = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("today")
+                        }
+                    )
+                }
             }
         ) { paddingValues ->
             // ─── Pull to Refresh Wrapper ─────────────────────────────────
