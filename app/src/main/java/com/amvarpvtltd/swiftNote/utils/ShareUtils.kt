@@ -10,7 +10,7 @@ import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 
 object ShareUtils {
 
-    /**
+    /** Now,
      * Share a single note to other apps
      */
     fun shareNote(context: Context, note: dataclass) {
@@ -50,21 +50,22 @@ object ShareUtils {
 
     /**
      * Format a single note for sharing with enhanced formatting.
-     * Strips HTML tags so the shared/copied text is clean plain text.
+     * Converts HTML to well-structured plain text so the copied/shared
+     * content preserves paragraphs, headings, lists, links, etc.
      */
     private fun formatNoteForSharing(note: dataclass): String {
         return buildString {
-            // Title
+            // Title — strip to flat text (titles are single-line)
             val plainTitle = RichTextBridge.stripHtmlToPlainText(note.title)
             if (plainTitle.isNotBlank()) {
                 appendLine(plainTitle)
                 appendLine()
             }
 
-            // Description — strip HTML so recipients see formatted text, not tags
+            // Description — convert HTML to formatted plain text preserving structure
             if (note.description.isNotEmpty()) {
-                val plainDescription = RichTextBridge.stripHtmlToPlainText(note.description)
-                appendLine(plainDescription.trim())
+                val formattedDescription = RichTextBridge.htmlToFormattedPlainText(note.description)
+                appendLine(formattedDescription.trim())
             }
         }.trim()
     }

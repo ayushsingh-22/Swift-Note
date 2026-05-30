@@ -281,6 +281,41 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
+    // Phase 3: Smart paste detection — auto-convert markdown to HTML when pasted
+    // Monitors text length for sudden large increases (>20 chars = likely a paste event).
+    // If pasted text contains markdown, converts to HTML for proper rich text display.
+    var previousTextLength by remember { mutableStateOf(-1) }
+    var skipNextConversion by remember { mutableStateOf(false) }
+    LaunchedEffect(richTextState.annotatedString.text) {
+        val currentText = richTextState.annotatedString.text
+        val currentLength = currentText.length
+
+        // Skip if this is the result of our own setHtml conversion
+        if (skipNextConversion) {
+            skipNextConversion = false
+            previousTextLength = currentLength
+            return@LaunchedEffect
+        }
+
+        val delta = currentLength - previousTextLength
+
+        // Detect paste: large sudden insertion (>15 chars) that isn't initial load
+        // Also handle first paste into empty note (previousTextLength == 0)
+        if (delta > 15 && previousTextLength >= 0 && !isLoading) {
+            // Only convert if the visible text contains markdown patterns
+            // (annotatedString.text is the rendered text without HTML tags)
+            if (com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(currentText)) {
+                val convertedHtml = com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(currentText)
+                if (convertedHtml != null) {
+                    skipNextConversion = true
+                    richTextState.setHtml(convertedHtml)
+                }
+            }
+        }
+
+        previousTextLength = currentLength
+    }
+
     // Phase 1: Derive checklist text for Smart Reminder AI analysis
     val checklistTextForAI by remember { derivedStateOf {
         if (isChecklistMode) checklistItems.joinToString(". ") { it.text } else ""
@@ -416,7 +451,14 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
 
                         // Library handles HTML and plain text uniformly via setHtml().
-                        richTextState.setHtml(descCandidate)
+                        // Phase 3: Also detect markdown content and convert for proper rendering.
+                        val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(descCandidate) &&
+                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(descCandidate)) {
+                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(descCandidate) ?: descCandidate
+                        } else {
+                            descCandidate
+                        }
+                        richTextState.setHtml(htmlToLoad)
                         } // end else (non-checklist)
                     }
                 } else {
@@ -440,7 +482,16 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (noteId == null && com.amvarpvtltd.swiftNote.share.SharedNoteData.hasPendingData) {
             val (sharedTitle, sharedDescription, asChecklist) = com.amvarpvtltd.swiftNote.share.SharedNoteData.consume()
             if (sharedTitle.isNotEmpty()) title = sharedTitle
-            if (sharedDescription.isNotEmpty()) richTextState.setHtml(sharedDescription)
+            if (sharedDescription.isNotEmpty()) {
+                // Phase 3: Detect markdown in shared content and convert to HTML
+                val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(sharedDescription) &&
+                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(sharedDescription)) {
+                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(sharedDescription) ?: sharedDescription
+                } else {
+                    sharedDescription
+                }
+                richTextState.setHtml(htmlToLoad)
+            }
             if (asChecklist) {
                 isChecklistMode = true
                 checklistItems = listOf(ChecklistItem(order = 0))

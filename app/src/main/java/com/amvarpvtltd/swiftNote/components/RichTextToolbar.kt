@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListNumbered
@@ -57,7 +58,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import com.amvarpvtltd.swiftNote.design.NoteTheme
+import com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter
+import com.amvarpvtltd.swiftNote.richtext.RichTextSanitizer
 import com.mohamedrejeb.richeditor.model.RichTextState
 
 /**
@@ -78,6 +85,7 @@ fun RichTextToolbar(
 ) {
     var showHeadingMenu by remember { mutableStateOf(false) }
     var showLinkDialog  by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     // Detect active formats from library state
     val isBold by remember { derivedStateOf { state.currentSpanStyle.fontWeight == FontWeight.Bold } }
@@ -200,6 +208,16 @@ fun RichTextToolbar(
             item {
                 ToolbarIconBtn(Icons.Outlined.Link, "Insert link", isActive = isLink) {
                     showLinkDialog = true
+                }
+            }
+
+            // Divider
+            item { ToolbarDividerLine() }
+
+            // Group 4 — Paste with formatting
+            item {
+                ToolbarIconBtn(Icons.Outlined.ContentPaste, "Paste formatted", isActive = false) {
+                    pasteFormattedFromClipboard(context, state)
                 }
             }
         }
@@ -389,5 +407,89 @@ private fun linkDialogFieldColors() = OutlinedTextFieldDefaults.colors(
     cursorColor          = NoteTheme.Primary
 )
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Paste with Formatting
+// ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Reads HTML from the system clipboard, sanitizes it through [RichTextSanitizer],
+ * and appends it to the current [RichTextState] content.
+ *
+ * If the clipboard has no HTML, falls back to pasting plain text.
+ * If clipboard is empty, shows a toast.
+ */
+private fun pasteFormattedFromClipboard(context: Context, state: RichTextState) {
+    try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip
+        if (clip == null || clip.itemCount == 0) {
+            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
 
+        val item = clip.getItemAt(0)
+        val htmlText = item.htmlText
+        val plainText = item.coerceToText(context)?.toString().orEmpty()
+
+        if (htmlText.isNullOrBlank() && plainText.isBlank()) {
+            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (!htmlText.isNullOrBlank()) {
+            // Sanitize the HTML to our supported subset
+            val sanitized = RichTextSanitizer.sanitize(htmlText)
+            if (sanitized.isNotBlank()) {
+                // Get current content, append sanitized HTML
+                val currentHtml = state.toHtml()
+                val combined = if (currentHtml.isBlank() || currentHtml == "<p><br></p>" || currentHtml == "<br>") {
+                    sanitized
+                } else {
+                    "$currentHtml$sanitized"
+                }
+                state.setHtml(combined)
+                Toast.makeText(context, "Pasted with formatting", Toast.LENGTH_SHORT).show()
+            } else {
+                // Sanitizer stripped everything — fall back to plain text
+                insertPlainText(state, plainText, context)
+            }
+        } else {
+            // No HTML available — paste as plain text
+            insertPlainText(state, plainText, context)
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Paste failed: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/**
+ * Inserts plain text by detecting markdown formatting and converting to HTML,
+ * or appending it as a paragraph if no markdown is detected.
+ */
+private fun insertPlainText(state: RichTextState, text: String, context: Context) {
+    if (text.isBlank()) {
+        Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val currentHtml = state.toHtml()
+
+    // Try to detect and convert markdown formatting
+    val convertedHtml = MarkdownToHtmlConverter.convert(text)
+    val htmlToInsert = if (convertedHtml != null) {
+        convertedHtml
+    } else {
+        // No markdown detected — wrap plain text in <p> for consistent block structure
+        "<p>${text.replace("\n", "<br>")}</p>"
+    }
+
+    val combined = if (currentHtml.isBlank() || currentHtml == "<p><br></p>" || currentHtml == "<br>") {
+        htmlToInsert
+    } else {
+        "$currentHtml$htmlToInsert"
+    }
+    state.setHtml(combined)
+
+    val msg = if (convertedHtml != null) "Pasted with formatting" else "Pasted as plain text"
+    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+}

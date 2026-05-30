@@ -23,6 +23,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   ├── SmartEntityDetector.kt      # Unified entity detector: TextClassifier + regex, LRU-cached by noteId
 │   └── DetectedEntity.kt           # Sealed hierarchy: PhoneNumber, Email, Url, Address, DateTime, Amount, TrackingNumber
 ├── auth/                           # DeviceIdManager, DeviceManager, PassphraseManager
+│   └── SyncMode.kt                 # Enum: LOCAL_ONLY, CONTINUOUS, ONE_TIME_IMPORTED (persisted via PassphraseManager)
 ├── viewmodel/                      # AddNoteViewModel, NotesViewModel, ViewNoteViewModel
 ├── room/
 │   ├── AppDatabase.kt              # Room DB: @Database, migrations
@@ -43,10 +44,18 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── components/
 │   ├── ReminderComponents.kt       # Reminder UI composables
 │   ├── SmartActionChipRow.kt       # Action chips for entities detected in note text (tap-to-call, maps, etc.)
+│   ├── RichTextToolbar.kt          # Formatting toolbar (bold/italic/underline/headings/lists/links/code)
+│   ├── RichTextDisplay.kt          # Read-only rich text renderer (handles HTML + Markdown content)
+│   ├── DisconnectSyncDialog.kt     # Multi-step disconnect sync confirmation dialog
+│   ├── SyncModeDialog.kt           # Sync mode selection dialog (Continuous vs One-Time Import)
 │   ├── ChecklistComponents.kt / NoteComponents.kt / ScreenComponents.kt / ViewModeComponents.kt
 │   ├── SearchComponents.kt / DialogComponents.kt / OfflineComponents.kt / OfflineEmptyStateCard.kt
 │   ├── BackgroundProvider.kt / PermissionRationaleSheet.kt
 │   └── NotificationComponent.kt    # In-app snackbar/banner via NotificationHelper singleton
+├── richtext/
+│   ├── RichTextBridge.kt           # Facade over compose-rich-editor; HTML stripping via Jsoup
+│   ├── MarkdownToHtmlConverter.kt  # Best-effort Markdown→HTML for pasted content
+│   └── RichTextSanitizer.kt        # Sanitizes clipboard/share HTML to supported tag subset (b,i,u,h1,h2,p,br,ul,ol,li,a,code,pre,input)
 ├── notifications/
 │   ├── ReminderScheduler.kt        # Dual scheduling: AlarmManager (exact) + WorkManager (backup); contains ReminderWorker
 │   ├── SystemNotificationHelper.kt # Posts system notifications, cancels by reminderId
@@ -55,8 +64,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   ├── ReminderManager.kt          # Scheduling entry point + broadcast extras constants
 │   ├── ReminderRepository.kt       # CRUD for ReminderEntity + delegates to ReminderScheduler
 │   ├── ReminderEntity.kt / ReminderDao.kt / ReminderData.kt
-│   ├── RecurrenceCalculator.kt     # Pure-function next-occurrence calculator (DAILY/WEEKLY/MONTHLY/YEARLY)
-│   └── ReminderReceiver.kt         # AlarmManager BroadcastReceiver
+│   └── RecurrenceCalculator.kt     # Pure-function next-occurrence calculator (DAILY/WEEKLY/MONTHLY/YEARLY)
 ├── security/
 │   ├── EncryptionUtil.kt           # AES note encryption
 │   ├── GeminiKeyManager.kt         # Multi-key Gemini API key storage in EncryptedSharedPreferences
@@ -105,11 +113,12 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - **Firebase path structure**: `users/{accountId}/notes/{deviceId}/{noteId}`
 - **Room entities** track sync state with a `synced` boolean column; pending deletions use a separate `PendingDeletionEntity` table. `NoteEntity` also has `isPinned`, `isArchived`, `category`, `colorKey` columns (added in migration 7→8).
 - **No Hilt/Dagger**: Dependencies are manually instantiated (singletons, constructor parameters). Don't add DI frameworks without explicit request.
-- **Rich text**: Notes support HTML formatting (bold/italic/underline) via clipboard detection.
+- **Rich text**: Notes use `compose-rich-editor` (MohamedRejeb) for editing and display. HTML is the storage format. All HTML stripping goes through `RichTextBridge.stripHtmlToPlainText()` (Jsoup-backed). Pasted Markdown is auto-converted via `MarkdownToHtmlConverter`. Clipboard/share HTML is sanitized via `RichTextSanitizer` before insertion.
 - **Reminders**: `ReminderEntity` supports recurrence fields (`recurrenceType`, `recurrenceInterval`, `recurrenceDaysOfWeek`, `recurrenceEndDate`, `parentReminderId`).
 - **NoteEntityMapper**: Always use `NoteEntityMapper.toEntity()` / `NoteEntityMapper.toDomain()` when converting between `dataclass` and `NoteEntity` — handles encrypt/decrypt automatically.
 - **In-app notifications**: Use `NotificationHelper.showSuccess/showWarning/showInfo()` (from `components/NotificationComponent.kt`) for transient UI feedback; do not show system notifications for in-app state.
 - **Passphrase hashing**: Use `HashUtils.hashPassphrase()` / `HashUtils.verifyPassphrase()` (PBKDF2-HMAC-SHA256, 120k iterations). Plain `HashUtils.sha256()` is only for non-security uses.
+- **Sync modes**: `SyncMode` enum (`LOCAL_ONLY`, `CONTINUOUS`, `ONE_TIME_IMPORTED`) tracks how device identity was established. Read/write via `PassphraseManager.getSyncMode()` / `setSyncMode()`.
 
 ## Critical Patterns
 
@@ -132,4 +141,5 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - **AndroidX PDF Viewer**: `pdf-viewer:1.0.0-alpha10`
 - **AndroidX Browser**: Custom Tabs for Smart Action Chips (`browser:1.8.0`)
 - **AndroidX Security Crypto**: `security-crypto:1.1.0-alpha06` for `EncryptedSharedPreferences` (Gemini key storage)
-
+- **compose-rich-editor**: `richeditor-compose:1.0.0-rc14` (MohamedRejeb) for rich text editing/display
+- **Jsoup**: `1.18.1` for HTML parsing/stripping in `RichTextBridge` and `RichTextSanitizer`
