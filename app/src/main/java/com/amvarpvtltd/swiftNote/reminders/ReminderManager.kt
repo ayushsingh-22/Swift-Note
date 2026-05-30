@@ -104,18 +104,31 @@ class ReminderManager private constructor(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // Save reminder to database first (always persisted regardless of alarm success)
+            // Use originalNoteTitle as the noteTitle so the Today screen shows the note's
+            // own title instead of the AI-generated label (e.g. "🤝 Meeting Reminder").
+            val entityTitle = reminder.originalNoteTitle.ifBlank { reminder.title }
+
+            // Propagate recurrence info detected by SmartReminderAI / Gemini
+            val recurrenceType = reminder.detectedRecurrence?.type ?: RecurrenceType.NONE
+            val recurrenceInterval = reminder.detectedRecurrence?.interval ?: 1
+            val recurrenceDaysOfWeek = reminder.detectedRecurrence?.daysOfWeek
+
             val reminderEntity = ReminderEntity(
                 id = reminder.id,
                 noteId = noteId,
-                noteTitle = reminder.title,
+                noteTitle = entityTitle,
                 noteDescription = reminder.description,
                 reminderTime = reminder.reminderDateTime,
                 isActive = true,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                recurrenceType = recurrenceType,
+                recurrenceInterval = recurrenceInterval,
+                recurrenceDaysOfWeek = recurrenceDaysOfWeek,
+                parentReminderId = if (recurrenceType != RecurrenceType.NONE) reminder.id else null
             )
 
             reminderDao.insertReminder(reminderEntity)
-            Log.d(TAG, "💾 Reminder saved to database: ${reminder.title}")
+            Log.d(TAG, "💾 Reminder saved to database: $entityTitle")
 
             // Schedule the alarm
             val intent = Intent(context, ReminderReceiver::class.java).apply {

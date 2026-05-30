@@ -9,10 +9,10 @@ object ValidationUtils {
         return title.trim().length >= Constants.MIN_CONTENT_LENGTH
     }
     /**
-     * Check if a note can be saved (title is valid)
+     * Check if a note can be saved (title is valid OR auto-title can be generated from description)
      */
     fun canSaveNote(title: String, description: String): Boolean {
-        return isValidTitle(title)
+        return isValidTitle(title) || AutoTitleGenerator.canGenerateTitle(description)
     }
 
     /**

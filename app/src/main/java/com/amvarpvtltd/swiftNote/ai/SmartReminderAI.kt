@@ -9,8 +9,6 @@ import com.google.mlkit.nl.entityextraction.EntityExtraction
 import com.google.mlkit.nl.entityextraction.EntityExtractor
 import com.google.mlkit.nl.entityextraction.EntityExtractorOptions
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -72,40 +70,41 @@ class SmartReminderAI(private val context: Context) {
     /**
      * Analyze text for date/time entities and return detected reminders.
      *
-     * Pipeline (fastest → smartest):
-     *   1. ML Kit Entity Extraction (on-device, instant)
-     *   2. Regex fallback (on-device, instant, handles Hinglish)
-     *   3. Gemini AI (cloud, ~1-2s) — only when keywords detected but no time extracted
+     * Pipeline (smartest → fastest):
+     *   1. Gemini AI (cloud, ~1-2s) — tried first if available (user has API key)
+     *   2. ML Kit Entity Extraction (on-device, instant) — fallback if Gemini fails/unavailable
+     *   3. Regex fallback (on-device, instant, handles Hinglish) — last resort
      */
     suspend fun analyzeTextForReminders(
         text: String,
         noteTitle: String = "Untitled"
     ): Result<List<DetectedReminder>> = withContext(Dispatchers.IO) {
+        val combinedText = "$noteTitle. $text".trim()
+        Log.d(TAG, "🔍 Analyzing text for reminders: ${combinedText.take(100)}...")
+
+        // ─── Stage 1: Try Gemini FIRST (if available and keywords present) ───
+        if (hasReminderKeywords(combinedText)) {
+            val geminiResults = tryGeminiParsing(text, noteTitle)
+            if (geminiResults.isNotEmpty()) {
+                Log.d(TAG, "🤖 Gemini returned ${geminiResults.size} reminder(s) — using Gemini response")
+                return@withContext Result.success(geminiResults)
+            }
+            Log.d(TAG, "🤖 Gemini returned no results or unavailable — falling back to on-device methods")
+        }
+
+        // ─── Stage 2: ML Kit Entity Extraction (on-device fallback) ───
         if (!isInitialized) {
             Log.w(TAG, "⚠️ Entity Extractor not initialized, attempting to initialize...")
             val initResult = initialize()
             if (initResult.isFailure) {
-                Log.w(TAG, "⚠️ ML Kit init failed, using regex fallback for analysis: ${initResult.exceptionOrNull()?.message}")
-                // If ML Kit model can't initialize (e.g., no network), still attempt regex fallback
-                val regexResults = try { regexFallbackForReminders(text, noteTitle) } catch (_: Exception) { emptyList() }
-                if (regexResults.isNotEmpty()) {
-                    return@withContext Result.success(regexResults)
-                }
-                // Last resort: try Gemini if keywords are present
-                if (hasReminderKeywords(text)) {
-                    val geminiResults = tryGeminiParsing(text, noteTitle)
-                    if (geminiResults.isNotEmpty()) {
-                        return@withContext Result.success(geminiResults)
-                    }
-                }
-                return@withContext Result.success(emptyList())
+                Log.w(TAG, "⚠️ ML Kit init failed, using regex fallback: ${initResult.exceptionOrNull()?.message}")
+                // ML Kit can't initialize — go straight to regex
+                val regexResults = try { regexFallbackForReminders(combinedText, noteTitle) } catch (_: Exception) { emptyList() }
+                return@withContext Result.success(regexResults)
             }
         }
 
         return@withContext try {
-            val combinedText = "$noteTitle. $text".trim()
-            Log.d(TAG, "🔍 Analyzing text for reminders: ${combinedText.take(100)}...")
-
             suspendCancellableCoroutine<Result<List<DetectedReminder>>> { continuation ->
                 entityExtractor.annotate(combinedText)
                     .addOnSuccessListener { entityAnnotations ->
@@ -116,48 +115,26 @@ class SmartReminderAI(private val context: Context) {
                         )
 
                         // If ML Kit didn't find anything, try regex fallback
-                        val afterRegex = detectedReminders.ifEmpty {
+                        val finalResults = detectedReminders.ifEmpty {
                             val fallback = regexFallbackForReminders(combinedText, noteTitle)
                             if (fallback.isNotEmpty()) {
-                                Log.d(TAG, "🔁 Fallback regex detected ${fallback.size} reminder(s)")
+                                Log.d(TAG, "🔁 Regex fallback detected ${fallback.size} reminder(s)")
                             }
                             fallback
                         }
 
-                        // If still empty but keywords exist → invoke Gemini as smart fallback
-                        if (afterRegex.isEmpty() && hasReminderKeywords(combinedText)) {
-                            Log.d(TAG, "🤖 Keywords detected but no time extracted — invoking Gemini AI...")
-                            // Launch Gemini in a coroutine since we're in a callback
-                            CoroutineScope(Dispatchers.IO).launch {
-                                val geminiResults = tryGeminiParsing(text, noteTitle)
-                                continuation.resume(Result.success(geminiResults))
-                            }
-                        } else {
-                            Log.d(TAG, "✅ Found ${afterRegex.size} potential reminders")
-                            continuation.resume(Result.success(afterRegex))
-                        }
+                        Log.d(TAG, "✅ Found ${finalResults.size} potential reminders (on-device)")
+                        continuation.resume(Result.success(finalResults))
                     }
                     .addOnFailureListener { exception ->
-                        Log.e(TAG, "❌ Error analyzing text for reminders", exception)
+                        Log.e(TAG, "❌ ML Kit annotation failed, using regex fallback", exception)
 
-                        // On failure, still attempt regex fallback
+                        // On ML Kit failure, use regex as final fallback
                         val fallback = regexFallbackForReminders(combinedText, noteTitle)
                         if (fallback.isNotEmpty()) {
-                            Log.d(TAG, "🔁 Fallback regex detected ${fallback.size} reminder(s) after ML Kit failure")
-                            continuation.resume(Result.success(fallback))
-                        } else if (hasReminderKeywords(combinedText)) {
-                            // Try Gemini as last resort
-                            CoroutineScope(Dispatchers.IO).launch {
-                                val geminiResults = tryGeminiParsing(text, noteTitle)
-                                if (geminiResults.isNotEmpty()) {
-                                    continuation.resume(Result.success(geminiResults))
-                                } else {
-                                    continuation.resume(Result.failure(exception))
-                                }
-                            }
-                        } else {
-                            continuation.resume(Result.failure(exception))
+                            Log.d(TAG, "🔁 Regex fallback detected ${fallback.size} reminder(s) after ML Kit failure")
                         }
+                        continuation.resume(Result.success(fallback))
                     }
 
                 continuation.invokeOnCancellation {
@@ -165,18 +142,9 @@ class SmartReminderAI(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error in analyzeTextForReminders — falling back to regex + Gemini", e)
-            val regexResults = try { regexFallbackForReminders(text, noteTitle) } catch (_: Exception) { emptyList() }
-            if (regexResults.isNotEmpty()) {
-                return@withContext Result.success(regexResults)
-            }
-            if (hasReminderKeywords(text)) {
-                val geminiResults = tryGeminiParsing(text, noteTitle)
-                if (geminiResults.isNotEmpty()) {
-                    return@withContext Result.success(geminiResults)
-                }
-            }
-            return@withContext Result.failure(e)
+            Log.e(TAG, "❌ Error in analyzeTextForReminders — falling back to regex", e)
+            val regexResults = try { regexFallbackForReminders(combinedText, noteTitle) } catch (_: Exception) { emptyList() }
+            return@withContext Result.success(regexResults)
         }
     }
 

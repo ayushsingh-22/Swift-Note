@@ -38,6 +38,7 @@ import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.design.AddScreen
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.design.NotesScreen
+import com.amvarpvtltd.swiftNote.design.TodayScreen
 import com.amvarpvtltd.swiftNote.design.ViewNoteScreen
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.share.SharedNoteData
@@ -365,5 +366,11 @@ fun NavigationComponent(navController: NavHostController, startDestination: Stri
         composable("archive") {
             com.amvarpvtltd.swiftNote.design.ArchiveScreen(navController)
         }
+
+        // Phase 5: Today / Daily Review screen
+        composable("today") {
+            TodayScreen(navController)
+        }
     }
 }
+

@@ -126,7 +126,9 @@ import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.mohamedrejeb.richeditor.model.rememberRichTextState
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
+import com.amvarpvtltd.swiftNote.ai.AITitleGenerator
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
+import com.amvarpvtltd.swiftNote.utils.AutoTitleGenerator
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.UIUtils
 import com.amvarpvtltd.swiftNote.utils.ValidationUtils
@@ -157,6 +159,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Smart Reminders state
     var detectedReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
     var pendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
+    // Reminders explicitly confirmed by the user via "Set" chip on a NEW note (not yet saved).
+    // These are carried forward and created at save time alongside pendingReminders.
+    var confirmedPendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
     var isAnalyzingText by remember { mutableStateOf(false) }
 
     // Permission state for notification/alarm access (Phase 0.2: point-of-use)
@@ -196,8 +201,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Performance: derivedStateOf prevents recomposition unless the derived value actually changes
     val canSave by remember { derivedStateOf {
         if (isChecklistMode) {
-            title.trim().length >= Constants.MIN_CONTENT_LENGTH &&
-                checklistItems.any { it.text.isNotBlank() }
+            checklistItems.any { it.text.isNotBlank() } &&
+                (title.trim().length >= Constants.MIN_CONTENT_LENGTH ||
+                    AutoTitleGenerator.canGenerateTitle(ChecklistParser.serializeItems(checklistItems)))
         } else {
             ValidationUtils.canSaveNote(title, richTextState.annotatedString.text)
         }
@@ -512,12 +518,29 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             try {
                 // ALWAYS save to Room database first (offline-first)
                 // If we have HTML saved from a paste, persist the HTML so formatting is preserved.
-                val titleToSave = titleHtml ?: title
                 val descToSave = if (isChecklistMode) {
                     ChecklistParser.serializeItems(checklistItems)
                 } else {
                     richTextState.toHtml()
                 }
+
+                // Phase 4: Auto-title — try LLM first, fall back to rule-based
+                val effectiveTitle = if (title.trim().length >= Constants.MIN_CONTENT_LENGTH) {
+                    title
+                } else {
+                    // Try AI-powered title generation (Gemini/Groq), falls back to rules
+                    val aiTitleGen = AITitleGenerator.getInstance(context)
+                    Log.d("AddScreen", "🤖 Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}")
+                    val aiTitle = try {
+                        aiTitleGen.generate(descToSave)
+                    } catch (e: Exception) {
+                        Log.e("AddScreen", "🤖 AI title generation threw exception", e)
+                        ""
+                    }
+                    Log.d("AddScreen", "🤖 AI title result: \"$aiTitle\"")
+                    aiTitle.ifEmpty { AutoTitleGenerator.generate(descToSave) }.ifEmpty { title }
+                }
+                val titleToSave = titleHtml ?: effectiveTitle
 
                 val result = noteRepository.saveNote(
                     title = titleToSave,
@@ -534,50 +557,55 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                        val savedNoteId = result.getOrNull()
                        val finalNoteId = savedNoteId ?: noteId
 
-                       // Create any pending smart reminders for newly saved notes
-                       // Only auto-create if notification permission is already granted
-                       val hasNotificationPermission = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context) == null
-                       if (finalNoteId != null && pendingReminders.isNotEmpty() && hasNotificationPermission) {
-                          var createdCount = 0
-                          try {
-                              withContext(Dispatchers.IO) {
-                                  pendingReminders.forEach { reminder ->
-                                      if (reminder.confidence >= 0.6f) {
-                                          try {
-                                              // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
-                                               val actualReminder = if (reminder.entityType == "MinuteFallback") {
-                                                   val minuteMatch = DIGIT_REGEX.find(reminder.extractedText)
-                                                  val minutes = minuteMatch?.value?.toIntOrNull()
-                                                  if (minutes != null) {
-                                                      val freshCal = java.util.Calendar.getInstance()
-                                                      freshCal.add(java.util.Calendar.MINUTE, minutes)
-                                                      reminder.copy(reminderDateTime = freshCal.timeInMillis)
-                                                  } else reminder
-                                              } else reminder
+                        // Create any pending smart reminders for newly saved notes.
+                        // Includes both:
+                        //  • pendingReminders  — suggestions not yet explicitly confirmed
+                        //  • confirmedPendingReminders — suggestions the user tapped "Set" on
+                        //    while the note wasn't saved yet (new note path, isEditing=false)
+                        val hasNotificationPermission = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context) == null
+                        val remindersToCreate = (pendingReminders + confirmedPendingReminders).distinctBy { it.id }
+                        if (finalNoteId != null && remindersToCreate.isNotEmpty() && hasNotificationPermission) {
+                           var createdCount = 0
+                           try {
+                               withContext(Dispatchers.IO) {
+                                   remindersToCreate.forEach { reminder ->
+                                       if (reminder.confidence >= 0.6f) {
+                                           try {
+                                               // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
+                                                val actualReminder = if (reminder.entityType == "MinuteFallback") {
+                                                    val minuteMatch = DIGIT_REGEX.find(reminder.extractedText)
+                                                   val minutes = minuteMatch?.value?.toIntOrNull()
+                                                   if (minutes != null) {
+                                                       val freshCal = java.util.Calendar.getInstance()
+                                                       freshCal.add(java.util.Calendar.MINUTE, minutes)
+                                                       reminder.copy(reminderDateTime = freshCal.timeInMillis)
+                                                   } else reminder
+                                               } else reminder
 
-                                              val success = reminderManager.createReminderFromDetection(actualReminder, finalNoteId)
-                                              if (success) createdCount++
-                                          } catch (e: Exception) {
-                                              Log.e("AddScreen", "Error creating pending smart reminder", e)
-                                          }
-                                      }
-                                  }
-                              }
+                                               val success = reminderManager.createReminderFromDetection(actualReminder, finalNoteId)
+                                               if (success) createdCount++
+                                           } catch (e: Exception) {
+                                               Log.e("AddScreen", "Error creating pending smart reminder", e)
+                                           }
+                                       }
+                                   }
+                               }
 
-                              if (createdCount > 0) {
-                                  // Clear pending reminders and update detected list for UI
-                                  detectedReminders = pendingReminders.filter { it.confidence >= 0.6f }
-                                  pendingReminders = emptyList()
-                                  Toast.makeText(
-                                      context,
-                                      "🤖 Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
-                                      Toast.LENGTH_SHORT
-                                  ).show()
-                              }
-                          } catch (e: Exception) {
-                              Log.e("AddScreen", "Error creating pending reminders after save", e)
-                          }
-                       }
+                               if (createdCount > 0) {
+                                   // Clear all reminder queues and update detected list for UI
+                                   detectedReminders = remindersToCreate.filter { it.confidence >= 0.6f }
+                                   pendingReminders = emptyList()
+                                   confirmedPendingReminders = emptyList()
+                                   Toast.makeText(
+                                       context,
+                                       "🤖 Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
+                                       Toast.LENGTH_SHORT
+                                   ).show()
+                               }
+                           } catch (e: Exception) {
+                               Log.e("AddScreen", "Error creating pending reminders after save", e)
+                           }
+                        }
 
                        val networkManager = com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(context)
                        val isOnline = networkManager.isConnected()
@@ -1245,6 +1273,109 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 }
                             }
                         } // end AnimatedVisibility heroVisible
+
+                        // Phase 4: Auto-title suggestion chip (rule-based instant + AI-enhanced async)
+                        val descriptionText = richTextState.annotatedString.text
+                        // Instant rule-based suggestion
+                        val ruleBasedTitle = remember(descriptionText, title, isChecklistMode, checklistItems) {
+                            if (title.isBlank() && (descriptionText.isNotBlank() || (isChecklistMode && checklistItems.any { it.text.isNotBlank() }))) {
+                                AutoTitleGenerator.generate(
+                                    if (isChecklistMode) ChecklistParser.serializeItems(checklistItems)
+                                    else descriptionText
+                                )
+                            } else ""
+                        }
+
+                        // AI-enhanced suggestion (debounced, async)
+                        var aiSuggestedTitle by remember { mutableStateOf("") }
+                        var isAiTitleLoading by remember { mutableStateOf(false) }
+                        LaunchedEffect(descriptionText, title, isChecklistMode, checklistItems) {
+                            aiSuggestedTitle = "" // Reset on new input
+                            if (title.isNotBlank() || (descriptionText.isBlank() && !isChecklistMode)) {
+                                return@LaunchedEffect
+                            }
+                            val descForAI = if (isChecklistMode) ChecklistParser.serializeItems(checklistItems)
+                                else richTextState.toHtml()
+                            if (descForAI.isBlank()) return@LaunchedEffect
+
+                            // Debounce: wait 1.5s after user stops typing before calling LLM
+                            delay(1500)
+
+                            val aiGen = AITitleGenerator.getInstance(context)
+                            if (!aiGen.isAvailable()) {
+                                Log.d("AddScreen", "🤖 AI title chip: AI not available (no API key)")
+                                return@LaunchedEffect
+                            }
+
+                            isAiTitleLoading = true
+                            Log.d("AddScreen", "🤖 AI title chip: triggering AI generation...")
+                            try {
+                                val result = withContext(Dispatchers.IO) {
+                                    aiGen.generate(descForAI)
+                                }
+                                if (result.isNotBlank() && result != ruleBasedTitle) {
+                                    aiSuggestedTitle = result
+                                    Log.d("AddScreen", "🤖 AI title chip: got result \"$result\"")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("AddScreen", "🤖 AI title chip: failed", e)
+                            } finally {
+                                isAiTitleLoading = false
+                            }
+                        }
+
+                        // Show the best available title (AI > rule-based)
+                        val suggestedTitle = aiSuggestedTitle.ifEmpty { ruleBasedTitle }
+
+                        AnimatedVisibility(
+                            visible = title.isBlank() && (suggestedTitle.isNotBlank() || isAiTitleLoading),
+                            enter = fadeIn(tween(200)) + slideInVertically(initialOffsetY = { -it / 4 }),
+                            exit = fadeOut(tween(150)) + slideOutVertically(targetOffsetY = { -it / 4 })
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = Constants.PADDING_SMALL.dp,
+                                        top = 4.dp,
+                                        bottom = 4.dp
+                                    )
+                                    .clickable {
+                                        if (suggestedTitle.isNotBlank()) {
+                                            title = suggestedTitle
+                                        }
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isAiTitleLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = NoteTheme.Primary
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.EditNote,
+                                        contentDescription = null,
+                                        tint = NoteTheme.Primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = if (isAiTitleLoading && suggestedTitle.isBlank()) {
+                                        "✨ Generating AI title..."
+                                    } else if (aiSuggestedTitle.isNotBlank()) {
+                                        "✨ \"$suggestedTitle\""
+                                    } else {
+                                        "Use \"$suggestedTitle\""
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = NoteTheme.Primary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
 
                         // Phase 4: Category Picker
                         AnimatedVisibility(
@@ -2372,91 +2503,102 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                         com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
                                                             context
                                                         )
-                                                    if (missing != null) {
-                                                        // Store the action to execute after permission is granted
-                                                        pendingReminderAction =
-                                                            {
-                                                                scope.launch {
-                                                                    try {
-                                                                        if (isEditing) {
-                                                                            withContext(
-                                                                                Dispatchers.IO
-                                                                            ) {
-                                                                                reminderManager.createReminderFromDetection(
-                                                                                    reminder,
-                                                                                    noteId!!
+                                                                     if (missing != null) {
+                                                                        // Store the action to execute after permission is granted
+                                                                        pendingReminderAction =
+                                                                            {
+                                                                                scope.launch {
+                                                                                    try {
+                                                                                        if (isEditing) {
+                                                                                            withContext(
+                                                                                                Dispatchers.IO
+                                                                                            ) {
+                                                                                                reminderManager.createReminderFromDetection(
+                                                                                                    reminder,
+                                                                                                    noteId!!
+                                                                                                )
+                                                                                            }
+                                                                                        } else {
+                                                                                            // New note: queue for creation at save time
+                                                                                            if (!confirmedPendingReminders.any { it.id == reminder.id }) {
+                                                                                                confirmedPendingReminders = confirmedPendingReminders + reminder
+                                                                                            }
+                                                                                        }
+                                                                                        pendingReminders =
+                                                                                            pendingReminders.filter { it.id != reminder.id }
+                                                                                        detectedReminders =
+                                                                                            detectedReminders.map {
+                                                                                                if (it.id == reminder.id) it.copy(
+                                                                                                    isConfirmed = true
+                                                                                                ) else it
+                                                                                            }
+                                                                                        Toast.makeText(
+                                                                                            context,
+                                                                                            if (isEditing) "⏰ Reminder set!" else "⏰ Reminder will be set when you save",
+                                                                                            Toast.LENGTH_SHORT
+                                                                                        )
+                                                                                            .show()
+                                                                                    } catch (e: Exception) {
+                                                                                        Log.e(
+                                                                                            "AddScreen",
+                                                                                            "Error confirming reminder",
+                                                                                            e
+                                                                                        )
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        missingPermissionType =
+                                                                            missing
+                                                                        showPermissionRationale =
+                                                                            true
+                                                                     } else {
+                                                                        // Permission already granted — create the reminder
+                                                                        scope.launch {
+                                                                            try {
+                                                                                if (isEditing) {
+                                                                                    // Editing an existing note: create immediately
+                                                                                    withContext(
+                                                                                        Dispatchers.IO
+                                                                                    ) {
+                                                                                        reminderManager.createReminderFromDetection(
+                                                                                            reminder,
+                                                                                            noteId!!
+                                                                                        )
+                                                                                    }
+                                                                                } else {
+                                                                                    // New note not saved yet: queue for creation at save time
+                                                                                    if (!confirmedPendingReminders.any { it.id == reminder.id }) {
+                                                                                        confirmedPendingReminders = confirmedPendingReminders + reminder
+                                                                                    }
+                                                                                }
+                                                                                // Move from pending to confirmed
+                                                                                pendingReminders =
+                                                                                    pendingReminders.filter { it.id != reminder.id }
+                                                                                detectedReminders =
+                                                                                    detectedReminders.map {
+                                                                                        if (it.id == reminder.id) it.copy(
+                                                                                            isConfirmed = true
+                                                                                        ) else it
+                                                                                    }
+                                                                                withContext(
+                                                                                    Dispatchers.Main
+                                                                                ) {
+                                                                                    Toast.makeText(
+                                                                                        context,
+                                                                                        if (isEditing) "⏰ Reminder set!" else "⏰ Reminder will be set when you save",
+                                                                                        Toast.LENGTH_SHORT
+                                                                                    )
+                                                                                        .show()
+                                                                                }
+                                                                            } catch (e: Exception) {
+                                                                                Log.e(
+                                                                                    "AddScreen",
+                                                                                    "Error confirming reminder",
+                                                                                    e
                                                                                 )
                                                                             }
                                                                         }
-                                                                        pendingReminders =
-                                                                            pendingReminders.filter { it.id != reminder.id }
-                                                                        detectedReminders =
-                                                                            detectedReminders.map {
-                                                                                if (it.id == reminder.id) it.copy(
-                                                                                    isConfirmed = true
-                                                                                ) else it
-                                                                            }
-                                                                        Toast.makeText(
-                                                                            context,
-                                                                            "⏰ Reminder set!",
-                                                                            Toast.LENGTH_SHORT
-                                                                        )
-                                                                            .show()
-                                                                    } catch (e: Exception) {
-                                                                        Log.e(
-                                                                            "AddScreen",
-                                                                            "Error confirming reminder",
-                                                                            e
-                                                                        )
                                                                     }
-                                                                }
-                                                            }
-                                                        missingPermissionType =
-                                                            missing
-                                                        showPermissionRationale =
-                                                            true
-                                                    } else {
-                                                        // Permission already granted — create the reminder
-                                                        scope.launch {
-                                                            try {
-                                                                if (isEditing) {
-                                                                    withContext(
-                                                                        Dispatchers.IO
-                                                                    ) {
-                                                                        reminderManager.createReminderFromDetection(
-                                                                            reminder,
-                                                                            noteId!!
-                                                                        )
-                                                                    }
-                                                                }
-                                                                // Move from pending to confirmed
-                                                                pendingReminders =
-                                                                    pendingReminders.filter { it.id != reminder.id }
-                                                                detectedReminders =
-                                                                    detectedReminders.map {
-                                                                        if (it.id == reminder.id) it.copy(
-                                                                            isConfirmed = true
-                                                                        ) else it
-                                                                    }
-                                                                withContext(
-                                                                    Dispatchers.Main
-                                                                ) {
-                                                                    Toast.makeText(
-                                                                        context,
-                                                                        "⏰ Reminder set!",
-                                                                        Toast.LENGTH_SHORT
-                                                                    )
-                                                                        .show()
-                                                                }
-                                                            } catch (e: Exception) {
-                                                                Log.e(
-                                                                    "AddScreen",
-                                                                    "Error confirming reminder",
-                                                                    e
-                                                                )
-                                                            }
-                                                        }
-                                                    }
                                                 },
                                                 shape = RoundedCornerShape(
                                                     Constants.CORNER_RADIUS_SMALL.dp
