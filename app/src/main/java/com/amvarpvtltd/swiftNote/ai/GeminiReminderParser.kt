@@ -42,47 +42,71 @@ class GeminiReminderParser private constructor(private val context: Context) {
             }
         }
 
-        // Rate limiting: max 15 Gemini calls per minute (free tier limit)
-        private const val MAX_CALLS_PER_MINUTE = 15
+        /** Same ordered list as AITitleGenerator — shared free-tier model pool. */
+        private val FREE_MODELS = listOf(
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-1.5-pro",
+        )
+
+        // Rate limiting: max 10 reminder calls per minute (conservative free-tier)
+        private const val MAX_CALLS_PER_MINUTE = 10
         private val callTimestamps = mutableListOf<Long>()
+
+        private const val PREFS_NAME          = "gemini_reminder_parser_prefs"
+        private const val KEY_LAST_GOOD_MODEL = "last_working_model"
 
         /**
          * Call this when user updates/adds/removes API keys to force model re-creation.
          */
         fun invalidate() {
-            INSTANCE?.generativeModel = null
+            INSTANCE?.modelCache?.clear()
             INSTANCE?.currentApiKey = null
         }
     }
 
+    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
     private var currentApiKey: String? = null
-    private var generativeModel: GenerativeModel? = null
+    private val modelCache = mutableMapOf<String, GenerativeModel>()
 
     /**
-     * Get or create the GenerativeModel using user's active stored API key.
+     * Get or create a GenerativeModel for the given model name.
      */
-    private fun getModel(): GenerativeModel? {
+    private fun getModel(modelName: String): GenerativeModel? {
         val userKey = GeminiKeyManager.getActiveApiKey(context)
+        if (userKey.isBlank()) return null
 
-        if (userKey.isBlank()) {
-            return null
-        }
-
-        // Recreate model if key changed
         if (userKey != currentApiKey) {
             currentApiKey = userKey
-            generativeModel = GenerativeModel(
-                modelName = "gemini-2.0-flash",
+            modelCache.clear()
+        }
+
+        return modelCache.getOrPut(modelName) {
+            GenerativeModel(
+                modelName = modelName,
                 apiKey = userKey,
                 generationConfig = GenerationConfig.Builder().apply {
-                    temperature = 0.1f  // Low temperature for structured extraction
-                    maxOutputTokens = 1024  // Increased from 512 — long notes produced MAX_TOKENS
+                    temperature = 0.1f
+                    maxOutputTokens = 1024
                     topP = 0.8f
                 }.build()
             )
         }
+    }
 
-        return generativeModel
+    /**
+     * Ordered model list: last-known-good model first, then remaining models.
+     */
+    private fun orderedModels(): List<String> {
+        val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)?.takeIf { it in FREE_MODELS }
+        return if (lastGood != null) listOf(lastGood) + FREE_MODELS.filter { it != lastGood }
+               else FREE_MODELS
     }
 
     /**
@@ -131,88 +155,127 @@ class GeminiReminderParser private constructor(private val context: Context) {
             return@withContext null
         }
 
-        val model = getModel()
-        if (model == null) {
-            Log.w(TAG, "⚠️ Could not create Gemini model")
-            return@withContext null
-        }
-
         if (!canMakeCall()) {
             Log.w(TAG, "⚠️ Rate limit reached, skipping Gemini call")
             showToast("AI rate limit reached. Please wait a moment before trying again.")
             return@withContext null
         }
 
-        // Truncate input to prevent MAX_TOKENS on long shared content.
-        // Reminder intent is almost always in the first portion of a note.
         val truncatedText = if (text.length > 800) {
             Log.d(TAG, "✂️ Truncating input from ${text.length} to 800 chars to avoid MAX_TOKENS")
             text.take(800) + "…"
         } else text
 
-        try {
-            recordCall()
-            // Track usage for the active key
-            GeminiKeyManager.recordUsage(context)
+        val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss EEEE", Locale.ENGLISH)
+            .format(Calendar.getInstance().time)
+        val prompt = buildPrompt(truncatedText, noteTitle, currentTime)
 
-            val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss EEEE", Locale.ENGLISH)
-                .format(Calendar.getInstance().time)
+        for (modelName in orderedModels()) {
+            try {
+                val model = getModel(modelName) ?: return@withContext null
 
-            val prompt = buildPrompt(truncatedText, noteTitle, currentTime)
+                Log.d(TAG, "🤖 Trying $modelName for reminder extraction…")
+                recordCall()
+                GeminiKeyManager.recordUsage(context)
 
-            Log.d(TAG, "🤖 Sending to Gemini Developer API for analysis...")
+                val response = try {
+                    model.generateContent(content { text(prompt) })
+                } catch (e: com.google.ai.client.generativeai.type.ResponseStoppedException) {
+                    Log.w(TAG, "⚠️ $modelName hit MAX_TOKENS — attempting to parse partial response")
+                    e.response
+                }
 
-            val response = try {
-                model.generateContent(content { text(prompt) })
-            } catch (e: ResponseStoppedException) {
-                // MAX_TOKENS: model generated partial output — try to salvage it
-                Log.w(TAG, "⚠️ Gemini hit MAX_TOKENS — attempting to parse partial response")
-                e.response
+                val responseText = response.text?.trim()
+                if (responseText.isNullOrBlank()) {
+                    Log.w(TAG, "⚠️ $modelName returned empty response, trying next model")
+                    continue
+                }
+
+                Log.d(TAG, "🤖 $modelName response received (${responseText.length} chars)")
+
+                // Save as last-known-good model
+                prefs.edit().putString(KEY_LAST_GOOD_MODEL, modelName).apply()
+                return@withContext parseGeminiResponse(responseText)
+
+            } catch (e: Exception) {
+                val msg = e.message?.lowercase() ?: ""
+                when {
+                    msg.contains("resource_exhausted") || msg.contains("429") ||
+                    msg.contains("quota") || msg.contains("rate limit") -> {
+                        Log.w(TAG, "⏳ $modelName: quota exceeded → trying next model")
+                        continue
+                    }
+                    msg.contains("invalid api key") || msg.contains("permission_denied") ||
+                    msg.contains("unauthenticated") -> {
+                        Log.e(TAG, "🔐 $modelName: auth error — aborting")
+                        return@withContext null
+                    }
+                    else -> {
+                        Log.e(TAG, "❌ $modelName: ${e.message} → trying next model")
+                        continue
+                    }
+                }
             }
-
-            val responseText = response.text?.trim()
-            if (responseText.isNullOrBlank()) return@withContext null
-
-            Log.d(TAG, "🤖 Gemini response received (${responseText.length} chars)")
-
-            return@withContext parseGeminiResponse(responseText)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Gemini parsing failed: ${e.message}", e)
-            val message = e.message?.lowercase() ?: ""
-            if (message.contains("resource_exhausted") || message.contains("429") ||
-                message.contains("quota") || message.contains("rate limit")) {
-                showToast("Gemini API limit reached. Try again later or add another API key in AI Settings.")
-            }
-            return@withContext null
         }
+
+        Log.e(TAG, "🚫 All models exhausted for reminder parsing")
+        showToast("Gemini AI unavailable. Try again later or add another API key in AI Settings.")
+        return@withContext null
     }
 
     /**
-     * Validate an API key by making a minimal test call.
-     * Returns true if the key works, false otherwise.
+     * Validate an API key by making a minimal test call, trying each free model in order.
+     * Returns true if ANY model responds successfully or returns a quota error
+     * (quota error = key is authenticated, just temporarily limited).
      */
     suspend fun validateApiKey(apiKey: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val testModel = GenerativeModel(
-                modelName = "gemini-2.0-flash",
-                apiKey = apiKey,
-                generationConfig = GenerationConfig.Builder().apply {
-                    temperature = 0.1f
-                    maxOutputTokens = 32
-                }.build()
-            )
-            val response = testModel.generateContent(content { text("Reply with just: OK") })
-            !response.text.isNullOrBlank()
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ API key validation failed: ${e.message}")
-            val message = e.message?.lowercase() ?: ""
-            if (message.contains("resource_exhausted") || message.contains("429") ||
-                message.contains("quota") || message.contains("rate limit")) {
-                showToast("API rate limit exceeded. Please wait and try again.")
+        for (modelName in FREE_MODELS) {
+            try {
+                val testModel = GenerativeModel(
+                    modelName = modelName,
+                    apiKey = apiKey,
+                    generationConfig = GenerationConfig.Builder().apply {
+                        temperature = 0.1f
+                        maxOutputTokens = 32
+                    }.build()
+                )
+                val response = testModel.generateContent(content { text("Reply with just: OK") })
+                if (!response.text.isNullOrBlank()) {
+                    Log.i(TAG, "✅ Key valid — $modelName responded successfully")
+                    // Save as starting model for this key
+                    prefs.edit().putString(KEY_LAST_GOOD_MODEL, modelName).apply()
+                    return@withContext true
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ $modelName validation: ${e.message}")
+                val msg = e.message?.lowercase() ?: ""
+                when {
+                    // Quota error = key IS authenticated — accept the key
+                    msg.contains("resource_exhausted") || msg.contains("429") ||
+                    msg.contains("quota") || msg.contains("rate limit") -> {
+                        Log.i(TAG, "✅ Key valid (quota hit on $modelName — key accepted)")
+                        showToast("API key verified ✓  (quota limit reached — you may need to wait a moment before first use)")
+                        return@withContext true
+                    }
+                    // Auth error = truly bad key — try next model name (might be unsupported)
+                    msg.contains("invalid api key") || msg.contains("permission_denied") ||
+                    msg.contains("unauthenticated") -> {
+                        // The key itself is rejected; no point trying other model names
+                        Log.e(TAG, "🔐 Key rejected by $modelName — invalid key")
+                        return@withContext false
+                    }
+                    // Model not found / unsupported — try next model
+                    msg.contains("not found") || msg.contains("404") ||
+                    msg.contains("model") -> {
+                        Log.w(TAG, "⚠️ $modelName not available, trying next model…")
+                        continue
+                    }
+                    else -> continue
+                }
             }
-            false
         }
+        Log.e(TAG, "❌ Key could not be validated against any model")
+        false
     }
 
     /**

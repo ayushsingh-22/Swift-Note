@@ -1,6 +1,7 @@
 package com.amvarpvtltd.swiftNote.ai
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
@@ -12,12 +13,17 @@ import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * AI-powered title generator reusing the SAME Gemini setup the user already configured.
+ * AI-powered title generator that rotates across all free-tier Gemini models.
  *
- * Uses the same API key from AI Settings (GeminiKeyManager) — no extra setup needed.
- * Strategy: Try Gemini → fall back to rule-based [AutoTitleGenerator] on failure.
+ * - Tries models in order; on quota/rate-limit skips to the next model.
+ * - Remembers the last model that succeeded and tries it FIRST on the next call.
+ * - Enforces a per-minute AND a daily safety cap to protect free-tier quota.
+ * - Falls back to [AutoTitleGenerator] if every model is exhausted.
  */
 class AITitleGenerator private constructor(private val context: Context) {
 
@@ -27,86 +33,73 @@ class AITitleGenerator private constructor(private val context: Context) {
         @Volatile
         private var INSTANCE: AITitleGenerator? = null
 
-        fun getInstance(context: Context): AITitleGenerator {
-            return INSTANCE ?: synchronized(this) {
+        fun getInstance(context: Context): AITitleGenerator =
+            INSTANCE ?: synchronized(this) {
                 INSTANCE ?: AITitleGenerator(context.applicationContext).also { INSTANCE = it }
             }
-        }
 
-        // Rate limit: max 5 title calls per minute (preserve free-tier quota)
-        private const val MAX_CALLS_PER_MINUTE = 5
+        /**
+         * Free-tier Gemini models in preference order (fastest / cheapest first).
+         * The list is tried top-to-bottom on quota errors; the winner is cached.
+         */
+        val FREE_MODELS = listOf(
+            "gemini-2.5-flash",           // fastest, newest — try first
+            "gemini-2.5-flash-lite",      // ultra-light version
+            "gemini-2.0-flash",           // stable workhorse
+            "gemini-2.0-flash-lite",      // lighter 2.0 variant
+            "gemini-2.5-pro",             // most capable free model
+            "gemini-1.5-flash",           // reliable older model
+            "gemini-1.5-flash-8b",        // smallest / most quota-friendly
+            "gemini-1.5-pro",             // last resort
+        )
+
+        // ── Rate-limit constants ──────────────────────────────────────────────
+        /** Max title calls per 60-second window (conservative — preserves reminder quota too). */
+        private const val MAX_CALLS_PER_MINUTE = 3
+        /**
+         * Daily safety cap across ALL models.
+         * Free tier gives ~1 500 req/day per model; 60 total is ~4 % — very safe.
+         */
+        private const val MAX_CALLS_PER_DAY = 60
+        /** Per-model network timeout. */
+        private const val TIMEOUT_MS = 10_000L
+
+        // ── SharedPrefs keys ──────────────────────────────────────────────────
+        private const val PREFS_NAME          = "ai_title_generator_prefs"
+        private const val KEY_LAST_GOOD_MODEL = "last_working_model"
+        private const val KEY_DAY             = "daily_call_date"
+        private const val KEY_DAY_COUNT       = "daily_call_count"
+
+        // In-memory per-minute window
         private val callTimestamps = mutableListOf<Long>()
-
-        private const val TIMEOUT_MS = 8000L
     }
 
-    // Same pattern as GeminiReminderParser — cache model, recreate on key change
+    private val prefs: SharedPreferences by lazy {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // Model cache — recreated only when the API key changes
     private var currentApiKey: String? = null
-    private var generativeModel: GenerativeModel? = null
+    private val modelCache = mutableMapOf<String, GenerativeModel>()
 
-    /**
-     * Reuses the same API key from AI Settings (GeminiKeyManager).
-     * Same model (gemini-2.0-flash), just with lower maxOutputTokens for titles.
-     */
-    private fun getModel(): GenerativeModel? {
-        val userKey = GeminiKeyManager.getActiveApiKey(context)
-        if (userKey.isBlank()) {
-            Log.d(TAG, "❌ No Gemini API key found in AI Settings")
-            return null
-        }
+    // ────────────────────────── PUBLIC API ───────────────────────────────────
 
-        if (userKey != currentApiKey) {
-            currentApiKey = userKey
-            generativeModel = GenerativeModel(
-                modelName = "gemini-2.0-flash",
-                apiKey = userKey,
-                generationConfig = GenerationConfig.Builder().apply {
-                    temperature = 0.3f
-                    maxOutputTokens = 30
-                    topP = 0.9f
-                }.build()
-            )
-            Log.d(TAG, "✅ Gemini model created (same key as AI Settings)")
-        }
+    fun isAvailable(): Boolean = GeminiKeyManager.getActiveApiKey(context).isNotBlank()
 
-        return generativeModel
-    }
-
-    // ──────────────────── PUBLIC API ────────────────────
-
-    /**
-     * Check if Gemini is available — same key user already added in AI Settings.
-     */
-    fun isAvailable(): Boolean {
-        return GeminiKeyManager.getActiveApiKey(context).isNotBlank()
-    }
-
-    /**
-     * Generate a title using Gemini, falling back to rule-based.
-     * Call from a coroutine on IO dispatcher.
-     */
     suspend fun generate(description: String): String {
-        if (description.isBlank()) {
-            Log.d(TAG, "⚠️ Description blank, skipping")
-            return ""
-        }
-
+        if (description.isBlank()) return ""
         val plainText = getPlainText(description)
-        if (plainText.isBlank()) {
-            Log.d(TAG, "⚠️ Plain text blank after stripping, skipping")
-            return ""
-        }
+        if (plainText.isBlank()) return ""
 
         Log.d(TAG, "🔍 Triggered. Text: ${plainText.take(60)}... (${plainText.length} chars)")
         Log.d(TAG, "🔑 Key present: ${GeminiKeyManager.getActiveApiKey(context).isNotBlank()}")
 
         if (!canMakeCall()) {
-            Log.w(TAG, "⚠️ Rate limited ($MAX_CALLS_PER_MINUTE/min), using rules")
+            Log.w(TAG, "⚠️ Rate/daily limited, using rules")
             return AutoTitleGenerator.generate(description)
         }
 
-        // Try Gemini (same key from AI Settings)
-        val title = tryGemini(plainText)
+        val title = tryAllModels(plainText)
         if (!title.isNullOrBlank() && title.length >= 3) {
             Log.d(TAG, "✨ AI title: \"$title\"")
             return title
@@ -116,43 +109,157 @@ class AITitleGenerator private constructor(private val context: Context) {
         return AutoTitleGenerator.generate(description)
     }
 
-    // ──────────────────── GEMINI CALL ────────────────────
+    // ────────────────────────── MODEL ROTATION ───────────────────────────────
 
-    private suspend fun tryGemini(plainText: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun tryAllModels(plainText: String): String? {
+        val userKey = GeminiKeyManager.getActiveApiKey(context)
+        if (userKey.isBlank()) return null
+
+        // Invalidate model cache if the API key changed
+        if (userKey != currentApiKey) {
+            currentApiKey = userKey
+            modelCache.clear()
+            Log.d(TAG, "🔄 API key changed — model cache cleared")
+        }
+
+        // Put the last known-good model at the front so we skip the search phase
+        val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)?.takeIf { it in FREE_MODELS }
+        val orderedModels = if (lastGood != null) {
+            listOf(lastGood) + FREE_MODELS.filter { it != lastGood }
+        } else {
+            FREE_MODELS
+        }
+
+        for (modelName in orderedModels) {
+            when (val result = tryModel(modelName, userKey, plainText)) {
+                is ModelResult.Success -> {
+                    // Persist the winner so next call starts here
+                    if (lastGood != modelName) {
+                        prefs.edit().putString(KEY_LAST_GOOD_MODEL, modelName).apply()
+                        Log.d(TAG, "💾 Saved working model: $modelName")
+                    }
+                    recordCall()
+                    GeminiKeyManager.recordUsage(context)
+                    return result.title
+                }
+                is ModelResult.QuotaError -> {
+                    Log.w(TAG, "⏳ $modelName: quota/rate exceeded → trying next model")
+                }
+                is ModelResult.AuthError  -> {
+                    Log.e(TAG, "🔐 $modelName: auth/permission error — no point retrying with same key")
+                    return null
+                }
+                is ModelResult.Timeout    -> Log.w(TAG, "⏱ $modelName: timed out → trying next model")
+                is ModelResult.OtherError -> Log.w(TAG, "❌ $modelName: ${result.message} → trying next model")
+            }
+        }
+
+        Log.e(TAG, "🚫 All ${FREE_MODELS.size} models exhausted")
+        return null
+    }
+
+    private suspend fun tryModel(
+        modelName: String,
+        apiKey: String,
+        plainText: String
+    ): ModelResult = withContext(Dispatchers.IO) {
         try {
-            val model = getModel() ?: return@withContext null
+            val model = modelCache.getOrPut(modelName) {
+                GenerativeModel(
+                    modelName = modelName,
+                    apiKey = apiKey,
+                    generationConfig = GenerationConfig.Builder().apply {
+                        temperature = 0.3f
+                        maxOutputTokens = 30
+                        topP = 0.9f
+                    }.build()
+                )
+            }
 
-            recordCall()
-            GeminiKeyManager.recordUsage(context)
-
-            val prompt = buildPrompt(plainText)
-            Log.d(TAG, "🤖 Sending to Gemini (${prompt.length} chars)...")
-
+            Log.d(TAG, "🤖 Trying $modelName (${plainText.length} chars)…")
             val response = withTimeoutOrNull(TIMEOUT_MS) {
-                model.generateContent(content { text(prompt) })
-            }
-
-            if (response == null) {
-                Log.w(TAG, "❌ Timed out (${TIMEOUT_MS}ms)")
-                return@withContext null
-            }
+                model.generateContent(content { text(buildPrompt(plainText)) })
+            } ?: return@withContext ModelResult.Timeout
 
             val raw = response.text?.trim()
-            if (raw.isNullOrBlank()) {
-                Log.w(TAG, "❌ Empty response from Gemini")
-                return@withContext null
-            }
+            if (raw.isNullOrBlank()) return@withContext ModelResult.OtherError("Empty response")
 
-            Log.d(TAG, "🤖 Raw response: \"$raw\"")
-            return@withContext cleanResponse(raw)
+            val cleaned = cleanResponse(raw)
+                ?: return@withContext ModelResult.OtherError("Bad response format: \"$raw\"")
+
+            ModelResult.Success(cleaned)
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Gemini failed: ${e.message}", e)
-            return@withContext null
+            classifyException(e)
         }
     }
 
-    // ──────────────────── PROMPT ────────────────────
+    private fun classifyException(e: Exception): ModelResult {
+        val msg = e.message?.lowercase() ?: ""
+        return when {
+            // Coroutine cancelled (composition left, user navigated away) — not a quota issue
+            e is kotlinx.coroutines.CancellationException ||
+            msg.contains("coroutine scope left") ||
+            msg.contains("cancellationexception") ->
+                ModelResult.OtherError("Composition cancelled")
+
+            // Quota / rate-limit (429 / RESOURCE_EXHAUSTED) — valid key, skip model
+            msg.contains("resource_exhausted") || msg.contains("quota") ||
+            msg.contains("429") || msg.contains("rate limit") ->
+                ModelResult.QuotaError
+
+            // Auth errors — wrong / revoked key, no point continuing
+            msg.contains("invalid api key") || msg.contains("api_key_invalid") ||
+            msg.contains("permission_denied") || msg.contains("unauthenticated") ||
+            msg.contains("403") || msg.contains("401") ->
+                ModelResult.AuthError
+
+            else -> ModelResult.OtherError(e.message ?: "Unknown error")
+        }
+    }
+
+    // ────────────────────────── RATE LIMITING ────────────────────────────────
+
+    private fun canMakeCall(): Boolean {
+        val now = System.currentTimeMillis()
+
+        // Per-minute window
+        callTimestamps.removeAll { now - it > 60_000 }
+        if (callTimestamps.size >= MAX_CALLS_PER_MINUTE) {
+            Log.w(TAG, "⚠️ Per-minute cap reached ($MAX_CALLS_PER_MINUTE/min)")
+            return false
+        }
+
+        // Daily cap
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val savedDay = prefs.getString(KEY_DAY, "")
+        val dayCount = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0)
+                       else { resetDailyCounter(today); 0 }
+
+        if (dayCount >= MAX_CALLS_PER_DAY) {
+            Log.w(TAG, "⚠️ Daily cap reached ($MAX_CALLS_PER_DAY/day)")
+            return false
+        }
+        return true
+    }
+
+    /** Called only on SUCCESS to avoid counting failed attempts. */
+    private fun recordCall() {
+        callTimestamps.add(System.currentTimeMillis())
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val savedDay = prefs.getString(KEY_DAY, "")
+        val current = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0) else 0
+        prefs.edit()
+            .putString(KEY_DAY, today)
+            .putInt(KEY_DAY_COUNT, current + 1)
+            .apply()
+    }
+
+    private fun resetDailyCounter(today: String) {
+        prefs.edit().putString(KEY_DAY, today).putInt(KEY_DAY_COUNT, 0).apply()
+    }
+
+    // ────────────────────────── PROMPT ───────────────────────────────────────
 
     private fun buildPrompt(plainText: String): String {
         val content = if (plainText.length > 300) plainText.take(300) + "..." else plainText
@@ -170,16 +277,13 @@ $content
 Title:"""
     }
 
-    // ──────────────────── RESPONSE CLEANING ────────────────────
+    // ────────────────────────── RESPONSE CLEANING ────────────────────────────
 
     private fun cleanResponse(raw: String): String? {
         var cleaned = raw
-            .removePrefix("Title:")
-            .removePrefix("title:")
+            .removePrefix("Title:").removePrefix("title:")
             .trim()
-            .removeSurrounding("\"")
-            .removeSurrounding("'")
-            .removeSurrounding("`")
+            .removeSurrounding("\"").removeSurrounding("'").removeSurrounding("`")
             .trim()
             .replace(Regex("\\.$"), "")
             .trim()
@@ -199,36 +303,32 @@ Title:"""
             Log.d(TAG, "🧹 Rejected (bad prefix): \"$cleaned\"")
             return null
         }
-
         Log.d(TAG, "🧹 Accepted: \"$cleaned\"")
         return AutoTitleGenerator.truncate(cleaned)
     }
 
-    // ──────────────────── RATE LIMITING ────────────────────
-
-    private fun canMakeCall(): Boolean {
-        val now = System.currentTimeMillis()
-        callTimestamps.removeAll { now - it > 60_000 }
-        return callTimestamps.size < MAX_CALLS_PER_MINUTE
-    }
-
-    private fun recordCall() {
-        callTimestamps.add(System.currentTimeMillis())
-    }
-
-    // ──────────────────── UTILS ────────────────────
+    // ────────────────────────── UTILS ────────────────────────────────────────
 
     private fun getPlainText(description: String): String {
         if (ChecklistParser.isChecklistContent(description)) {
-            val items = ChecklistParser.parseItems(description)
-            return items.filter { it.text.isNotBlank() }
+            return ChecklistParser.parseItems(description)
+                .filter { it.text.isNotBlank() }
                 .joinToString("\n") { "- ${it.text}" }
         }
-
         return if (RichTextBridge.containsHtml(description)) {
             RichTextBridge.stripHtmlToPlainText(description)
         } else {
             description
         }.trim()
     }
+}
+
+// ──────────────────────── Sealed result hierarchy ────────────────────────────
+
+private sealed class ModelResult {
+    data class Success(val title: String) : ModelResult()
+    object QuotaError                     : ModelResult()
+    object AuthError                      : ModelResult()
+    object Timeout                        : ModelResult()
+    data class OtherError(val message: String) : ModelResult()
 }

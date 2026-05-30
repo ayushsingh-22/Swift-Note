@@ -214,9 +214,13 @@ fun AISettingsScreen(navController: NavHostController) {
                         GeminiReminderParser.invalidate()
                         refreshState()
                         showAddDialog = false
-                        Toast.makeText(context, "✅ API key added & verified!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "✅ API key added!", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "❌ Invalid API key. Please check and try again.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            "❌ Invalid API key — please double-check the key and try again.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
