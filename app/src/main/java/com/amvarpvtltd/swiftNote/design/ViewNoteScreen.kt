@@ -99,7 +99,7 @@ import com.amvarpvtltd.swiftNote.utils.ShareUtils
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.categories.CategoryManager
 import com.amvarpvtltd.swiftNote.components.RichTextDisplay
-import com.amvarpvtltd.swiftNote.richtext.RichTextRenderer
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.viewmodel.ViewNoteViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -183,7 +183,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
         // Detect entities for Smart Action Chips
         // Strip HTML tags first so detectors see clean prose (e.g. <b>9876543210</b> → 9876543210)
         val rawText = "${currentNote.title} ${currentNote.description}"
-        val textToAnalyze = RichTextRenderer.stripHtmlToPlainText(rawText)
+        val textToAnalyze = RichTextBridge.stripHtmlToPlainText(rawText)
         if (textToAnalyze.isNotBlank()) {
             detectedEntities = SmartEntityDetector.analyze(
                 context = context,

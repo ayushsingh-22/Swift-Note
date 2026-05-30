@@ -1,4 +1,4 @@
-package com.amvarpvtltd.swiftNote.design
+﻿package com.amvarpvtltd.swiftNote.design
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -41,7 +41,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
@@ -109,7 +108,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -124,8 +122,10 @@ import com.amvarpvtltd.swiftNote.components.RichTextDisplay
 import com.amvarpvtltd.swiftNote.components.RichTextToolbar
 import com.amvarpvtltd.swiftNote.reminders.ReminderManager
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
-import com.amvarpvtltd.swiftNote.richtext.RichTextRenderer
-import com.amvarpvtltd.swiftNote.richtext.RichTextVisualTransformation
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
+import com.mohamedrejeb.richeditor.model.rememberRichTextState
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.UIUtils
@@ -147,8 +147,8 @@ private val HTML_TAG_REGEX = Regex("<[^>]+>")
 @Composable
 fun AddScreen(navController: NavHostController, noteId: String?) {
     var title by remember { mutableStateOf("") }
-    // Phase 2: description migrated to TextFieldValue so the toolbar can read cursor/selection.
-    var description by remember { mutableStateOf(TextFieldValue("")) }
+    // Phase 2: description migrated to RichTextState (compose-rich-editor library)
+    val richTextState = rememberRichTextState()
     var isLoading by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -175,10 +175,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     var isPreviewMode by remember { mutableStateOf(false) }
     // Formatted preview states (when clipboard HTML is pasted)
     var titleFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
-    var descriptionFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
     // Preserve original HTML (if pasted) so we can save/load formatted content
     var titleHtml by remember { mutableStateOf<String?>(null) }
-    var descriptionHtml by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val noteRepository = remember { NoteRepository(context) }
@@ -201,11 +199,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             title.trim().length >= Constants.MIN_CONTENT_LENGTH &&
                 checklistItems.any { it.text.isNotBlank() }
         } else {
-            ValidationUtils.canSaveNote(title, description.text)
+            ValidationUtils.canSaveNote(title, richTextState.annotatedString.text)
         }
     } }
     val hasContent by remember { derivedStateOf {
-        title.trim().isNotEmpty() || description.text.trim().isNotEmpty() ||
+        title.trim().isNotEmpty() || richTextState.annotatedString.text.trim().isNotEmpty() ||
             (isChecklistMode && checklistItems.any { it.text.isNotBlank() })
     } }
 
@@ -239,7 +237,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
     // Clamp lengths to the respective max to avoid incorrect thresholds for extremely large inputs
     val safeTitleLength by remember { derivedStateOf { title.length.coerceAtMost(Constants.TITLE_MAX_LENGTH) } }
-    val safeDescriptionLength by remember { derivedStateOf { description.text.length.coerceAtMost(Constants.DESCRIPTION_MAX_LENGTH) } }
+    val safeDescriptionLength by remember { derivedStateOf { richTextState.annotatedString.text.length.coerceAtMost(Constants.DESCRIPTION_MAX_LENGTH) } }
 
     val descriptionProgress by remember { derivedStateOf { UIUtils.calculateProgress(safeDescriptionLength, Constants.DESCRIPTION_MAX_LENGTH) } }
 
@@ -262,7 +260,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // BUG-015 FIX: Separate clipboard detection — only once on composition mount, not every keystroke
+    // BUG-015 FIX: Clipboard HTML detection for title only — description is handled natively by RichTextEditor
     LaunchedEffect(Unit) {
         try {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -273,20 +271,49 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
             if (!htmlText.isNullOrBlank() && !plain.isNullOrBlank()) {
                 val spanned: Spanned = fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY)
-
-                val annotated = RichTextRenderer.spannedToAnnotatedString(spanned)
                 if (plain.trim() == title.trim() && title.isNotBlank()) {
-                    titleFormatted = annotated
+                    titleFormatted = AnnotatedString(spanned.toString())
                     titleHtml = htmlText
-                }
-                if (plain.trim() == description.text.trim() && description.text.isNotBlank()) {
-                    descriptionFormatted = annotated
-                    descriptionHtml = htmlText
                 }
             }
         } catch (e: Exception) {
             Log.d("AddScreen", "Clipboard HTML detection skipped: ${e.message}")
         }
+    }
+
+    // Phase 3: Smart paste detection — auto-convert markdown to HTML when pasted
+    // Monitors text length for sudden large increases (>20 chars = likely a paste event).
+    // If pasted text contains markdown, converts to HTML for proper rich text display.
+    var previousTextLength by remember { mutableStateOf(-1) }
+    var skipNextConversion by remember { mutableStateOf(false) }
+    LaunchedEffect(richTextState.annotatedString.text) {
+        val currentText = richTextState.annotatedString.text
+        val currentLength = currentText.length
+
+        // Skip if this is the result of our own setHtml conversion
+        if (skipNextConversion) {
+            skipNextConversion = false
+            previousTextLength = currentLength
+            return@LaunchedEffect
+        }
+
+        val delta = currentLength - previousTextLength
+
+        // Detect paste: large sudden insertion (>15 chars) that isn't initial load
+        // Also handle first paste into empty note (previousTextLength == 0)
+        if (delta > 15 && previousTextLength >= 0 && !isLoading) {
+            // Only convert if the visible text contains markdown patterns
+            // (annotatedString.text is the rendered text without HTML tags)
+            if (com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(currentText)) {
+                val convertedHtml = com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(currentText)
+                if (convertedHtml != null) {
+                    skipNextConversion = true
+                    richTextState.setHtml(convertedHtml)
+                }
+            }
+        }
+
+        previousTextLength = currentLength
     }
 
     // Phase 1: Derive checklist text for Smart Reminder AI analysis
@@ -296,8 +323,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
     // BUG-015 FIX: Debounced reminder analysis — only after user stops typing (800ms)
     // BUG-006 FIX: All Toast calls wrapped in withContext(Dispatchers.Main)
-    LaunchedEffect(title, description.text, checklistTextForAI) {
-        val descriptionForAnalysis = if (isChecklistMode) checklistTextForAI else description.text
+    LaunchedEffect(title, richTextState.annotatedString.text, checklistTextForAI) {
+        val descriptionForAnalysis = if (isChecklistMode) checklistTextForAI
+            else RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
         val combinedText = "$title. $descriptionForAnalysis".trim()
 
         // Fast exit: skip all processing for very short input
@@ -310,10 +338,6 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (titleFormatted != null && titleFormatted?.text != title) {
             titleFormatted = null
             titleHtml = null
-        }
-        if (descriptionFormatted != null && descriptionFormatted?.text != description.text) {
-            descriptionFormatted = null
-            descriptionHtml = null
         }
 
         // Run minute-pattern fallback first (lightweight regex — OK after debounce)
@@ -330,7 +354,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     val detected = DetectedReminder(
                         id = java.util.UUID.randomUUID().toString(),
                         title = userTitle,
-                        description = description.text,
+                        description = RichTextBridge.stripHtmlToPlainText(richTextState.toHtml()),
                         extractedText = snippet,
                         reminderDateTime = ts,
                         confidence = 0.8f,
@@ -412,29 +436,29 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             title = titleCandidate
                             val items = ChecklistParser.parseItems(descCandidate)
                             checklistItems = if (items.isEmpty()) listOf(ChecklistItem(order = 0)) else items
-                            description = TextFieldValue("") // Keep description empty in checklist mode
+                            richTextState.setHtml("") // Keep description empty in checklist mode
                         } else {
 
                         fun looksLikeHtml(s: String) = HTML_TAG_REGEX.containsMatchIn(s)
 
                         if (looksLikeHtml(titleCandidate)) {
                             val sp = fromHtml(titleCandidate, Html.FROM_HTML_MODE_LEGACY)
-                            titleFormatted = RichTextRenderer.spannedToAnnotatedString(sp as Spanned)
+                            titleFormatted = AnnotatedString(sp.toString())
                             titleHtml = titleCandidate
                             title = sp.toString()
                         } else {
                             title = titleCandidate
                         }
 
-                        if (looksLikeHtml(descCandidate)) {
-                            val spd = fromHtml(descCandidate, Html.FROM_HTML_MODE_LEGACY)
-                            descriptionFormatted = RichTextRenderer.spannedToAnnotatedString(spd as Spanned)
-                            descriptionHtml = descCandidate
-                            // Keep raw HTML in the TextFieldValue so RichTextVisualTransformation can render it
-                            description = TextFieldValue(descCandidate)
+                        // Library handles HTML and plain text uniformly via setHtml().
+                        // Phase 3: Also detect markdown content and convert for proper rendering.
+                        val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(descCandidate) &&
+                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(descCandidate)) {
+                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(descCandidate) ?: descCandidate
                         } else {
-                            description = TextFieldValue(descCandidate)
+                            descCandidate
                         }
+                        richTextState.setHtml(htmlToLoad)
                         } // end else (non-checklist)
                     }
                 } else {
@@ -458,7 +482,16 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (noteId == null && com.amvarpvtltd.swiftNote.share.SharedNoteData.hasPendingData) {
             val (sharedTitle, sharedDescription, asChecklist) = com.amvarpvtltd.swiftNote.share.SharedNoteData.consume()
             if (sharedTitle.isNotEmpty()) title = sharedTitle
-            if (sharedDescription.isNotEmpty()) description = TextFieldValue(sharedDescription)
+            if (sharedDescription.isNotEmpty()) {
+                // Phase 3: Detect markdown in shared content and convert to HTML
+                val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(sharedDescription) &&
+                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(sharedDescription)) {
+                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(sharedDescription) ?: sharedDescription
+                } else {
+                    sharedDescription
+                }
+                richTextState.setHtml(htmlToLoad)
+            }
             if (asChecklist) {
                 isChecklistMode = true
                 checklistItems = listOf(ChecklistItem(order = 0))
@@ -483,7 +516,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 val descToSave = if (isChecklistMode) {
                     ChecklistParser.serializeItems(checklistItems)
                 } else {
-                    descriptionHtml ?: description.text
+                    richTextState.toHtml()
                 }
 
                 val result = noteRepository.saveNote(
@@ -1166,8 +1199,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             ),
                                             cursorColor = NoteTheme.Primary,
                                             focusedLabelColor = titleCountColor,
-                                            focusedTextColor = NoteTheme.OnSurface, // Use theme-aware color
-                                            unfocusedTextColor = NoteTheme.OnSurface // Use theme-aware color
+                                            focusedTextColor = NoteTheme.OnSurface,
+                                            unfocusedTextColor = NoteTheme.OnSurface
                                         ),
                                         shape = RoundedCornerShape(
                                             Constants.CORNER_RADIUS_SMALL.dp
@@ -1307,7 +1340,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 label = {
                                                     Text(
                                                         "None",
-                                                        fontSize = 12.sp
+                                                        fontSize = 12.sp,
+                                                        color = NoteTheme.OnSurface
                                                     )
                                                 }
                                             )
@@ -1330,7 +1364,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 label = {
                                                     Text(
                                                         cat.name,
-                                                        fontSize = 12.sp
+                                                        fontSize = 12.sp,
+                                                        color = NoteTheme.OnSurface
                                                     )
                                                 },
                                                 leadingIcon = {
@@ -1564,12 +1599,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             ) {
                                                 if (isChecklistMode) {
                                                     // Convert checklist → text
-                                                    description =
-                                                        TextFieldValue(
-                                                            ChecklistParser.checklistToText(
-                                                                checklistItems
-                                                            )
+                                                    richTextState.setHtml(
+                                                        ChecklistParser.checklistToText(
+                                                            checklistItems
                                                         )
+                                                    )
                                                     isChecklistMode =
                                                         false
                                                 }
@@ -1637,9 +1671,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 if (!isChecklistMode) {
                                                     // Convert text → checklist
                                                     checklistItems =
-                                                        if (description.text.isNotBlank()) {
+                                                        if (richTextState.annotatedString.text.isNotBlank()) {
                                                             ChecklistParser.textToChecklist(
-                                                                description.text
+                                                                RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
                                                             )
                                                         } else {
                                                             listOf(
@@ -2030,7 +2064,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                             Text(
                                                 text = UIUtils.formatCharacterCount(
-                                                    description.text.length,
+                                                    richTextState.annotatedString.text.length,
                                                     Constants.DESCRIPTION_MAX_LENGTH
                                                 ),
                                                 style = MaterialTheme.typography.labelMedium,
@@ -2046,7 +2080,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                         )
                                     )
 
-                                    // ── Phase 2: preview / edit toggle ───────────────────────────
+                                    // ── Phase 2: WYSIWYG editor (no preview/edit toggle needed) ───
                                     if (isPreviewMode) {
                                         androidx.compose.material3.Card(
                                             modifier = Modifier
@@ -2064,40 +2098,15 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             )
                                         ) {
                                             RichTextDisplay(
-                                                html = descriptionHtml
-                                                    ?: description.text,
+                                                html = richTextState.toHtml(),
                                                 modifier = Modifier.padding(
                                                     16.dp
                                                 )
                                             )
                                         }
                                     } else {
-                                        OutlinedTextField(
-                                            value = description,
-                                            onValueChange = {
-                                                if (it.text.length <= Constants.DESCRIPTION_MAX_LENGTH) {
-                                                    // Auto-continue lists/checkboxes on Enter
-                                                    val processed = com.amvarpvtltd.swiftNote.richtext.RichTextEditorHelpers.handleNewLine(description, it)
-                                                    description =
-                                                        processed
-                                                    // Fix: immediately clear stale HTML so save always uses latest text
-                                                    if (descriptionHtml != null) {
-                                                        descriptionHtml =
-                                                            null
-                                                        descriptionFormatted =
-                                                            null
-                                                    }
-                                                    // Auto-scroll to bottom when typing
-                                                    scope.launch {
-                                                        delay(
-                                                            100
-                                                        )
-                                                        scrollState.animateScrollTo(
-                                                            scrollState.maxValue
-                                                        )
-                                                    }
-                                                }
-                                            },
+                                        RichTextEditor(
+                                            state = richTextState,
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .heightIn(
@@ -2117,6 +2126,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                         }
                                                     }
                                                 },
+                                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                                color = NoteTheme.OnSurface
+                                            ),
                                             placeholder = {
                                                 Text(
                                                     "Write your thoughts here...\n\nExpress your ideas, capture important information, or jot down anything that comes to mind.",
@@ -2125,24 +2137,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                     )
                                                 )
                                             },
-                                            colors = OutlinedTextFieldDefaults.colors(
+                                            colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
                                                 focusedBorderColor = descCountColor,
                                                 unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
                                                     alpha = 0.3f
                                                 ),
-                                                cursorColor = NoteTheme.Secondary,
-                                                focusedLabelColor = descCountColor,
-                                                focusedTextColor = NoteTheme.OnSurface,
-                                                unfocusedTextColor = NoteTheme.OnSurface
-                                            ),
-                                            visualTransformation = RichTextVisualTransformation(
-                                                linkColor = NoteTheme.Primary
-                                            ),
-                                            keyboardOptions = KeyboardOptions(
-                                                imeAction = ImeAction.Default
-                                            ),
-                                            keyboardActions = KeyboardActions(
-                                                onDone = { /* Allow default behavior - no action needed */ }
+                                                cursorColor = NoteTheme.Secondary
                                             ),
                                             shape = RoundedCornerShape(
                                                 Constants.CORNER_RADIUS_SMALL.dp
@@ -2576,7 +2576,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
 
                         // Formatted preview (if paste contained HTML)
-                        if (titleFormatted != null || descriptionFormatted != null) {
+                        if (titleFormatted != null) {
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = NoteTheme.SurfaceVariant.copy(
@@ -2614,25 +2614,6 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             modifier = Modifier.height(
                                                 Constants.PADDING_SMALL.dp
                                             )
-                                        )
-                                    }
-                                    if (descriptionFormatted != null) {
-                                        Text(
-                                            text = "Formatted Description Preview:",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = NoteTheme.OnSurfaceVariant
-                                        )
-                                        Spacer(
-                                            modifier = Modifier.height(
-                                                4.dp
-                                            )
-                                        )
-                                        Text(
-                                            text = descriptionFormatted
-                                                ?: AnnotatedString(
-                                                    ""
-                                                ),
-                                            style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
                                 }
@@ -2677,15 +2658,19 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             shadowElevation = 6.dp,
                             tonalElevation  = 1.dp
                         ) {
-                            Column {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 androidx.compose.material3.HorizontalDivider(
                                     color = NoteTheme.Outline.copy(alpha = 0.25f),
                                     thickness = 1.dp
                                 )
                                 RichTextToolbar(
-                                    value = description,
-                                    onValueChange = { description = it },
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    state = richTextState,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
                         }

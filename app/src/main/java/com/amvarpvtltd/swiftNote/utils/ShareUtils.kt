@@ -6,10 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 
 object ShareUtils {
 
-    /**
+    /** Now,
      * Share a single note to other apps
      */
     fun shareNote(context: Context, note: dataclass) {
@@ -48,21 +49,25 @@ object ShareUtils {
     }
 
     /**
-     * Format a single note for sharing with enhanced formatting
+     * Format a single note for sharing with enhanced formatting.
+     * Converts HTML to well-structured plain text so the copied/shared
+     * content preserves paragraphs, headings, lists, links, etc.
      */
     private fun formatNoteForSharing(note: dataclass): String {
         return buildString {
-
-            // Description Section
-            if (note.description.isNotEmpty()) {
-                appendLine(note.description.trim())
-                appendLine()
-            } else {
-                appendLine("")
+            // Title — strip to flat text (titles are single-line)
+            val plainTitle = RichTextBridge.stripHtmlToPlainText(note.title)
+            if (plainTitle.isNotBlank()) {
+                appendLine(plainTitle)
                 appendLine()
             }
 
-        }
+            // Description — convert HTML to formatted plain text preserving structure
+            if (note.description.isNotEmpty()) {
+                val formattedDescription = RichTextBridge.htmlToFormattedPlainText(note.description)
+                appendLine(formattedDescription.trim())
+            }
+        }.trim()
     }
 
 }

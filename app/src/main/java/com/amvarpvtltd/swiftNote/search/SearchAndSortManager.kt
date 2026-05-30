@@ -6,7 +6,7 @@ import androidx.compose.material.icons.automirrored.outlined.Subject
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.runtime.*
 import com.amvarpvtltd.swiftNote.dataclass
-import com.amvarpvtltd.swiftNote.richtext.RichTextRenderer
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
@@ -93,7 +93,7 @@ class SearchAndSortManager(
         if (query.isBlank()) return notes
         val searchTerms = query.lowercase().split(" ").filter { it.isNotBlank() }
         return notes.filter { note ->
-            val combined = "${note.title.lowercase()} ${RichTextRenderer.stripHtmlToPlainText(note.description).lowercase()}"
+            val combined = "${note.title.lowercase()} ${RichTextBridge.stripHtmlToPlainText(note.description).lowercase()}"
             searchTerms.all { term -> combined.contains(term) }
         }.sortedByDescending { note -> calculateRelevanceScore(note, searchTerms) }
     }
@@ -101,7 +101,7 @@ class SearchAndSortManager(
     private fun calculateRelevanceScore(note: dataclass, searchTerms: List<String>): Int {
         var score = 0
         val titleLower = note.title.lowercase()
-        val descriptionLower = RichTextRenderer.stripHtmlToPlainText(note.description).lowercase()
+        val descriptionLower = RichTextBridge.stripHtmlToPlainText(note.description).lowercase()
         searchTerms.forEach { term ->
             when {
                 titleLower.startsWith(term) -> score += 10

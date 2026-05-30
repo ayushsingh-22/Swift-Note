@@ -104,6 +104,9 @@ kotlin {
 }
 
 dependencies {
+    // Force newer kotlin-metadata-jvm for Room kapt compatibility with Kotlin 2.2.10
+    kapt("org.jetbrains.kotlin:kotlin-metadata-jvm:2.2.10")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -148,6 +151,10 @@ dependencies {
 
     // Security (EncryptedSharedPreferences for API key storage)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Rich Text Editor (MohamedRejeb compose-rich-editor)
+    implementation(libs.compose.rich.editor)
+    implementation(libs.jsoup)
 
     // CameraX + ML Kit
     implementation(libs.camerax.core)

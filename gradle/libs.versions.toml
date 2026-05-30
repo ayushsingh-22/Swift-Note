@@ -36,6 +36,10 @@ crashlytics = "2.9.8"
 googleAI = "0.9.0"
 # Glance (App Widget with Compose-style API)
 glance = "1.1.1"
+# Rich Text Editor (MohamedRejeb compose-rich-editor)
+composeRichEditor = "1.0.0-rc14"
+# Jsoup for HTML stripping
+jsoup = "1.18.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -98,6 +102,12 @@ androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "j
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 androidx-pdf-viewer = { group = "androidx.pdf", name = "pdf-viewer", version.ref = "pdfViewer" }
+
+# Rich Text Editor
+compose-rich-editor = { group = "com.mohamedrejeb.richeditor", name = "richeditor-compose", version.ref = "composeRichEditor" }
+
+# Jsoup (HTML parsing/stripping)
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

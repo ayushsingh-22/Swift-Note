@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.amvarpvtltd.swiftNote.richtext.RichTextSanitizer
 import com.amvarpvtltd.swiftNote.ui.theme.SelfNoteTheme
 
 /**
@@ -25,8 +26,9 @@ class ShareReceiverActivity : ComponentActivity() {
 
         val sharedText = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: ""
         val sharedSubject = intent?.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
+        val sharedHtml = intent?.getStringExtra(Intent.EXTRA_HTML_TEXT)
 
-        Log.d(TAG, "Received share: subject='$sharedSubject', text length=${sharedText.length}")
+        Log.d(TAG, "Received share: subject='$sharedSubject', text length=${sharedText.length}, hasHtml=${!sharedHtml.isNullOrBlank()}")
 
         // Determine smart title from shared content
         val title = when {
@@ -36,7 +38,12 @@ class ShareReceiverActivity : ComponentActivity() {
             else -> ""
         }
 
-        val description = sharedText
+        // Phase 3: Use sanitized HTML if available, otherwise fall back to plain text
+        val description = if (!sharedHtml.isNullOrBlank()) {
+            RichTextSanitizer.sanitize(sharedHtml)
+        } else {
+            sharedText
+        }
 
         setContent {
             SelfNoteTheme {
