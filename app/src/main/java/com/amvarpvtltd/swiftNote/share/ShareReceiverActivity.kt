@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.amvarpvtltd.swiftNote.richtext.RichTextSanitizer
 import com.amvarpvtltd.swiftNote.ui.theme.SelfNoteTheme
+import com.amvarpvtltd.swiftNote.utils.AutoTitleGenerator
 
 /**
  * Phase 5A: Share-to-SwiftNote
@@ -30,12 +31,11 @@ class ShareReceiverActivity : ComponentActivity() {
 
         Log.d(TAG, "Received share: subject='$sharedSubject', text length=${sharedText.length}, hasHtml=${!sharedHtml.isNullOrBlank()}")
 
-        // Determine smart title from shared content
+        // Determine smart title from shared content using centralized AutoTitleGenerator
         val title = when {
             sharedSubject.isNotBlank() -> sharedSubject
             sharedText.matches(Regex("^https?://\\S+$")) -> "Saved Link"
-            sharedText.length <= 50 -> sharedText.take(50)
-            else -> ""
+            else -> AutoTitleGenerator.generate(sharedText)
         }
 
         // Phase 3: Use sanitized HTML if available, otherwise fall back to plain text

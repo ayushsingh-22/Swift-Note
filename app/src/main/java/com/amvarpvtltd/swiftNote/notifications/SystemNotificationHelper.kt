@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -15,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 
 /**
  * Helper class for managing system-level Android notifications
@@ -42,7 +45,7 @@ class SystemNotificationHelper(private val context: Context) {
             description = CHANNEL_DESCRIPTION
             enableVibration(true)
             enableLights(true)
-            lightColor = ContextCompat.getColor(context, R.color.purple_500)
+            lightColor = ContextCompat.getColor(context, R.color.primary)
             setShowBadge(true)
         }
 
@@ -64,6 +67,10 @@ class SystemNotificationHelper(private val context: Context) {
             return
         }
 
+        // Strip HTML tags and decode HTML entities so the notification body
+        // shows clean readable text (e.g. no "<p>…&period;</p>")
+        val rawDescription = RichTextBridge.stripHtmlToPlainText(noteDescription).trim()
+
         // Format checklist content into readable text for notification display
         val displayDescription = if (ChecklistParser.isChecklistContent(noteDescription)) {
             val (checked, total) = ChecklistParser.progress(noteDescription)
@@ -75,14 +82,12 @@ class SystemNotificationHelper(private val context: Context) {
                 "Checklist ($checked/$total done): " + unchecked.joinToString(", ") { it.text }
             }
         } else {
-            noteDescription
+            rawDescription.ifEmpty { "Tap to open your note" }
         }
 
         // Create an intent that will open the specific note when clicked
         val intent = Intent(context, MainActivity::class.java).apply {
-            // Pass noteId to MainActivity to trigger navigation to the specific note
             putExtra("noteId", noteId)
-            // Clear any previous activities and start a fresh instance
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
 
@@ -122,36 +127,54 @@ class SystemNotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Determine icon based on reminder type
-        val icon = if (isSmartReminder) "🤖 " else "📝 "
-
-        // Format title with emoji based on content
+        // Clean, context-aware title with a single bell emoji
         val displayTitle = when {
             noteTitle.contains("appointment", ignoreCase = true) -> "📅 $noteTitle"
-            noteTitle.contains("meeting", ignoreCase = true) -> "🤝 $noteTitle"
-            noteTitle.contains("call", ignoreCase = true) -> "📞 $noteTitle"
-            noteTitle.contains("deadline", ignoreCase = true) -> "⏰ $noteTitle"
-            noteTitle.contains("reminder", ignoreCase = true) -> "🔔 $noteTitle"
-            else -> "$icon$noteTitle"
+            noteTitle.contains("meeting", ignoreCase = true)     -> "🤝 $noteTitle"
+            noteTitle.contains("call", ignoreCase = true)        -> "📞 $noteTitle"
+            noteTitle.contains("deadline", ignoreCase = true)    -> "⏰ $noteTitle"
+            isSmartReminder -> "🤖 $noteTitle"
+            else -> "🔔 $noteTitle"
         }
 
-        // Create a rich notification with large text style
+        // App logo as large icon for rich notification appearance
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            // Small monochrome icon (shown in status bar)
             .setSmallIcon(R.drawable.logo2)
+            // Round app logo as the large icon in the notification drawer.
+            // Uses getAppIconBitmap() which correctly handles adaptive icon XML on API 26+.
+            .setLargeIcon(getAppIconBitmap())
             .setContentTitle(displayTitle)
-            .setContentText(displayDescription.ifEmpty { "Tap to view your note" })
-            .setStyle(NotificationCompat.BigTextStyle()
-                .bigText(displayDescription.ifEmpty { "Tap to view your note" })
-                .setBigContentTitle(displayTitle)
-                .setSummaryText("SwiftNote Reminder"))
+            .setContentText(displayDescription)
+            // BigTextStyle expands the notification to show the full note preview
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(displayDescription)
+                    .setBigContentTitle(displayTitle)
+                    .setSummaryText(if (isSmartReminder) "SwiftNote · Smart Reminder" else "SwiftNote · Reminder")
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setColor(ContextCompat.getColor(context, R.color.purple_500))
-            .setColorized(true)
+            // Brand teal color tints the small icon and accent strip
+            .setColor(ContextCompat.getColor(context, R.color.primary))
+            .setColorized(false)          // let system handle background; colorized can look busy
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Done", markDonePendingIntent)
-            .addAction(android.R.drawable.ic_popup_reminder, "Snooze 10 min", snoozePendingIntent)
+            // Named action buttons (system icons are monochrome; labels are what users see)
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "✓  Done",
+                    markDonePendingIntent
+                ).build()
+            )
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_popup_reminder,
+                    "⏱  Snooze 10 min",
+                    snoozePendingIntent
+                ).build()
+            )
             .setOngoing(false)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
@@ -162,13 +185,6 @@ class SystemNotificationHelper(private val context: Context) {
             NotificationManagerCompat.from(context).notify(notificationId, notification)
         } catch (e: SecurityException) {
             android.util.Log.e("SystemNotificationHelper", "Permission denied for notifications", e)
-            android.widget.Toast.makeText(
-                context,
-                "Notification permission required for reminders",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-
-            // Show in-app notification using our new NotificationComponent
             com.amvarpvtltd.swiftNote.components.NotificationHelper.showError(
                 title = "Permission Required",
                 message = "Notification permission required for reminders"
@@ -179,6 +195,35 @@ class SystemNotificationHelper(private val context: Context) {
     fun cancelNotification(reminderId: String) {
         val notificationId = NOTIFICATION_ID_BASE + reminderId.hashCode()
         NotificationManagerCompat.from(context).cancel(notificationId)
+    }
+
+    /**
+     * Renders the app launcher icon to a Bitmap suitable for [NotificationCompat.Builder.setLargeIcon].
+     *
+     * Problem: On Android 8+ (API 26+) R.mipmap.ic_launcher_round is an AdaptiveIconDrawable (XML),
+     * not a raw PNG, so BitmapFactory.decodeResource() returns null on those devices.
+     * This helper uses ContextCompat.getDrawable() + Canvas to rasterize ANY drawable type.
+     * Falls back to R.drawable.logo2 (plain PNG) if the launcher icon can't be decoded.
+     */
+    private fun getAppIconBitmap(): Bitmap? {
+        return try {
+            val size = 192
+            val drawable = ContextCompat.getDrawable(context, R.mipmap.ic_launcher_round)
+                ?: ContextCompat.getDrawable(context, R.drawable.logo2)
+                ?: return null
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bitmap
+        } catch (e: Exception) {
+            android.util.Log.w("SystemNotificationHelper", "Failed to render app icon, using fallback", e)
+            try {
+                android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo2)
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     private fun hasNotificationPermission(): Boolean {

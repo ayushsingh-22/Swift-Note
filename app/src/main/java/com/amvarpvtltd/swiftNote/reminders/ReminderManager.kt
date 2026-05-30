@@ -9,11 +9,14 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -21,6 +24,7 @@ import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +37,31 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+
+/**
+ * Renders the app launcher icon to a Bitmap for use as a notification large icon.
+ * On Android 8+ the launcher icon is an AdaptiveIconDrawable (XML), so BitmapFactory.decodeResource()
+ * returns null. This function uses Canvas rendering to correctly rasterize any drawable type.
+ */
+private fun renderAppIconBitmap(context: Context): Bitmap? {
+    return try {
+        val size = 192
+        val drawable = androidx.core.content
+            .ContextCompat.getDrawable(context,
+                R.drawable.logo2)
+            ?: androidx.core.content.ContextCompat.getDrawable(context, R.drawable.logo2)
+            ?: return null
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(canvas)
+        bitmap
+    } catch (e: Exception) {
+        Log.w("ReminderManager", "Failed to render app icon bitmap, using fallback", e)
+        try { android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo2) }
+        catch (e2: Exception) { null }
+    }
+}
 
 /**
  * Manages reminders with persistent alarms that survive device reboots
@@ -104,18 +133,31 @@ class ReminderManager private constructor(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // Save reminder to database first (always persisted regardless of alarm success)
+            // Use originalNoteTitle as the noteTitle so the Today screen shows the note's
+            // own title instead of the AI-generated label (e.g. "🤝 Meeting Reminder").
+            val entityTitle = reminder.originalNoteTitle.ifBlank { reminder.title }
+
+            // Propagate recurrence info detected by SmartReminderAI / Gemini
+            val recurrenceType = reminder.detectedRecurrence?.type ?: RecurrenceType.NONE
+            val recurrenceInterval = reminder.detectedRecurrence?.interval ?: 1
+            val recurrenceDaysOfWeek = reminder.detectedRecurrence?.daysOfWeek
+
             val reminderEntity = ReminderEntity(
                 id = reminder.id,
                 noteId = noteId,
-                noteTitle = reminder.title,
+                noteTitle = entityTitle,
                 noteDescription = reminder.description,
                 reminderTime = reminder.reminderDateTime,
                 isActive = true,
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                recurrenceType = recurrenceType,
+                recurrenceInterval = recurrenceInterval,
+                recurrenceDaysOfWeek = recurrenceDaysOfWeek,
+                parentReminderId = if (recurrenceType != RecurrenceType.NONE) reminder.id else null
             )
 
             reminderDao.insertReminder(reminderEntity)
-            Log.d(TAG, "💾 Reminder saved to database: ${reminder.title}")
+            Log.d(TAG, "💾 Reminder saved to database: $entityTitle")
 
             // Schedule the alarm
             val intent = Intent(context, ReminderReceiver::class.java).apply {
@@ -383,6 +425,9 @@ class ReminderManager private constructor(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // Strip HTML tags and entities so the notification body shows clean readable text
+            val rawDescription = RichTextBridge.stripHtmlToPlainText(description).trim()
+
             // Format checklist content for readable notification display
             val displayDescription = if (ChecklistParser.isChecklistContent(description)) {
                 val (checked, total) = ChecklistParser.progress(description)
@@ -394,14 +439,26 @@ class ReminderManager private constructor(private val context: Context) {
                     "Checklist ($checked/$total done): " + unchecked.joinToString(", ") { it.text }
                 }
             } else {
-                description
+                rawDescription.ifEmpty { "Tap to open your note" }
             }
 
             val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
-                .setSmallIcon( R.drawable.logo2)
+                // Monochrome small icon for the status bar
+                .setSmallIcon(R.drawable.logo2)
+                // App launcher icon as large icon — rendered via Canvas to handle adaptive icons on API 26+
+                .setLargeIcon(renderAppIconBitmap(context))
                 .setContentTitle("🔔 $title")
                 .setContentText(displayDescription)
+                // Expand to show full description when notification is expanded
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(displayDescription)
+                        .setBigContentTitle("🔔 $title")
+                        .setSummaryText("SwiftNote · Reminder")
+                )
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                // Brand teal accent
+                .setColor(ContextCompat.getColor(context, R.color.primary))
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)

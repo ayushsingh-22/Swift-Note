@@ -1,9 +1,7 @@
 package com.amvarpvtltd.swiftNote.components
 
-import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import android.os.Build
 import android.view.ContextThemeWrapper
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -74,6 +72,7 @@ import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.reminders.RecurrenceOption
 import com.amvarpvtltd.swiftNote.reminders.ReminderPreset
 import com.amvarpvtltd.swiftNote.reminders.ReminderRequest
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.utils.Constants
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -332,17 +331,17 @@ fun ReminderBottomSheet(
                                     val preview = ChecklistParser.getPreviewText(noteDescription)
                                     "☑ $checked/$total done\n$preview"
                                 } else {
-                                    noteDescription
+                                    // Strip HTML tags so formatted notes display as readable text
+                                    RichTextBridge.stripHtmlToPlainText(noteDescription)
                                 }
-                                Text(
-                                    text = displayDescription.take(
-                                        150
-                                    ) + if (displayDescription.length > 150) "..." else "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NoteTheme.OnSurfaceVariant,
-                                    maxLines = 4,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                 Text(
+                                     text = displayDescription.take(100)
+                                         + if (displayDescription.length > 100) "…" else "",
+                                     style = MaterialTheme.typography.bodySmall,
+                                     color = NoteTheme.OnSurfaceVariant,
+                                     maxLines = 2,
+                                     overflow = TextOverflow.Ellipsis
+                                 )
                             }
                         }
                     }
@@ -468,14 +467,14 @@ fun ReminderBottomSheet(
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = if (isCustomSelected) NoteTheme.Secondary.copy(
                         alpha = 0.15f
-                    ) else NoteTheme.Surface
+                    ) else NoteTheme.Surface,
+                    // Explicit dark content colour so icon + text are readable in light mode
+                    contentColor = if (isCustomSelected) NoteTheme.Secondary else NoteTheme.OnSurface
                 ),
                 border = BorderStroke(
                     if (isCustomSelected) 2.dp else 1.dp,
                     if (isCustomSelected) NoteTheme.Secondary
-                    else NoteTheme.OnSurfaceVariant.copy(
-                        alpha = 0.3f
-                    )
+                    else NoteTheme.Outline
                 ),
                 shape = RoundedCornerShape(
                     Constants.CORNER_RADIUS_LARGE.dp
@@ -672,16 +671,20 @@ fun ReminderBottomSheet(
 
             Button(
                 onClick = {
-                    // Check exact alarm permission for custom/exact times
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-                        if (!alarmManager.canScheduleExactAlarms()) {
-                            NotificationHelper.showError(
-                                title = "Permission Required",
-                                message = "Please grant \"Alarms & Reminders\" permission in Settings to set exact-time reminders"
-                            )
-                            return@Button
+                    // Guard: check notification + exact-alarm permissions before scheduling
+                    val missingPerm = checkReminderPermissions(context)
+                    if (missingPerm != null) {
+                        val message = when (missingPerm) {
+                            PermissionType.NOTIFICATION ->
+                                "Enable notifications in Settings to receive reminder alerts"
+                            PermissionType.EXACT_ALARM ->
+                                "Grant \"Alarms & Reminders\" permission in Settings to set exact-time reminders"
                         }
+                        NotificationHelper.showWarning(
+                            title = "Permission Required",
+                            message = message
+                        )
+                        return@Button
                     }
 
                     // Get the reminder time either from preset or custom date/time
@@ -971,8 +974,8 @@ private fun PresetButton(
                     .background(
                         if (isSelected) NoteTheme.Primary.copy(
                             alpha = 0.2f
-                        ) else NoteTheme.OnSurfaceVariant.copy(
-                            alpha = 0.1f
+                        ) else NoteTheme.OnSurface.copy(
+                            alpha = 0.08f
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -980,7 +983,8 @@ private fun PresetButton(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                    // Use OnSurface (dark) instead of OnSurfaceVariant for better readability in light mode
+                    tint = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurface,
                     modifier = Modifier.size(
                         if (isSelected) 18.dp else 16.dp
                     )
@@ -989,7 +993,7 @@ private fun PresetButton(
             Text(
                 text = preset.label,
                 style = MaterialTheme.typography.bodySmall,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                 color = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
      * Phase 5: Represents an action triggered by share or widget.
      */
     sealed class QuickAction {
-        data class QuickSave(val title: String, val description: String) : QuickAction()
+        data class QuickSave(val title: String, val description: String, val category: String = "") : QuickAction()
         data class OpenEditor(val title: String, val description: String) : QuickAction()
         object CreateNote : QuickAction()
         object CreateChecklist : QuickAction()
@@ -90,8 +90,9 @@ class MainActivity : ComponentActivity() {
             "com.amvarpvtltd.swiftNote.ACTION_QUICK_SAVE" -> {
                 val title = intent.getStringExtra("quick_title") ?: ""
                 val description = intent.getStringExtra("quick_description") ?: ""
+                val category = intent.getStringExtra("quick_category") ?: ""
                 Log.d(TAG, "📥 Quick save from share: title='$title'")
-                pendingAction.value = QuickAction.QuickSave(title, description)
+                pendingAction.value = QuickAction.QuickSave(title, description, category)
             }
             "com.amvarpvtltd.swiftNote.ACTION_OPEN_EDITOR" -> {
                 val title = intent.getStringExtra("shared_title") ?: ""

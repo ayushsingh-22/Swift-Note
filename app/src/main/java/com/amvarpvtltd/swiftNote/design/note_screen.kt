@@ -39,6 +39,8 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
+
+import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -78,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.components.AnimatedFloatingActionButton
+import com.amvarpvtltd.swiftNote.components.FloatingToolbar
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.LoadingCard
@@ -515,38 +518,11 @@ fun NotesScreen(navController: NavHostController) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left: Archive + Pinned quick stats
+                        // Left: Pinned count + search results
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Archive button with badge
-                            FilledTonalButton(
-                                onClick = {
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    navController.navigate("archive")
-                                },
-                                modifier = Modifier.height(36.dp),
-                                shape = RoundedCornerShape(NoteTheme.Radius.xl.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = NoteTheme.SecondaryContainer,
-                                    contentColor = NoteTheme.OnSecondaryContainer
-                                ),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Archive,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "Archive",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-
                             // Pinned count indicator (only show when pinned notes exist)
                             AnimatedVisibility(
                                 visible = pinnedCount > 0,
@@ -689,13 +665,28 @@ fun NotesScreen(navController: NavHostController) {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             },
-            floatingActionButton = {
-                AnimatedFloatingActionButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("addscreen")
-                    }
-                )
+            bottomBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 35.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    FloatingToolbar(
+                        onNewNote = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("addscreen")
+                        },
+                        onArchive = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("archive")
+                        },
+                        onToday = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            navController.navigate("today")
+                        }
+                    )
+                }
             }
         ) { paddingValues ->
             // ─── Pull to Refresh Wrapper ─────────────────────────────────
