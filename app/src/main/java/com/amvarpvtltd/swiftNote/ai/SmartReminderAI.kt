@@ -8,6 +8,7 @@ import com.google.mlkit.nl.entityextraction.EntityAnnotation
 import com.google.mlkit.nl.entityextraction.EntityExtraction
 import com.google.mlkit.nl.entityextraction.EntityExtractor
 import com.google.mlkit.nl.entityextraction.EntityExtractorOptions
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -80,6 +81,38 @@ class SmartReminderAI(private val context: Context) {
         text: String,
         noteTitle: String = "Untitled"
     ): Result<List<DetectedReminder>> = withContext(Dispatchers.IO) {
+        // ───────────────────────────────────────────────────────────────
+        // LLM-first path (multilingual).
+        // When the user has configured an API key, bypass the English/Hinglish-only
+        // ReminderIntentAnalyzer keyword gate and send the raw text directly to the
+        // LLM. The LLM can natively understand any language it supports (Spanish,
+        // French, German, Japanese, Arabic, Chinese, Portuguese, Russian, Bengali,
+        // Tamil, Marathi, Gujarati, Punjabi, etc.) and will respond with
+        // hasReminder=false when no intent is present, so this is safe.
+        // ───────────────────────────────────────────────────────────────
+        val geminiAvailable = try {
+            GeminiReminderParser.getInstance(context).isAvailable()
+        } catch (_: Exception) { false }
+
+        if (geminiAvailable) {
+            // Defensive HTML strip in case caller passed rich-text content.
+            val plain = try { RichTextBridge.stripHtmlToPlainText(text) } catch (_: Exception) { text }
+            val llmInput = plain.trim().ifBlank { text.trim() }
+
+            if (llmInput.isNotBlank()) {
+                Log.d(TAG, "🌍 AI available — routing text directly to LLM (multilingual mode)")
+                val geminiResults = tryGeminiParsing(llmInput, noteTitle)
+                if (geminiResults.isNotEmpty()) {
+                    Log.d(TAG, "AI returned ${geminiResults.size} reminder(s) - using AI response")
+                    return@withContext Result.success(geminiResults)
+                }
+                Log.d(TAG, "AI returned no results - falling back to on-device methods")
+            }
+        }
+
+        // ───────────────────────────────────────────────────────────────
+        // On-device fallback (ML Kit + regex) — keyword-gated, English/Hinglish only.
+        // ───────────────────────────────────────────────────────────────
         val analysisText = ReminderIntentAnalyzer.buildAnalysisText(
             noteBody = text,
             noteTitle = noteTitle
@@ -92,14 +125,6 @@ class SmartReminderAI(private val context: Context) {
 
         Log.d(TAG, "Analyzing reminder-focused text: ${analysisText.take(100)}...")
 
-        if (hasReminderKeywords(analysisText)) {
-            val geminiResults = tryGeminiParsing(analysisText, noteTitle)
-            if (geminiResults.isNotEmpty()) {
-                Log.d(TAG, "AI returned ${geminiResults.size} reminder(s) - using AI response")
-                return@withContext Result.success(geminiResults)
-            }
-            Log.d(TAG, "AI returned no results or is unavailable - falling back to on-device methods")
-        }
 
         if (!isInitialized) {
             Log.w(TAG, "Entity Extractor not initialized, attempting to initialize...")
@@ -192,6 +217,7 @@ class SmartReminderAI(private val context: Context) {
      *
      * @return Result with list of detected reminders, or failure if AI is unavailable
      */
+    @Suppress("unused") // Public API for future "Analyze with AI" UI action
     suspend fun analyzeWithGemini(
         text: String,
         noteTitle: String = "Untitled"
@@ -434,7 +460,8 @@ class SmartReminderAI(private val context: Context) {
                 }
 
                 // Try extracting hour from "N baje/bje" pattern
-                var hour = 9; var minute = 0
+                var hour = 9
+                val minute = 0
                 if (!hourStr.isNullOrBlank()) {
                     val h = hourStr.toIntOrNull()
                     if (h != null && h in 1..12) {
@@ -471,7 +498,7 @@ class SmartReminderAI(private val context: Context) {
             // Pattern: N baje/bje/bjey (standalone Hinglish o'clock without day context)
             // Handles: "5 baje", "5 bje subah", "8 baje shaam"
             val bajePattern = Regex(
-                "\\b(\\d{1,2})\\s*(?:baje|bje|bjey|bajke)\\s*(?:(subah|subh|morning|shaam|evening|raat|night|dopahar|afternoon))?",
+                "\\b(\\d{1,2})\\s*(?:baje|bje|bjey|bajke)\\s*((?:subah|subh|morning|shaam|evening|raat|night|dopahar|afternoon))?",
                 RegexOption.IGNORE_CASE
             )
             bajePattern.findAll(text).forEach { m ->
@@ -676,7 +703,7 @@ class SmartReminderAI(private val context: Context) {
         val context = text.substring(contextStart, contextEnd)
 
         val dateCuePattern = Regex(
-            "\\b(?:on|by|due|before|after|until|till|from|starting|schedule(?:d)?|appointment|meeting|deadline|birthday|anniversary|flight|exam|doctor|dentist|visit|renew|renewal|submit|pay|bill)\\b",
+            "\\b(?:on|by|due|before|after|until|till|from|starting|scheduled?|appointment|meeting|deadline|birthday|anniversary|flight|exam|doctor|dentist|visit|renew|renewal|submit|pay|bill)\\b",
             RegexOption.IGNORE_CASE
         )
 
