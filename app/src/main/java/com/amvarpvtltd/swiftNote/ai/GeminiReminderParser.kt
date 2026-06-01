@@ -1,15 +1,8 @@
 package com.amvarpvtltd.swiftNote.ai
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import com.amvarpvtltd.swiftNote.security.GeminiKeyManager
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.GenerationConfig
-import com.google.ai.client.generativeai.type.ResponseStoppedException
-import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -19,12 +12,10 @@ import java.util.Locale
 import java.util.UUID
 
 /**
- * Gemini-powered intelligent reminder parser using the FREE Gemini Developer API.
+ * LLM-powered intelligent reminder parser.
  *
- * Gemini is ONLY available when the USER provides their own API key in Settings.
- * No developer key is bundled — zero cost for the app publisher.
- *
- * Get a free key: https://aistudio.google.com/apikey
+ * Routes through [LlmService] to support both Gemini and Groq transparently.
+ * Only available when the USER provides their own API key in Settings.
  *
  * Supports multiple user-provided keys with automatic rotation on rate limits.
  */
@@ -42,86 +33,24 @@ class GeminiReminderParser private constructor(private val context: Context) {
             }
         }
 
-        /** Same ordered list as AITitleGenerator — shared free-tier model pool. */
-        private val FREE_MODELS = listOf(
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",
-            "gemini-2.5-pro",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b",
-            "gemini-1.5-pro",
-        )
-
         // Rate limiting: max 10 reminder calls per minute (conservative free-tier)
         private const val MAX_CALLS_PER_MINUTE = 10
         private val callTimestamps = mutableListOf<Long>()
 
-        private const val PREFS_NAME          = "gemini_reminder_parser_prefs"
-        private const val KEY_LAST_GOOD_MODEL = "last_working_model"
-
         /**
-         * Call this when user updates/adds/removes API keys to force model re-creation.
+         * Call this when user updates/adds/removes API keys to force re-creation.
          */
         fun invalidate() {
-            INSTANCE?.modelCache?.clear()
-            INSTANCE?.currentApiKey = null
+            LlmService.invalidate()
         }
     }
 
-    private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-
-    private var currentApiKey: String? = null
-    private val modelCache = mutableMapOf<String, GenerativeModel>()
+    private val llmService by lazy { LlmService.getInstance(context) }
 
     /**
-     * Get or create a GenerativeModel for the given model name.
-     */
-    private fun getModel(modelName: String): GenerativeModel? {
-        val userKey = GeminiKeyManager.getActiveApiKey(context)
-        if (userKey.isBlank()) return null
-
-        if (userKey != currentApiKey) {
-            currentApiKey = userKey
-            modelCache.clear()
-        }
-
-        return modelCache.getOrPut(modelName) {
-            GenerativeModel(
-                modelName = modelName,
-                apiKey = userKey,
-                generationConfig = GenerationConfig.Builder().apply {
-                    temperature = 0.1f
-                    maxOutputTokens = 1024
-                    topP = 0.8f
-                }.build()
-            )
-        }
-    }
-
-    /**
-     * Ordered model list: last-known-good model first, then remaining models.
-     */
-    private fun orderedModels(): List<String> {
-        val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)?.takeIf { it in FREE_MODELS }
-        return if (lastGood != null) listOf(lastGood) + FREE_MODELS.filter { it != lastGood }
-               else FREE_MODELS
-    }
-
-    /**
-     * Check if Gemini is available (user has provided API key and enabled it).
+     * Check if AI is available (user has provided API key and enabled it).
      */
     fun isAvailable(): Boolean = GeminiKeyManager.isEnabled(context)
-
-    /**
-     * Show a toast message on the main thread (safe to call from IO coroutine).
-     */
-    private fun showToast(message: String) {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-        }
-    }
 
     /**
      * Check if we're within rate limits.
@@ -137,7 +66,7 @@ class GeminiReminderParser private constructor(private val context: Context) {
     }
 
     /**
-     * Parse natural language text using Gemini to extract reminder information.
+     * Parse natural language text using AI to extract reminder information.
      * Returns structured ParsedReminderIntent with all detected properties.
      *
      * @param text The user's note text (can be English, Hindi, Hinglish, or mixed)
@@ -151,18 +80,17 @@ class GeminiReminderParser private constructor(private val context: Context) {
         if (text.isBlank()) return@withContext null
 
         if (!isAvailable()) {
-            Log.d(TAG, "⚠️ Gemini not available (user hasn't added API key in Settings)")
+            Log.d(TAG, "⚠️ AI not available (user hasn't added API key in Settings)")
             return@withContext null
         }
 
         if (!canMakeCall()) {
-            Log.w(TAG, "⚠️ Rate limit reached, skipping Gemini call")
-            showToast("AI rate limit reached. Please wait a moment before trying again.")
+            Log.w(TAG, "⚠️ Rate limit reached, skipping AI call")
             return@withContext null
         }
 
         val truncatedText = if (text.length > 800) {
-            Log.d(TAG, "✂️ Truncating input from ${text.length} to 800 chars to avoid MAX_TOKENS")
+            Log.d(TAG, "✂️ Truncating input from ${text.length} to 800 chars")
             text.take(800) + "…"
         } else text
 
@@ -170,116 +98,36 @@ class GeminiReminderParser private constructor(private val context: Context) {
             .format(Calendar.getInstance().time)
         val prompt = buildPrompt(truncatedText, noteTitle, currentTime)
 
-        for (modelName in orderedModels()) {
-            try {
-                val model = getModel(modelName) ?: return@withContext null
+        Log.d(TAG, "🤖 Sending to LLM for reminder extraction…")
+        recordCall()
+        GeminiKeyManager.recordUsage(context)
 
-                Log.d(TAG, "🤖 Trying $modelName for reminder extraction…")
-                recordCall()
-                GeminiKeyManager.recordUsage(context)
+        val responseText = llmService.generateText(
+            prompt = prompt,
+            systemPrompt = "You are a reminder extraction AI for a note-taking app. Respond ONLY with valid JSON.",
+            temperature = 0.1f,
+            maxTokens = 1024
+        )
 
-                val response = try {
-                    model.generateContent(content { text(prompt) })
-                } catch (e: com.google.ai.client.generativeai.type.ResponseStoppedException) {
-                    Log.w(TAG, "⚠️ $modelName hit MAX_TOKENS — attempting to parse partial response")
-                    e.response
-                }
-
-                val responseText = response.text?.trim()
-                if (responseText.isNullOrBlank()) {
-                    Log.w(TAG, "⚠️ $modelName returned empty response, trying next model")
-                    continue
-                }
-
-                Log.d(TAG, "🤖 $modelName response received (${responseText.length} chars)")
-
-                // Save as last-known-good model
-                prefs.edit().putString(KEY_LAST_GOOD_MODEL, modelName).apply()
-                return@withContext parseGeminiResponse(responseText)
-
-            } catch (e: Exception) {
-                val msg = e.message?.lowercase() ?: ""
-                when {
-                    msg.contains("resource_exhausted") || msg.contains("429") ||
-                    msg.contains("quota") || msg.contains("rate limit") -> {
-                        Log.w(TAG, "⏳ $modelName: quota exceeded → trying next model")
-                        continue
-                    }
-                    msg.contains("invalid api key") || msg.contains("permission_denied") ||
-                    msg.contains("unauthenticated") -> {
-                        Log.e(TAG, "🔐 $modelName: auth error — aborting")
-                        return@withContext null
-                    }
-                    else -> {
-                        Log.e(TAG, "❌ $modelName: ${e.message} → trying next model")
-                        continue
-                    }
-                }
-            }
+        if (responseText.isNullOrBlank()) {
+            Log.w(TAG, "⚠️ LLM returned empty response")
+            return@withContext null
         }
 
-        Log.e(TAG, "🚫 All models exhausted for reminder parsing")
-        showToast("Gemini AI unavailable. Try again later or add another API key in AI Settings.")
-        return@withContext null
+        Log.d(TAG, "🤖 Response received (${responseText.length} chars)")
+        return@withContext parseResponse(responseText)
     }
 
     /**
-     * Validate an API key by making a minimal test call, trying each free model in order.
-     * Returns true if ANY model responds successfully or returns a quota error
-     * (quota error = key is authenticated, just temporarily limited).
+     * Validate an API key by making a minimal test call.
+     * Delegates to [LlmService.validateKey].
      */
-    suspend fun validateApiKey(apiKey: String): Boolean = withContext(Dispatchers.IO) {
-        for (modelName in FREE_MODELS) {
-            try {
-                val testModel = GenerativeModel(
-                    modelName = modelName,
-                    apiKey = apiKey,
-                    generationConfig = GenerationConfig.Builder().apply {
-                        temperature = 0.1f
-                        maxOutputTokens = 32
-                    }.build()
-                )
-                val response = testModel.generateContent(content { text("Reply with just: OK") })
-                if (!response.text.isNullOrBlank()) {
-                    Log.i(TAG, "✅ Key valid — $modelName responded successfully")
-                    // Save as starting model for this key
-                    prefs.edit().putString(KEY_LAST_GOOD_MODEL, modelName).apply()
-                    return@withContext true
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ $modelName validation: ${e.message}")
-                val msg = e.message?.lowercase() ?: ""
-                when {
-                    // Quota error = key IS authenticated — accept the key
-                    msg.contains("resource_exhausted") || msg.contains("429") ||
-                    msg.contains("quota") || msg.contains("rate limit") -> {
-                        Log.i(TAG, "✅ Key valid (quota hit on $modelName — key accepted)")
-                        showToast("API key verified ✓  (quota limit reached — you may need to wait a moment before first use)")
-                        return@withContext true
-                    }
-                    // Auth error = truly bad key — try next model name (might be unsupported)
-                    msg.contains("invalid api key") || msg.contains("permission_denied") ||
-                    msg.contains("unauthenticated") -> {
-                        // The key itself is rejected; no point trying other model names
-                        Log.e(TAG, "🔐 Key rejected by $modelName — invalid key")
-                        return@withContext false
-                    }
-                    // Model not found / unsupported — try next model
-                    msg.contains("not found") || msg.contains("404") ||
-                    msg.contains("model") -> {
-                        Log.w(TAG, "⚠️ $modelName not available, trying next model…")
-                        continue
-                    }
-                    else -> continue
-                }
-            }
-        }
-        Log.e(TAG, "❌ Key could not be validated against any model")
-        false
+    suspend fun validateApiKey(apiKey: String, provider: LlmProvider = LlmProvider.GEMINI): KeyValidationResult {
+        return LlmService.getInstance(context).validateKey(apiKey, provider)
     }
 
     /**
-     * Build the structured prompt for Gemini.
+     * Build the structured prompt.
      */
     private fun buildPrompt(text: String, noteTitle: String, currentTime: String): String {
         return """You are a reminder extraction AI for a note-taking app. Analyze the following text and extract reminder information.
@@ -305,21 +153,26 @@ Respond ONLY with valid JSON in this exact format (no markdown, no explanation):
 
 Rules:
 - If no clear reminder intent exists, return {"hasReminder": false, "reminders": []}
+- Only create a reminder when the sentence or a nearby sentence describes an actionable future task, event, or follow-up for the user
+- Ignore technical specs, ratios, standards, versions, citations, and informational prose even if they contain time-like or date-like text (examples: "18/8", "IS 15997", "daily water use")
+- A standalone time/date like "5pm" or "05/09" is not enough unless it is connected to a task, meeting, appointment, reminder, deadline, or similar action
 - For ambiguous times without AM/PM: morning context (subah/morning) = AM, evening context (shaam/raat) = PM
 - For standalone numbers 1-6 without context, assume PM. For 7-11 without context, assume AM.
 - "kal" when said on ${currentTime.split(" ").last()} means the NEXT day
 - confidence should be 0.9+ for explicit reminders, 0.7-0.9 for implied ones
 - Keep title concise (3-6 words max)
 - ALWAYS include the full dateTime even for recurring reminders (use the NEXT occurrence)
-- type must be one of: NONE, DAILY, WEEKLY, MONTHLY, YEARLY"""
+- type must be one of: NONE, DAILY, WEEKLY, MONTHLY, YEARLY
+- CRITICAL — RELATIVE DURATION RULE: Expressions like "in X minutes", "in X hours", "in X days", "in 1 min", "5 min mein", etc. are ALWAYS computed relative to the CURRENT DATE/TIME shown above. They represent NOW + that duration. Do NOT combine them with any other day/date mentioned elsewhere in the note. Example: if current time is 2026-06-01 23:30 and the text says "Tomorrow is my meeting, remind me in 1 min", the reminder dateTime must be 2026-06-01 23:31 — NOT Jun 2 00:01. The word "tomorrow" in that example only tells you WHAT the reminder is about (the meeting), not WHEN to fire the reminder.
+- When the text contains BOTH a day word (today/tomorrow/kal/etc.) AND a duration expression (in X min/hours), always use the duration expression as the trigger time and treat the day word as event context only."""
     }
 
     /**
-     * Parse Gemini's JSON response into structured data.
+     * Parse AI JSON response into structured data.
      */
-    private fun parseGeminiResponse(responseText: String): ParsedReminderIntent? {
+    private fun parseResponse(responseText: String): ParsedReminderIntent? {
         try {
-            // Clean up response — Gemini sometimes wraps in ```json ... ```
+            // Clean up response — AI sometimes wraps in ```json ... ```
             val cleanJson = responseText
                 .removePrefix("```json")
                 .removePrefix("```")
@@ -375,7 +228,7 @@ Rules:
             } else null
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error parsing Gemini response: ${e.message}", e)
+            Log.e(TAG, "❌ Error parsing AI response: ${e.message}", e)
             return null
         }
     }
@@ -395,7 +248,7 @@ Rules:
     }
 
     /**
-     * Convert Gemini results to the standard DetectedReminder format used throughout the app.
+     * Convert AI results to the standard DetectedReminder format used throughout the app.
      */
     fun toDetectedReminders(parsed: ParsedReminderIntent, noteTitle: String): List<DetectedReminder> {
         return parsed.reminders.map { geminiReminder ->
@@ -406,7 +259,7 @@ Rules:
                 extractedText = geminiReminder.extractedPhrase,
                 reminderDateTime = geminiReminder.dateTime,
                 confidence = geminiReminder.confidence,
-                entityType = "GeminiAI",
+                entityType = "AI-${llmService.getActiveProvider().displayName}",
                 originalNoteTitle = noteTitle,
                 detectedRecurrence = geminiReminder.recurrence
             )
@@ -415,14 +268,14 @@ Rules:
 }
 
 /**
- * Structured result from Gemini parsing.
+ * Structured result from AI parsing.
  */
 data class ParsedReminderIntent(
     val reminders: List<GeminiDetectedReminder>
 )
 
 /**
- * Single reminder detected by Gemini.
+ * Single reminder detected by AI.
  */
 data class GeminiDetectedReminder(
     val title: String,

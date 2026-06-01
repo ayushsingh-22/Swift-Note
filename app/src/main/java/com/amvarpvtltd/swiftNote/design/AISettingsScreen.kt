@@ -2,7 +2,6 @@ package com.amvarpvtltd.swiftNote.design
 
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -37,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.ai.GeminiReminderParser
+import com.amvarpvtltd.swiftNote.ai.KeyValidationResult
+import com.amvarpvtltd.swiftNote.ai.LlmProvider
+import com.amvarpvtltd.swiftNote.ai.LlmService
 import com.amvarpvtltd.swiftNote.components.IconActionButton
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.security.GeminiApiKey
@@ -186,8 +188,12 @@ fun AISettingsScreen(navController: NavHostController) {
 
                         // How-to Card
                         HowToGetKeyCard(
-                            onOpenLink = {
+                            onOpenGeminiLink = {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))
+                                context.startActivity(intent)
+                            },
+                            onOpenGroqLink = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys"))
                                 context.startActivity(intent)
                             }
                         )
@@ -206,22 +212,13 @@ fun AISettingsScreen(navController: NavHostController) {
     if (showAddDialog) {
         AddApiKeyDialog(
             onDismiss = { showAddDialog = false },
-            onSave = { label, apiKey ->
+            onSave = { label, apiKey, provider ->
                 scope.launch {
-                    val isValid = GeminiReminderParser.getInstance(context).validateApiKey(apiKey)
-                    if (isValid) {
-                        GeminiKeyManager.addApiKey(context, label, apiKey)
-                        GeminiReminderParser.invalidate()
-                        refreshState()
-                        showAddDialog = false
-                        Toast.makeText(context, "✅ API key added!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "❌ Invalid API key — please double-check the key and try again.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                    GeminiKeyManager.addApiKey(context, label, apiKey, provider.name)
+                    GeminiReminderParser.invalidate()
+                    LlmService.invalidate()
+                    refreshState()
+                    showAddDialog = false
                 }
             }
         )
@@ -257,7 +254,6 @@ fun AISettingsScreen(navController: NavHostController) {
                     GeminiReminderParser.invalidate()
                     refreshState()
                     deletingKey = null
-                    Toast.makeText(context, "Key removed", Toast.LENGTH_SHORT).show()
                 }) {
                     Text("Remove", color = NoteTheme.Error)
                 }
@@ -340,14 +336,14 @@ private fun AIHeroCard(pulseScale: Float, glowAlpha: Float, isEnabled: Boolean) 
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "Gemini Smart AI",
+                        "Smart AI",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = NoteTheme.OnSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Understands Hindi, Hinglish & complex reminders with advanced AI",
+                        "Gemini & Groq — understands Hindi, Hinglish & complex reminders",
                         style = MaterialTheme.typography.bodySmall,
                         color = NoteTheme.OnSurfaceVariant,
                         lineHeight = 16.sp
@@ -426,13 +422,13 @@ private fun AIToggleCard(isEnabled: Boolean, onToggle: (Boolean) -> Unit) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Enable Gemini AI",
+                    "Enable AI",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = NoteTheme.OnSurface
                 )
                 Text(
-                    if (isEnabled) "AI analyzes complex text for reminders"
+                    if (isEnabled) "AI analyzes complex text for reminders & titles"
                     else "Using on-device detection only",
                     style = MaterialTheme.typography.bodySmall,
                     color = NoteTheme.OnSurfaceVariant
@@ -579,7 +575,7 @@ private fun EmptyKeysState(onAddKey: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Tap to add your free Gemini API key",
+                "Tap to add your free Gemini or Groq API key",
                 style = MaterialTheme.typography.bodySmall,
                 color = NoteTheme.OnSurfaceVariant
             )
@@ -666,12 +662,32 @@ private fun AnimatedApiKeyItem(
                         }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        key.maskedKey,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NoteTheme.OnSurfaceVariant,
-                        fontSize = 12.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Provider badge
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (key.llmProvider == LlmProvider.GEMINI)
+                                Color(0xFF1A73E8).copy(alpha = 0.1f)
+                            else Color(0xFFF97316).copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                key.llmProvider.displayName,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = if (key.llmProvider == LlmProvider.GEMINI)
+                                    Color(0xFF1A73E8) else Color(0xFFF97316),
+                                fontSize = 9.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            key.maskedKey,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NoteTheme.OnSurfaceVariant,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
 
                 IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
@@ -722,7 +738,7 @@ private fun AnimatedApiKeyItem(
 // ═══════════════════════════════════════════════════════════════════
 
 @Composable
-private fun HowToGetKeyCard(onOpenLink: () -> Unit) {
+private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
@@ -750,21 +766,26 @@ private fun HowToGetKeyCard(onOpenLink: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            val steps = listOf(
+            Text(
+                "Gemini (Google):",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = NoteTheme.OnSurface
+            )
+            val geminiSteps = listOf(
                 "Open Google AI Studio",
                 "Sign in with your Google account",
-                "Click \"Create API Key\"",
-                "Copy the key and paste it here"
+                "Click \"Create API Key\" → Copy & paste here"
             )
-            steps.forEachIndexed { index, step ->
+            geminiSteps.forEachIndexed { index, step ->
                 Row(
-                    modifier = Modifier.padding(vertical = 4.dp),
+                    modifier = Modifier.padding(vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(20.dp)
                             .background(NoteTheme.Primary.copy(alpha = 0.1f), CircleShape)
                     ) {
                         Text(
@@ -772,15 +793,48 @@ private fun HowToGetKeyCard(onOpenLink: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = NoteTheme.Primary,
-                            fontSize = 10.sp
+                            fontSize = 9.sp
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        step,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NoteTheme.OnSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(step, style = MaterialTheme.typography.bodySmall, color = NoteTheme.OnSurfaceVariant)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                "Groq:",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = NoteTheme.OnSurface
+            )
+            val groqSteps = listOf(
+                "Open console.groq.com",
+                "Sign up / Sign in",
+                "Go to API Keys → Create → Copy & paste here"
+            )
+            groqSteps.forEachIndexed { index, step ->
+                Row(
+                    modifier = Modifier.padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .background(Color(0xFFF97316).copy(alpha = 0.1f), CircleShape)
+                    ) {
+                        Text(
+                            "${index + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFF97316),
+                            fontSize = 9.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(step, style = MaterialTheme.typography.bodySmall, color = NoteTheme.OnSurfaceVariant)
                 }
             }
 
@@ -791,7 +845,7 @@ private fun HowToGetKeyCard(onOpenLink: () -> Unit) {
                 color = NoteTheme.Success.copy(alpha = 0.08f)
             ) {
                 Text(
-                    "✨ Completely free — 15 requests/min, 1500/day",
+                    "✨ Both are free — Gemini: 15 req/min · Groq: 30 req/min",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
@@ -801,30 +855,56 @@ private fun HowToGetKeyCard(onOpenLink: () -> Unit) {
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Surface(
-                onClick = onOpenLink,
-                shape = RoundedCornerShape(12.dp),
-                color = NoteTheme.Primary.copy(alpha = 0.1f)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    onClick = onOpenGeminiLink,
+                    shape = RoundedCornerShape(12.dp),
+                    color = NoteTheme.Primary.copy(alpha = 0.1f),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.OpenInNew, null,
-                        modifier = Modifier.size(16.dp),
-                        tint = NoteTheme.Primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Open Google AI Studio",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = NoteTheme.Primary
-                    )
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew, null,
+                            modifier = Modifier.size(14.dp),
+                            tint = NoteTheme.Primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Gemini",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NoteTheme.Primary
+                        )
+                    }
+                }
+                Surface(
+                    onClick = onOpenGroqLink,
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF97316).copy(alpha = 0.1f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew, null,
+                            modifier = Modifier.size(14.dp),
+                            tint = Color(0xFFF97316)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Groq",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFF97316)
+                        )
+                    }
                 }
             }
         }
@@ -855,8 +935,8 @@ private fun PrivacyInfoCard() {
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 "Your API key is stored encrypted on-device only. " +
-                        "Note text is sent to Gemini only when on-device detection fails. " +
-                        "No note content is ever stored by Google for training.",
+                        "Note text is sent to the AI provider only when on-device detection fails. " +
+                        "No note content is stored by providers for training.",
                 style = MaterialTheme.typography.bodySmall,
                 color = NoteTheme.OnSurfaceVariant,
                 lineHeight = 16.sp
@@ -866,33 +946,167 @@ private fun PrivacyInfoCard() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// DIALOGS
+// ADD API KEY DIALOG — with provider selection, inline errors,
+// confirmation popup, no toast, no spinner on error
 // ═══════════════════════════════════════════════════════════════════
 
 @Composable
 private fun AddApiKeyDialog(
     onDismiss: () -> Unit,
-    onSave: (label: String, apiKey: String) -> Unit
+    onSave: (label: String, apiKey: String, provider: LlmProvider) -> Unit
 ) {
     var label by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var keyVisible by remember { mutableStateOf(false) }
+    var selectedProvider by remember { mutableStateOf(LlmProvider.GEMINI) }
     var isValidating by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showConfirmation by remember { mutableStateOf(false) }
+    var providerDropdownExpanded by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Warning dialog
+    if (showConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showConfirmation = false },
+            containerColor = NoteTheme.Surface,
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = NoteTheme.Warning,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text("AI Content Warning", color = NoteTheme.OnSurface, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Once enabled, your note content will be sent to ${selectedProvider.displayName} AI for analysis — including title generation, reminder detection, and smart suggestions.\n\nNo data is stored by the provider for training. If you agree, tap Continue to validate and save your key.",
+                    color = NoteTheme.OnSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirmation = false
+                    isValidating = true
+                    errorMessage = null
+                    scope.launch {
+                        val result = LlmService.getInstance(context).validateKey(apiKey.trim(), selectedProvider)
+                        isValidating = false
+                        when (result) {
+                            is KeyValidationResult.Success -> {
+                                onSave(label, apiKey.trim(), selectedProvider)
+                            }
+                            is KeyValidationResult.Failed -> {
+                                errorMessage = result.errorMessage
+                            }
+                        }
+                    }
+                }) {
+                    Text("Continue", color = NoteTheme.Primary, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmation = false }) {
+                    Text("Cancel", color = NoteTheme.OnSurfaceVariant)
+                }
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NoteTheme.Surface,
         title = {
-            Text("Add Gemini API Key", color = NoteTheme.OnSurface, fontWeight = FontWeight.Bold)
+            Text("Add API Key", color = NoteTheme.OnSurface, fontWeight = FontWeight.Bold)
         },
         text = {
             Column {
+                // ── LLM Provider Selector ──
                 Text(
-                    "Get your free key from aistudio.google.com/apikey",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NoteTheme.Primary
+                    "LLM Provider",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NoteTheme.OnSurfaceVariant,
+                    fontWeight = FontWeight.Medium
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = selectedProvider.displayName,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = {
+                            Icon(
+                                if (providerDropdownExpanded) Icons.Default.ArrowDropUp
+                                else Icons.Default.ArrowDropDown,
+                                contentDescription = "Select provider",
+                                tint = NoteTheme.OnSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NoteTheme.OnSurface,
+                            unfocusedTextColor = NoteTheme.OnSurface,
+                            focusedBorderColor = NoteTheme.Primary,
+                            unfocusedBorderColor = NoteTheme.Outline,
+                            cursorColor = NoteTheme.Primary
+                        )
+                    )
+                    // Invisible clickable overlay to toggle dropdown
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { providerDropdownExpanded = !providerDropdownExpanded }
+                    )
+                    DropdownMenu(
+                        expanded = providerDropdownExpanded,
+                        onDismissRequest = { providerDropdownExpanded = false },
+                        modifier = Modifier.background(NoteTheme.Surface)
+                    ) {
+                        LlmProvider.entries.forEach { provider ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            provider.displayName,
+                                            color = NoteTheme.OnSurface,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            if (provider == LlmProvider.GEMINI) "Google" else "Fast & Free",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NoteTheme.OnSurfaceVariant
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.background(
+                                    if (provider == selectedProvider) NoteTheme.Primary.copy(alpha = 0.08f)
+                                    else Color.Transparent
+                                ),
+                                onClick = {
+                                    selectedProvider = provider
+                                    providerDropdownExpanded = false
+                                    errorMessage = null
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // ── Label (optional) ──
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
@@ -911,12 +1125,18 @@ private fun AddApiKeyDialog(
                         unfocusedPlaceholderColor = NoteTheme.OnSurfaceVariant
                     )
                 )
+
                 Spacer(modifier = Modifier.height(12.dp))
+
+                // ── API Key ──
                 OutlinedTextField(
                     value = apiKey,
-                    onValueChange = { apiKey = it },
+                    onValueChange = {
+                        apiKey = it
+                        errorMessage = null // Clear error on edit
+                    },
                     label = { Text("API Key", color = NoteTheme.OnSurfaceVariant) },
-                    placeholder = { Text("AIzaSy...") },
+                    placeholder = { Text(selectedProvider.keyHint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -929,46 +1149,91 @@ private fun AddApiKeyDialog(
                             )
                         }
                     },
+                    isError = errorMessage != null,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = NoteTheme.OnSurface,
                         unfocusedTextColor = NoteTheme.OnSurface,
                         focusedBorderColor = NoteTheme.Primary,
                         unfocusedBorderColor = NoteTheme.Outline,
+                        errorBorderColor = NoteTheme.Error,
                         focusedLabelColor = NoteTheme.Primary,
                         cursorColor = NoteTheme.Primary,
                         focusedPlaceholderColor = NoteTheme.OnSurfaceVariant,
                         unfocusedPlaceholderColor = NoteTheme.OnSurfaceVariant
                     )
                 )
-                if (isValidating) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = NoteTheme.Primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            "Validating with Gemini...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NoteTheme.OnSurfaceVariant
-                        )
+
+                // ── Inline Error Message ──
+                AnimatedVisibility(visible = errorMessage != null) {
+                    Column {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = NoteTheme.Error.copy(alpha = 0.08f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = NoteTheme.Error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    errorMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NoteTheme.Error,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
                     }
                 }
+
+                // ── Validating indicator (only while actively validating) ──
+                AnimatedVisibility(visible = isValidating) {
+                    Column {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = NoteTheme.Primary
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                "Validating with ${selectedProvider.displayName}...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NoteTheme.OnSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "Get your key from ${selectedProvider.keyGetUrl}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NoteTheme.Primary,
+                    fontSize = 11.sp
+                )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    isValidating = true
-                    onSave(label, apiKey)
+                    // Show confirmation before validating
+                    showConfirmation = true
                 },
                 enabled = apiKey.length >= 10 && !isValidating
             ) {
                 Text(
                     "Validate & Save",
-                    color = if (apiKey.length >= 10) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                    color = if (apiKey.length >= 10 && !isValidating) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
                     fontWeight = FontWeight.SemiBold
                 )
             }

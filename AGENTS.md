@@ -11,7 +11,8 @@ SwiftNote is an offline-first Android note-taking app (package: `com.amvarpvtltd
 - **Offline-first**: All writes go to Room first (`synced=false`), then background-sync to Firebase. See `repository/NoteRepository.kt` and `offline/OfflineNoteManager.kt`.
 - **Encryption**: Notes are encrypted/decrypted using device ID and passphrase keys. Core logic lives in `dataclass.kt` (`Note.getEncryptedTitle()`, `Note.fromEncryptedData()`).
 - **Singletons**: `SmartReminderAI`, `ReminderManager`, `SyncManager` use object/singleton patterns.
-- **Navigation**: Single-Activity architecture with Compose NavHost defined in `navbar.kt`. Routes: `onboarding`, `main`, `addscreen`, `addscreen/{noteId}`, `viewnote/{noteId}`, `syncSettings`, `offlineSyncScreen`, `aiSettings`, `archive`.
+- **Navigation**: Single-Activity architecture with Compose NavHost defined in `navbar.kt`. Routes: `onboarding`, `main`, `addscreen`, `addscreen/{noteId}`, `viewnote/{noteId}`, `syncSettings`, `offlineSyncScreen`, `aiSettings`, `archive`, `today`. All routes use slide+fade enter/exit transitions defined in `NavigationComponent`.
+- **Theme**: `AppThemeState` (object in `theme/ThemeManager.kt`) is the global `StateFlow<ThemeMode>` for reactive theming. Initialize with `AppThemeState.initialize(context)` in `MyApp`; update with `AppThemeState.setTheme(context, mode)` from any screen. `ThemeMode` values: `LIGHT`, `DARK`, `SYSTEM`.
 
 ## Key Source Paths
 
@@ -21,6 +22,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   ├── SmartReminderAI.kt          # ML Kit entity extraction + regex fallback
 │   ├── GeminiReminderParser.kt     # Gemini 2.0 Flash reminder parser (user API key, Hinglish, rate-limited)
 │   ├── SmartEntityDetector.kt      # Unified entity detector: TextClassifier + regex, LRU-cached by noteId
+│   ├── AITitleGenerator.kt         # Gemini multi-model title generator; rotates FREE_MODELS list on quota errors; rate-limited (3/min, 60/day); falls back to AutoTitleGenerator
 │   └── DetectedEntity.kt           # Sealed hierarchy: PhoneNumber, Email, Url, Address, DateTime, Amount, TrackingNumber
 ├── auth/                           # DeviceIdManager, DeviceManager, PassphraseManager
 │   └── SyncMode.kt                 # Enum: LOCAL_ONLY, CONTINUOUS, ONE_TIME_IMPORTED (persisted via PassphraseManager)
@@ -36,6 +38,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── share/                          # QuickCaptureSheet, SharedNoteData, ShareReceiverActivity
 ├── design/
 │   ├── add_Note.kt / note_screen.kt / ViewNoteScreen.kt / ArchiveScreen.kt
+│   ├── TodayScreen.kt              # Daily Review screen — today's reminders, recent notes, quick actions
 │   ├── AISettingsScreen.kt         # Gemini API key management UI
 │   ├── OnboardingScreen.kt         # First-run onboarding
 │   ├── SyncSettingsScreen.kt / OfflineSyncScreen.kt
@@ -57,7 +60,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   ├── MarkdownToHtmlConverter.kt  # Best-effort Markdown→HTML for pasted content
 │   └── RichTextSanitizer.kt        # Sanitizes clipboard/share HTML to supported tag subset (b,i,u,h1,h2,p,br,ul,ol,li,a,code,pre,input)
 ├── notifications/
-│   ├── ReminderScheduler.kt        # Dual scheduling: AlarmManager (exact) + WorkManager (backup); contains ReminderWorker
+│   ├── ReminderScheduler.kt        # AlarmManager-only scheduler (setExactAndAllowWhileIdle with inexact fallback)
 │   ├── SystemNotificationHelper.kt # Posts system notifications, cancels by reminderId
 │   └── NotificationActionReceiver.kt # BroadcastReceiver for notification action intents
 ├── reminders/
@@ -76,11 +79,11 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── permissions/                    # PermissionUtils, PermissionManager
 ├── cleanup/DataCleanupManager.kt   # Complete app data cleanup
 ├── widget/                         # QuickNoteWidget, QuickNoteWidgetReceiver, WidgetUpdateWorker (Glance)
-├── utils/                          # ValidationUtils, UIUtils, ShareUtils, QRUtils, PreferenceManager, NetworkManager, AutoSyncManager, AppContext, Constants
+├── utils/                          # ValidationUtils, UIUtils, ShareUtils, QRUtils, PreferenceManager, NetworkManager, AutoSyncManager, AppContext, Constants, AutoTitleGenerator (rule-based 8-strategy title pipeline)
 ├── ui/
 │   ├── theme/                      # Theme.kt, Colors.kt, Type.kt
 │   └── base/BaseFullScreenActivity.kt  # Edge-to-edge + immersive sticky base activity
-├── theme/ThemeManager.kt           # Theme state management
+├── theme/ThemeManager.kt           # ThemeManager (SharedPrefs r/w) + AppThemeState (global StateFlow<ThemeMode> singleton; LIGHT/DARK/SYSTEM)
 ├── test/SmartChipsTestDataSeeder.kt # Seeds test notes for Smart Action Chips dev/QA
 ├── Application.kt                  # Custom Application class
 ├── dataclass.kt                    # Note model with encryption methods
@@ -125,16 +128,18 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 1. **Adding a new screen**: Create composable in `design/`, add route in `navbar.kt` NavHost, pass dependencies manually.
 2. **Adding a Room entity**: Create Entity + DAO in `room/`, update `AppDatabase` `@Database(entities=[...])`, increment DB version, add migration in `AppDatabase.kt`.
 3. **Firebase sync**: Always encrypt before writing to Firebase, decrypt after reading. Use the Note model's built-in encryption methods.
-4. **Reminders pipeline**: `SmartReminderAI` (ML Kit regex) or `GeminiReminderParser` (Gemini 2.0 Flash, requires user API key) detects → `ReminderRepository.createReminder()` persists entity → `ReminderScheduler.scheduleReminder()` registers both an AlarmManager exact alarm AND a WorkManager `ReminderWorker` as backup → `SystemNotificationHelper` fires the system notification. For recurring reminders, `ReminderWorker` computes the next occurrence via `RecurrenceCalculator.getNextOccurrence()` and re-inserts a new `ReminderEntity`.
+4. **Reminders pipeline**: `SmartReminderAI` (ML Kit regex) or `GeminiReminderParser` (Gemini 2.0 Flash, requires user API key) detects → `ReminderRepository.createReminder()` persists entity → `ReminderScheduler.scheduleReminder()` registers an AlarmManager exact alarm (`setExactAndAllowWhileIdle`, with `setAndAllowWhileIdle` fallback when exact-alarm permission is not granted) → `ReminderReceiver` (BroadcastReceiver) fires → `SystemNotificationHelper` posts the system notification. For recurring reminders, `ReminderReceiver` computes the next occurrence via `RecurrenceCalculator.getNextOccurrence()` and re-inserts a new `ReminderEntity`. `BootReceiver` re-arms all active reminders on `ACTION_BOOT_COMPLETED`.
 5. **Adding a ViewModel**: Create in `viewmodel/`, extend `AndroidViewModel`, expose state via `StateFlow`, emit one-shot events via `SharedFlow`.
 6. **Gemini API key management**: Keys live only on-device in `EncryptedSharedPreferences` (no developer key bundled). Access via `GeminiKeyManager.getActiveApiKey(context)`. Call `GeminiReminderParser.invalidate()` after the user adds/removes keys. Respect the 15-calls/minute free-tier rate limit already enforced in `GeminiReminderParser`.
 7. **Smart Action Chips**: `SmartEntityDetector.analyze(context, text, noteId)` returns `List<DetectedEntity>`; pass to `SmartActionChipRow` composable. Invalidate the note's cache entry with `SmartEntityDetector.invalidateCache(noteId)` on every save.
+8. **Auto title generation**: Two-tier pipeline — `AITitleGenerator.getInstance(context).generate(description)` (suspend, Gemini multi-model with rotation) falls back automatically to `AutoTitleGenerator.generate(description)` (sync, 8-strategy rule-based, offline-safe). Use `AutoTitleGenerator` directly for live suggestion chips (instant, no coroutine needed). `AITitleGenerator.isAvailable()` returns false when no Gemini key is set.
+9. **Theme switching**: Set theme reactively via `AppThemeState.setTheme(context, ThemeMode.DARK/LIGHT/SYSTEM)`; observe via `AppThemeState.themeMode.collectAsState()`. Never call `ThemeManager` directly from UI — always go through `AppThemeState`.
 
 ## External Services
 
 - **Firebase**: Realtime Database (note sync), Auth (anonymous), Firestore, Crashlytics, Analytics
 - **Google AI (Gemini)**: `generativeai:0.9.0`, model `gemini-2.0-flash`. No developer key bundled — user provides their own free key via AI Settings; stored via `GeminiKeyManager` in `EncryptedSharedPreferences`. Multi-key support with usage tracking and rotation.
-- **ML Kit**: `entity-extraction:16.0.0-beta6` for NLP reminder detection
+- **ML Kit**: `entity-extraction:16.0.0-beta5` for NLP reminder detection
 - **CameraX + ML Kit Barcode**: QR code scanning for device pairing
 - **ZXing**: QR code generation
 - **Glance**: App widget framework (`QuickNoteWidget`) for home screen quick capture
@@ -143,3 +148,5 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - **AndroidX Security Crypto**: `security-crypto:1.1.0-alpha06` for `EncryptedSharedPreferences` (Gemini key storage)
 - **compose-rich-editor**: `richeditor-compose:1.0.0-rc14` (MohamedRejeb) for rich text editing/display
 - **Jsoup**: `1.18.1` for HTML parsing/stripping in `RichTextBridge` and `RichTextSanitizer`
+
+

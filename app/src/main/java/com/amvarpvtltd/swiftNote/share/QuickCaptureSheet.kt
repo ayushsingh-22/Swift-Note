@@ -162,8 +162,14 @@ fun QuickCaptureSheet(
     val state = remember { QuickCaptureState(initialTitle, initialDescription, context) }
     val colors = rememberCaptureColors()
 
-    val hasReminderKeywords = remember(state.description) {
-        SmartReminderAI.getInstance(context).hasReminderKeywords(state.description)
+    val reminderAnalysisInput = remember(state.title, state.description) {
+        listOf(state.title, state.description)
+            .filter { it.isNotBlank() }
+            .joinToString(". ")
+    }
+
+    val hasReminderKeywords = remember(reminderAnalysisInput) {
+        SmartReminderAI.getInstance(context).hasReminderKeywords(reminderAnalysisInput)
     }
 
     // Smart Analysis
@@ -182,6 +188,8 @@ fun QuickCaptureSheet(
                 if (result.isSuccess) {
                     state.detectedReminders = result.getOrDefault(emptyList())
                 }
+            } else {
+                state.detectedReminders = emptyList()
             }
             state.isAnalyzing = false
             state.hasAnalyzed = true

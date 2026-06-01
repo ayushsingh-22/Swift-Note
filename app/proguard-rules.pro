@@ -100,7 +100,6 @@
 -keep class * extends androidx.work.ListenableWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
--keep class com.amvarpvtltd.swiftNote.notifications.ReminderWorker { *; }
 
 # ===============================
 # CAMERAX & BARCODE SCANNING
@@ -175,7 +174,6 @@
 -dontwarn androidx.work.**
 # Keep our SyncWorker — WorkManager instantiates it by class name via reflection
 -keep class com.amvarpvtltd.swiftNote.utils.SyncWorker { *; }
--keep class com.amvarpvtltd.swiftNote.notifications.ReminderWorker { *; }
 
 # ===============================
 # 16KB PAGE SIZE COMPATIBILITY RULES
