@@ -1,5 +1,6 @@
 package com.amvarpvtltd.swiftNote.ai
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import com.amvarpvtltd.swiftNote.security.GeminiKeyManager
@@ -24,6 +25,7 @@ class GeminiReminderParser private constructor(private val context: Context) {
     private val TAG = "GeminiReminderParser"
 
     companion object {
+        @SuppressLint("StaticFieldLeak") // Stores applicationContext only — safe
         @Volatile
         private var INSTANCE: GeminiReminderParser? = null
 
@@ -122,6 +124,7 @@ class GeminiReminderParser private constructor(private val context: Context) {
      * Validate an API key by making a minimal test call.
      * Delegates to [LlmService.validateKey].
      */
+    @Suppress("unused") // Public API used from AISettingsScreen via direct LlmService call
     suspend fun validateApiKey(apiKey: String, provider: LlmProvider = LlmProvider.GEMINI): KeyValidationResult {
         return LlmService.getInstance(context).validateKey(apiKey, provider)
     }
@@ -279,7 +282,7 @@ Rules:
         return try {
             val format = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
             format.parse(dateTimeStr)?.time
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Log.w(TAG, "Could not parse dateTime: $dateTimeStr")
             null
         }

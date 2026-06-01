@@ -217,6 +217,7 @@ class SmartReminderAI(private val context: Context) {
      *
      * @return Result with list of detected reminders, or failure if AI is unavailable
      */
+    @Suppress("unused") // Public API for future "Analyze with AI" UI action
     suspend fun analyzeWithGemini(
         text: String,
         noteTitle: String = "Untitled"
@@ -459,7 +460,8 @@ class SmartReminderAI(private val context: Context) {
                 }
 
                 // Try extracting hour from "N baje/bje" pattern
-                var hour = 9; var minute = 0
+                var hour = 9
+                val minute = 0
                 if (!hourStr.isNullOrBlank()) {
                     val h = hourStr.toIntOrNull()
                     if (h != null && h in 1..12) {
@@ -496,7 +498,7 @@ class SmartReminderAI(private val context: Context) {
             // Pattern: N baje/bje/bjey (standalone Hinglish o'clock without day context)
             // Handles: "5 baje", "5 bje subah", "8 baje shaam"
             val bajePattern = Regex(
-                "\\b(\\d{1,2})\\s*(?:baje|bje|bjey|bajke)\\s*(?:(subah|subh|morning|shaam|evening|raat|night|dopahar|afternoon))?",
+                "\\b(\\d{1,2})\\s*(?:baje|bje|bjey|bajke)\\s*((?:subah|subh|morning|shaam|evening|raat|night|dopahar|afternoon))?",
                 RegexOption.IGNORE_CASE
             )
             bajePattern.findAll(text).forEach { m ->
@@ -701,7 +703,7 @@ class SmartReminderAI(private val context: Context) {
         val context = text.substring(contextStart, contextEnd)
 
         val dateCuePattern = Regex(
-            "\\b(?:on|by|due|before|after|until|till|from|starting|schedule(?:d)?|appointment|meeting|deadline|birthday|anniversary|flight|exam|doctor|dentist|visit|renew|renewal|submit|pay|bill)\\b",
+            "\\b(?:on|by|due|before|after|until|till|from|starting|scheduled?|appointment|meeting|deadline|birthday|anniversary|flight|exam|doctor|dentist|visit|renew|renewal|submit|pay|bill)\\b",
             RegexOption.IGNORE_CASE
         )
 
