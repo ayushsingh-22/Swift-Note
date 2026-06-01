@@ -3,6 +3,8 @@ package com.amvarpvtltd.swiftNote.offline
 import android.content.Context
 import android.util.Log
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.isBlank
+import com.amvarpvtltd.swiftNote.isDecryptFailed
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import com.amvarpvtltd.swiftNote.room.PendingDeletionEntity
@@ -56,6 +58,13 @@ class OfflineNoteManager(context: Context) {
     }
 
     suspend fun saveNoteOffline(note: dataclass, synced: Boolean = false): Result<String> {
+        // Last-line defence: refuse to persist blank or failed-decrypt notes. Sync paths
+        // already filter these, but this guard ensures no future code path can introduce
+        // blank notes into Room (the root cause of "many blank notes appear after sync").
+        if (note.isBlank() || note.isDecryptFailed()) {
+            Log.w(TAG, "Refusing to save blank/failed note ${note.id} (synced=$synced)")
+            return Result.failure(IllegalArgumentException("Cannot save blank or failed-decrypt note"))
+        }
         return try {
             withContext(Dispatchers.IO) {
                 val entity = NoteEntityMapper.toEntity(note, synced)
@@ -108,6 +117,42 @@ class OfflineNoteManager(context: Context) {
             Result.success("Note deleted offline successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting note offline", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Delete a note from the local Room database WITHOUT enqueuing a pending Firebase deletion.
+     *
+     * Use this ONLY for remote-deletion reconciliation — i.e. when the cloud snapshot tells us
+     * the note no longer exists in Firebase (was deleted from another device), so we must mirror
+     * that deletion locally. We must NOT add a PendingDeletionEntity here, otherwise the next
+     * sync would try to re-delete a node that's already gone (no-op but noisy) and, worse, could
+     * propagate spurious deletions across devices in edge cases.
+     *
+     * Also cleans up any orphan reminders for the note.
+     */
+    suspend fun deleteNoteLocalOnly(noteId: String): Result<String> {
+        return try {
+            withContext(Dispatchers.IO) {
+                val noteEntity = noteDao.getNoteById(noteId)
+                if (noteEntity != null) {
+                    noteDao.delete(noteEntity)
+                    Log.d(TAG, "Note deleted locally (remote-reconciled, no Firebase push): $noteId")
+                } else {
+                    Log.w(TAG, "Note not found for local-only deletion: $noteId")
+                }
+                try {
+                    reminderDao.deleteRemindersForNote(noteId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clean up reminders for reconciled note: $noteId", e)
+                }
+            }
+            refreshLocalNotes()
+            refreshPendingNotes()
+            Result.success("Note reconciled (deleted locally)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting note locally for reconciliation: $noteId", e)
             Result.failure(e)
         }
     }

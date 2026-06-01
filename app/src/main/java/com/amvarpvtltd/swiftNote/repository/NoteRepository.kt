@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.isBlank
+import com.amvarpvtltd.swiftNote.isDecryptFailed
 import com.amvarpvtltd.swiftNote.offline.OfflineNoteManager
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
@@ -400,12 +402,34 @@ class NoteRepository(val context: Context? = null) {
 
             val snapshot = resolveNotesRef().get().await()
             val cloudNotes = mutableListOf<dataclass>()
+            // Track every note ID present in the cloud snapshot (regardless of whether
+            // it passes the conflict-resolution filters below). This set drives
+            // remote-deletion reconciliation in Phase FIFTH — a note that exists locally
+            // but is NOT in this set must have been deleted from Firebase by another
+            // device, so we mirror that deletion locally.
+            val cloudNoteIds = mutableSetOf<String>()
 
             snapshot.children.forEach { childSnapshot ->
                 try {
                     val encryptedNote = childSnapshot.getValue(dataclass::class.java)
                     if (encryptedNote != null) {
                         val decryptedNote = dataclass.fromEncryptedData(encryptedNote)
+
+                        // GUARD: Drop blank / failed-decrypt notes and actively purge them
+                        // from Firebase so they stop spreading to other devices on next sync.
+                        if (decryptedNote.isBlank() || decryptedNote.isDecryptFailed()) {
+                            Log.w(TAG, "Purging blank/failed cloud note ${childSnapshot.key} from Firebase")
+                            try {
+                                childSnapshot.ref.removeValue()
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to purge blank cloud note: ${e.message}")
+                            }
+                            return@forEach
+                        }
+
+                        // Record the cloud ID BEFORE any skip checks — it exists in cloud,
+                        // so it must not be reconciled as a remote deletion.
+                        cloudNoteIds.add(decryptedNote.id)
 
                         // Skip cloud notes that are pending local deletion
                         if (pendingDeletionIds.contains(decryptedNote.id)) {
@@ -456,6 +480,43 @@ class NoteRepository(val context: Context? = null) {
                 offlineManager.saveNoteOffline(mergedNote, synced = true)
             }
 
+            // FIFTH: Reconcile remote deletions.
+            // Any local note that was previously synced to cloud but is no longer present
+            // in the cloud snapshot must have been deleted from another device. Mirror
+            // that deletion locally so the home screen UI stops showing it.
+            //
+            // Guards:
+            //  - Skip notes still pending upload (in pendingSyncIds) — they may simply
+            //    not have been pushed to cloud yet; deleting them would lose user data.
+            //  - Skip notes already in the pending-deletion queue (handled in Phase FIRST).
+            //  - Only run when the cloud snapshot reference actually resolved (snapshot.exists()
+            //    is true for an empty user-notes node too, which legitimately means "the user
+            //    has zero notes on the server" — in that case every synced local note is stale).
+            try {
+                if (snapshot.exists() || snapshot.childrenCount == 0L) {
+                    val staleLocalIds = localNotes
+                        .asSequence()
+                        .map { it.id }
+                        .filter { it !in cloudNoteIds }
+                        .filter { it !in pendingSyncIds }
+                        .filter { it !in pendingDeletionIds }
+                        .toList()
+
+                    if (staleLocalIds.isNotEmpty()) {
+                        Log.i(TAG, "Reconciling ${staleLocalIds.size} remote deletion(s) from cloud")
+                        staleLocalIds.forEach { staleId ->
+                            try {
+                                offlineManager.deleteNoteLocalOnly(staleId)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to reconcile remote deletion for $staleId", e)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Remote-deletion reconciliation failed: ${e.message}", e)
+            }
+
             Log.d(TAG, "Background sync completed: ${cloudNotes.size} notes from cloud, ${pendingDeletions.size} deletions processed")
         } catch (e: Exception) {
             Log.w(TAG, "Background sync from cloud failed: ${e.message}")
@@ -486,6 +547,14 @@ class NoteRepository(val context: Context? = null) {
                 // This ensures crash between items doesn't re-sync already completed ones
                 pendingNotes.forEach { note ->
                     try {
+                        // GUARD: never upload blank/failed notes. Mark them synced anyway so they
+                        // don't keep retrying; also purge from Firebase in case a stale copy exists.
+                        if (note.isBlank() || note.isDecryptFailed()) {
+                            Log.w(TAG, "Skipping upload of blank/failed note ${note.id}; purging from Firebase")
+                            try { resolveNotesRef().child(note.id).removeValue().await() } catch (_: Exception) {}
+                            offlineManager.markNoteAsSynced(note.id)
+                            return@forEach
+                        }
                         val encryptedNote = note.toEncryptedData()
                         resolveNotesRef().child(note.id).setValue(encryptedNote).await()
                         // Mark immediately after successful upload — crash-safe

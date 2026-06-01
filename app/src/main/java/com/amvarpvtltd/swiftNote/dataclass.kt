@@ -118,15 +118,34 @@ data class Note(
     companion object {
         private const val TAG = "Note"
 
+        /** Sentinel id-prefix used when [fromEncryptedData] fails so the sync layer can drop it. */
+        const val DECRYPT_FAILED_MARKER = "__SN_DECRYPT_FAILED__"
+
         // Create Note from encrypted Firebase data
         fun fromEncryptedData(encryptedData: Note): Note {
             return try {
-                val decryptedTitle = EncryptionUtil.decrypt(encryptedData.title, encryptedData.mymobiledeviceid) ?: encryptedData.title
-                val decryptedDescription = EncryptionUtil.decrypt(encryptedData.description, encryptedData.mymobiledeviceid) ?: encryptedData.description
+                val decryptedTitle = EncryptionUtil.decrypt(encryptedData.title, encryptedData.mymobiledeviceid)
+                val decryptedDescription = EncryptionUtil.decrypt(encryptedData.description, encryptedData.mymobiledeviceid)
+
+                // If BOTH fields fail to decrypt and the source looked encrypted, treat as a
+                // failed decrypt — caller (sync layer) must skip these instead of persisting
+                // ciphertext masquerading as plaintext (which previously surfaced as "blank"
+                // notes once stripped of HTML).
+                val titleLooksEncrypted = EncryptionUtil.isPotentiallyEncrypted(encryptedData.title)
+                val descLooksEncrypted = EncryptionUtil.isPotentiallyEncrypted(encryptedData.description)
+                if (decryptedTitle == null && decryptedDescription == null &&
+                    (titleLooksEncrypted || descLooksEncrypted)) {
+                    Log.w(TAG, "Decryption returned null for note ${encryptedData.id} — marking as failed")
+                    return encryptedData.copy(
+                        id = DECRYPT_FAILED_MARKER + encryptedData.id,
+                        title = "",
+                        description = ""
+                    )
+                }
 
                 Note(
-                    title = decryptedTitle,
-                    description = decryptedDescription,
+                    title = decryptedTitle ?: encryptedData.title,
+                    description = decryptedDescription ?: encryptedData.description,
                     id = encryptedData.id,
                     mymobiledeviceid = encryptedData.mymobiledeviceid,
                     timestamp = encryptedData.timestamp,
@@ -138,12 +157,39 @@ data class Note(
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error in fromEncryptedData for note ${encryptedData.id}", e)
-                // Return the original data - it might not be encrypted
-                encryptedData
+                // Mark as failed-decrypt so the sync layer can skip/clean it.
+                encryptedData.copy(
+                    id = DECRYPT_FAILED_MARKER + encryptedData.id,
+                    title = "",
+                    description = ""
+                )
             }
+        }
+
+        /**
+         * Returns true if the note has no meaningful user content. Strips HTML tags first so
+         * empty rich-text shells (`<p></p>`, `<br>`, etc.) and whitespace-only content count
+         * as blank. Used by sync/persistence layers to refuse to store or upload empty notes.
+         */
+        fun isBlank(note: Note): Boolean {
+            val title = note.title.trim()
+            // Best-effort plain-text strip without pulling Jsoup into this hot path:
+            // remove tags + collapse entities/whitespace. Anything left is real content.
+            val descPlain = note.description
+                .replace(Regex("<[^>]+>"), "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .trim()
+            return title.isEmpty() && descPlain.isEmpty()
         }
     }
 }
+
+/** Convenience extension matching the companion helper. */
+fun Note.isBlank(): Boolean = Note.isBlank(this)
+
+/** True when this note is the sentinel returned by [Note.fromEncryptedData] on failure. */
+fun Note.isDecryptFailed(): Boolean = id.startsWith(Note.DECRYPT_FAILED_MARKER)
 
 // Backwards compatibility alias — Firebase getValue() uses class name for deserialization
 // This ensures existing Firebase data (stored as "dataclass") can still be read

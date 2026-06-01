@@ -17,9 +17,6 @@ import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.workDataOf
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.ai.DetectedReminder
@@ -36,7 +33,6 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 /**
  * Renders the app launcher icon to a Bitmap for use as a notification large icon.
@@ -249,35 +245,9 @@ class ReminderManager private constructor(private val context: Context) {
             }
         }
 
-        // ALWAYS schedule WorkManager as redundant backup — ensures notification fires
-        // even if AlarmManager is killed by OEM battery optimization or Doze
-        scheduleWorkManagerFallback(delay, reminderId, noteId, title, description)
-    }
-
-    /**
-     * WorkManager-based reminder fallback for when AlarmManager is completely restricted.
-     */
-    private fun scheduleWorkManagerFallback(
-        delayMs: Long,
-        reminderId: String,
-        noteId: String,
-        title: String,
-        description: String
-    ) {
-        val workRequest = OneTimeWorkRequestBuilder<com.amvarpvtltd.swiftNote.notifications.ReminderWorker>()
-            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf(
-                "reminderId" to reminderId,
-                "noteId" to noteId,
-                "noteTitle" to title,
-                "noteDescription" to description,
-                "isSmartReminder" to true
-            ))
-            .addTag("reminder_fallback_$reminderId")
-            .build()
-
-        WorkManager.getInstance(context).enqueue(workRequest)
-        Log.d(TAG, "Scheduled WorkManager fallback for reminder $reminderId (delay: ${delayMs / 1000}s)")
+        if (!alarmScheduled) {
+            Log.e(TAG, "All alarm scheduling strategies failed for $reminderId")
+        }
     }
 
     /**
@@ -522,8 +492,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 val reminderManager = ReminderManager.getInstance(context)
                 reminderManager.showReminderNotification(reminderId, title, description, noteId)
 
-                // Phase 2: Schedule next occurrence for recurring reminders
+                // Mark this reminder as fired (inactive). For recurring reminders, the
+                // next occurrence is inserted below as a new active entity.
                 val db = com.amvarpvtltd.swiftNote.room.AppDatabase.getInstance(context)
+                try { db.reminderDao().deactivateReminder(reminderId) } catch (_: Exception) {}
+
+                // Phase 2: Schedule next occurrence for recurring reminders
                 val reminderEntity = db.reminderDao().getReminderById(reminderId)
                 if (reminderEntity != null && reminderEntity.recurrenceType != RecurrenceType.NONE) {
                     val parentId = reminderEntity.parentReminderId ?: reminderEntity.id

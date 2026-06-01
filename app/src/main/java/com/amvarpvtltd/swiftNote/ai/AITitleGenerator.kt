@@ -1,23 +1,24 @@
 package com.amvarpvtltd.swiftNote.ai
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.amvarpvtltd.swiftNote.checklist.ChecklistParser
 import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.security.GeminiKeyManager
 import com.amvarpvtltd.swiftNote.utils.AutoTitleGenerator
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.GenerationConfig
-import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * AI-powered title generator reusing the SAME Gemini setup the user already configured.
+ * AI-powered title generator that routes through [LlmService].
  *
- * Uses the same API key from AI Settings (GeminiKeyManager) — no extra setup needed.
- * Strategy: Try Gemini → fall back to rule-based [AutoTitleGenerator] on failure.
+ * - Supports both Gemini and Groq providers transparently.
+ * - Enforces a per-minute AND a daily safety cap to protect free-tier quota.
+ * - Falls back to [AutoTitleGenerator] if every model is exhausted.
  */
 class AITitleGenerator private constructor(private val context: Context) {
 
@@ -27,132 +28,113 @@ class AITitleGenerator private constructor(private val context: Context) {
         @Volatile
         private var INSTANCE: AITitleGenerator? = null
 
-        fun getInstance(context: Context): AITitleGenerator {
-            return INSTANCE ?: synchronized(this) {
+        fun getInstance(context: Context): AITitleGenerator =
+            INSTANCE ?: synchronized(this) {
                 INSTANCE ?: AITitleGenerator(context.applicationContext).also { INSTANCE = it }
             }
-        }
 
-        // Rate limit: max 5 title calls per minute (preserve free-tier quota)
-        private const val MAX_CALLS_PER_MINUTE = 5
+        // ── Rate-limit constants ──────────────────────────────────────────────
+        private const val MAX_CALLS_PER_MINUTE = 3
+        private const val MAX_CALLS_PER_DAY = 60
+        private const val PREFS_NAME = "ai_title_generator_prefs"
+        private const val KEY_DAY = "daily_call_date"
+        private const val KEY_DAY_COUNT = "daily_call_count"
+
         private val callTimestamps = mutableListOf<Long>()
-
-        private const val TIMEOUT_MS = 8000L
     }
 
-    // Same pattern as GeminiReminderParser — cache model, recreate on key change
-    private var currentApiKey: String? = null
-    private var generativeModel: GenerativeModel? = null
-
-    /**
-     * Reuses the same API key from AI Settings (GeminiKeyManager).
-     * Same model (gemini-2.0-flash), just with lower maxOutputTokens for titles.
-     */
-    private fun getModel(): GenerativeModel? {
-        val userKey = GeminiKeyManager.getActiveApiKey(context)
-        if (userKey.isBlank()) {
-            Log.d(TAG, "❌ No Gemini API key found in AI Settings")
-            return null
-        }
-
-        if (userKey != currentApiKey) {
-            currentApiKey = userKey
-            generativeModel = GenerativeModel(
-                modelName = "gemini-2.0-flash",
-                apiKey = userKey,
-                generationConfig = GenerationConfig.Builder().apply {
-                    temperature = 0.3f
-                    maxOutputTokens = 30
-                    topP = 0.9f
-                }.build()
-            )
-            Log.d(TAG, "✅ Gemini model created (same key as AI Settings)")
-        }
-
-        return generativeModel
+    private val prefs: SharedPreferences by lazy {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    // ──────────────────── PUBLIC API ────────────────────
+    private val llmService by lazy { LlmService.getInstance(context) }
 
-    /**
-     * Check if Gemini is available — same key user already added in AI Settings.
-     */
-    fun isAvailable(): Boolean {
-        return GeminiKeyManager.getActiveApiKey(context).isNotBlank()
-    }
+    // ────────────────────────── PUBLIC API ───────────────────────────────────
 
-    /**
-     * Generate a title using Gemini, falling back to rule-based.
-     * Call from a coroutine on IO dispatcher.
-     */
+    fun isAvailable(): Boolean = GeminiKeyManager.getActiveApiKey(context).isNotBlank()
+
     suspend fun generate(description: String): String {
-        if (description.isBlank()) {
-            Log.d(TAG, "⚠️ Description blank, skipping")
-            return ""
-        }
-
+        if (description.isBlank()) return ""
         val plainText = getPlainText(description)
-        if (plainText.isBlank()) {
-            Log.d(TAG, "⚠️ Plain text blank after stripping, skipping")
-            return ""
-        }
+        if (plainText.isBlank()) return ""
 
         Log.d(TAG, "🔍 Triggered. Text: ${plainText.take(60)}... (${plainText.length} chars)")
         Log.d(TAG, "🔑 Key present: ${GeminiKeyManager.getActiveApiKey(context).isNotBlank()}")
 
         if (!canMakeCall()) {
-            Log.w(TAG, "⚠️ Rate limited ($MAX_CALLS_PER_MINUTE/min), using rules")
+            Log.w(TAG, "⚠️ Rate/daily limited, using rules")
             return AutoTitleGenerator.generate(description)
         }
 
-        // Try Gemini (same key from AI Settings)
-        val title = tryGemini(plainText)
+        val title = tryGenerate(plainText)
         if (!title.isNullOrBlank() && title.length >= 3) {
             Log.d(TAG, "✨ AI title: \"$title\"")
             return title
         }
 
-        Log.d(TAG, "📝 Gemini failed/empty, using rule-based fallback")
+        Log.d(TAG, "📝 LLM failed/empty, using rule-based fallback")
         return AutoTitleGenerator.generate(description)
     }
 
-    // ──────────────────── GEMINI CALL ────────────────────
+    // ────────────────────────── LLM CALL ──────────────────────────────────────
 
-    private suspend fun tryGemini(plainText: String): String? = withContext(Dispatchers.IO) {
-        try {
-            val model = getModel() ?: return@withContext null
+    private suspend fun tryGenerate(plainText: String): String? = withContext(Dispatchers.IO) {
+        val prompt = buildPrompt(plainText)
 
+        val raw = llmService.generateText(
+            prompt = prompt,
+            systemPrompt = "You are a title generator. Reply with ONLY a short title (2-6 words), nothing else.",
+            temperature = 0.3f,
+            maxTokens = 30
+        )
+
+        if (raw.isNullOrBlank()) return@withContext null
+
+        val cleaned = cleanResponse(raw)
+        if (cleaned != null) {
             recordCall()
-            GeminiKeyManager.recordUsage(context)
-
-            val prompt = buildPrompt(plainText)
-            Log.d(TAG, "🤖 Sending to Gemini (${prompt.length} chars)...")
-
-            val response = withTimeoutOrNull(TIMEOUT_MS) {
-                model.generateContent(content { text(prompt) })
-            }
-
-            if (response == null) {
-                Log.w(TAG, "❌ Timed out (${TIMEOUT_MS}ms)")
-                return@withContext null
-            }
-
-            val raw = response.text?.trim()
-            if (raw.isNullOrBlank()) {
-                Log.w(TAG, "❌ Empty response from Gemini")
-                return@withContext null
-            }
-
-            Log.d(TAG, "🤖 Raw response: \"$raw\"")
-            return@withContext cleanResponse(raw)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Gemini failed: ${e.message}", e)
-            return@withContext null
         }
+        cleaned
     }
 
-    // ──────────────────── PROMPT ────────────────────
+    // ────────────────────────── RATE LIMITING ────────────────────────────────
+
+    private fun canMakeCall(): Boolean {
+        val now = System.currentTimeMillis()
+        callTimestamps.removeAll { now - it > 60_000 }
+        if (callTimestamps.size >= MAX_CALLS_PER_MINUTE) {
+            Log.w(TAG, "⚠️ Per-minute cap reached ($MAX_CALLS_PER_MINUTE/min)")
+            return false
+        }
+
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val savedDay = prefs.getString(KEY_DAY, "")
+        val dayCount = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0)
+        else { resetDailyCounter(today); 0 }
+
+        if (dayCount >= MAX_CALLS_PER_DAY) {
+            Log.w(TAG, "⚠️ Daily cap reached ($MAX_CALLS_PER_DAY/day)")
+            return false
+        }
+        return true
+    }
+
+    private fun recordCall() {
+        callTimestamps.add(System.currentTimeMillis())
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val savedDay = prefs.getString(KEY_DAY, "")
+        val current = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0) else 0
+        prefs.edit()
+            .putString(KEY_DAY, today)
+            .putInt(KEY_DAY_COUNT, current + 1)
+            .apply()
+    }
+
+    private fun resetDailyCounter(today: String) {
+        prefs.edit().putString(KEY_DAY, today).putInt(KEY_DAY_COUNT, 0).apply()
+    }
+
+    // ────────────────────────── PROMPT ───────────────────────────────────────
 
     private fun buildPrompt(plainText: String): String {
         val content = if (plainText.length > 300) plainText.take(300) + "..." else plainText
@@ -170,16 +152,13 @@ $content
 Title:"""
     }
 
-    // ──────────────────── RESPONSE CLEANING ────────────────────
+    // ────────────────────────── RESPONSE CLEANING ────────────────────────────
 
     private fun cleanResponse(raw: String): String? {
         var cleaned = raw
-            .removePrefix("Title:")
-            .removePrefix("title:")
+            .removePrefix("Title:").removePrefix("title:")
             .trim()
-            .removeSurrounding("\"")
-            .removeSurrounding("'")
-            .removeSurrounding("`")
+            .removeSurrounding("\"").removeSurrounding("'").removeSurrounding("`")
             .trim()
             .replace(Regex("\\.$"), "")
             .trim()
@@ -199,32 +178,18 @@ Title:"""
             Log.d(TAG, "🧹 Rejected (bad prefix): \"$cleaned\"")
             return null
         }
-
         Log.d(TAG, "🧹 Accepted: \"$cleaned\"")
         return AutoTitleGenerator.truncate(cleaned)
     }
 
-    // ──────────────────── RATE LIMITING ────────────────────
-
-    private fun canMakeCall(): Boolean {
-        val now = System.currentTimeMillis()
-        callTimestamps.removeAll { now - it > 60_000 }
-        return callTimestamps.size < MAX_CALLS_PER_MINUTE
-    }
-
-    private fun recordCall() {
-        callTimestamps.add(System.currentTimeMillis())
-    }
-
-    // ──────────────────── UTILS ────────────────────
+    // ────────────────────────── UTILS ────────────────────────────────────────
 
     private fun getPlainText(description: String): String {
         if (ChecklistParser.isChecklistContent(description)) {
-            val items = ChecklistParser.parseItems(description)
-            return items.filter { it.text.isNotBlank() }
+            return ChecklistParser.parseItems(description)
+                .filter { it.text.isNotBlank() }
                 .joinToString("\n") { "- ${it.text}" }
         }
-
         return if (RichTextBridge.containsHtml(description)) {
             RichTextBridge.stripHtmlToPlainText(description)
         } else {

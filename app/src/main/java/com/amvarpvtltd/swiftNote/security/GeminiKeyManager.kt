@@ -5,21 +5,22 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.amvarpvtltd.swiftNote.ai.LlmProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Manages user's Gemini API keys securely using EncryptedSharedPreferences.
+ * Manages user's LLM API keys securely using EncryptedSharedPreferences.
  *
- * Supports MULTIPLE API keys so users can:
+ * Supports MULTIPLE API keys for both Gemini and Groq providers:
  * - Add backup keys in case one hits rate limits
  * - Rotate keys without downtime
- * - Use different keys for different Google accounts
+ * - Use different providers (Gemini / Groq)
  *
  * Keys never leave the device. No key is bundled by the developer.
- * Gemini only works when the user provides their own free API key.
  *
- * Get a free key: https://aistudio.google.com/apikey
+ * Get a free Gemini key: https://aistudio.google.com/apikey
+ * Get a free Groq key: https://console.groq.com/keys
  */
 object GeminiKeyManager {
 
@@ -68,6 +69,7 @@ object GeminiKeyManager {
                         id = obj.getString("id"),
                         label = obj.getString("label"),
                         apiKey = obj.getString("apiKey"),
+                        provider = obj.optString("provider", LlmProvider.GEMINI.name),
                         addedAt = obj.getLong("addedAt"),
                         lastUsed = obj.optLong("lastUsed", 0L),
                         usageCount = obj.optInt("usageCount", 0)
@@ -83,14 +85,15 @@ object GeminiKeyManager {
     }
 
     /**
-     * Add a new API key.
+     * Add a new API key with provider specification.
      */
-    fun addApiKey(context: Context, label: String, apiKey: String): GeminiApiKey {
+    fun addApiKey(context: Context, label: String, apiKey: String, provider: String = LlmProvider.GEMINI.name): GeminiApiKey {
         val keys = getAllKeys(context).toMutableList()
         val newKey = GeminiApiKey(
             id = "key_${System.currentTimeMillis()}",
-            label = label.ifBlank { "Key ${keys.size + 1}" },
+            label = label.ifBlank { "${LlmProvider.fromName(provider).displayName} Key ${keys.size + 1}" },
             apiKey = apiKey.trim(),
+            provider = provider,
             addedAt = System.currentTimeMillis()
         )
         keys.add(newKey)
@@ -138,7 +141,7 @@ object GeminiKeyManager {
     }
 
     /**
-     * Record usage of the active key (called after each Gemini API call).
+     * Record usage of the active key (called after each LLM API call).
      */
     fun recordUsage(context: Context) {
         val activeId = getActiveKeyId(context) ?: return
@@ -174,7 +177,7 @@ object GeminiKeyManager {
     }
 
     /**
-     * Get the currently active API key string (for use by GeminiReminderParser).
+     * Get the currently active API key string.
      * Returns empty string if none configured.
      */
     fun getActiveApiKey(context: Context): String {
@@ -183,10 +186,19 @@ object GeminiKeyManager {
         return keys.find { it.id == activeId }?.apiKey ?: keys.firstOrNull()?.apiKey ?: ""
     }
 
+    /**
+     * Get the full active key object (for provider-aware routing).
+     */
+    fun getActiveKeyObject(context: Context): GeminiApiKey? {
+        val activeId = getActiveKeyId(context) ?: return null
+        val keys = getAllKeys(context)
+        return keys.find { it.id == activeId } ?: keys.firstOrNull()
+    }
+
     // ──────────────────── Enable/Disable ────────────────────
 
     /**
-     * Check if Gemini is enabled by user AND has at least one key.
+     * Check if AI is enabled by user AND has at least one key.
      */
     fun isEnabled(context: Context): Boolean {
         return getPrefs(context).getBoolean(KEY_ENABLED, false) && getActiveApiKey(context).isNotBlank()
@@ -200,7 +212,7 @@ object GeminiKeyManager {
     }
 
     /**
-     * Enable or disable Gemini (without removing keys).
+     * Enable or disable AI (without removing keys).
      */
     fun setEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
@@ -215,6 +227,7 @@ object GeminiKeyManager {
                 put("id", key.id)
                 put("label", key.label)
                 put("apiKey", key.apiKey)
+                put("provider", key.provider)
                 put("addedAt", key.addedAt)
                 put("lastUsed", key.lastUsed)
                 put("usageCount", key.usageCount)
@@ -225,7 +238,7 @@ object GeminiKeyManager {
     }
 
     /**
-     * Clear all keys and disable Gemini.
+     * Clear all keys and disable AI.
      */
     fun clearAll(context: Context) {
         getPrefs(context).edit().clear().apply()
@@ -235,12 +248,13 @@ object GeminiKeyManager {
 }
 
 /**
- * Represents a stored Gemini API key.
+ * Represents a stored API key (supports Gemini and Groq).
  */
 data class GeminiApiKey(
     val id: String,
     val label: String,
     val apiKey: String,
+    val provider: String = LlmProvider.GEMINI.name,
     val addedAt: Long,
     val lastUsed: Long = 0L,
     val usageCount: Int = 0
@@ -250,5 +264,8 @@ data class GeminiApiKey(
         get() = if (apiKey.length > 10) {
             "${apiKey.take(6)}...${apiKey.takeLast(4)}"
         } else "••••••"
-}
 
+    /** LLM provider enum for this key. */
+    val llmProvider: LlmProvider
+        get() = LlmProvider.fromName(provider)
+}

@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.isBlank
+import com.amvarpvtltd.swiftNote.isDecryptFailed
 import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
@@ -68,6 +70,13 @@ object SyncManager {
 
                 // Helper to attempt decryption with candidate keys
                 fun tryDecryptWithCandidates(encrypted: dataclass, candidates: List<String>): dataclass? {
+                    // Reject blank-content nodes outright — these are stale/corrupted entries
+                    // (root cause of "many blank notes appearing after sync"). Don't import them.
+                    if (encrypted.isBlank()) {
+                        Log.w(TAG, "Skipping blank remote note ${encrypted.id}")
+                        return null
+                    }
+
                     // If the title/description don't look encrypted, treat as plaintext
                     val looksEncrypted = EncryptionUtil.isPotentiallyEncrypted(encrypted.title) || EncryptionUtil.isPotentiallyEncrypted(encrypted.description)
 
@@ -147,6 +156,8 @@ object SyncManager {
                                     val decrypted = tryDecryptWithCandidates(noteData, candidates)
                                     if (decrypted == null) {
                                         Log.w(TAG, "Skipping note ${noteData.id} because decryption failed for all keys")
+                                    } else if (decrypted.isBlank() || decrypted.isDecryptFailed()) {
+                                        Log.w(TAG, "Skipping note ${noteData.id} — blank or failed-decrypt after decode")
                                     } else {
                                         val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
                                         // Preserve local pin/archive/category if note already exists locally
@@ -176,6 +187,8 @@ object SyncManager {
                                             val decrypted = tryDecryptWithCandidates(noteData, candidates)
                                             if (decrypted == null) {
                                                 Log.w(TAG, "Skipping nested note ${noteData.id} because decryption failed for all keys")
+                                            } else if (decrypted.isBlank() || decrypted.isDecryptFailed()) {
+                                                Log.w(TAG, "Skipping nested note ${noteData.id} — blank or failed-decrypt after decode")
                                             } else {
                                                 val localNote = decrypted.copy(mymobiledeviceid = currentPassphrase, timestamp = decrypted.timestamp)
                                                 // Preserve local pin/archive/category if note already exists locally
@@ -285,11 +298,27 @@ object SyncManager {
                 val localReminders = reminderDao.getAllReminders()
 
                 val notesRef = userRef.child("notes")
+                var uploadedCount = 0
+                var skippedBlankCount = 0
                 for (noteEntity in localNotes) {
                     val note = NoteEntityMapper.toDomain(noteEntity)
+                    if (note.isBlank() || note.isDecryptFailed()) {
+                        // Defence: never upload blank/failed notes. Also remove any stale
+                        // blank already at this path so the cycle of spreading blanks stops.
+                        skippedBlankCount++
+                        try {
+                            val deviceId = if (note.mymobiledeviceid.isNotEmpty()) note.mymobiledeviceid else passphrase
+                            notesRef.child(deviceId).child(note.id).removeValue().await()
+                        } catch (_: Exception) { /* best-effort cleanup */ }
+                        continue
+                    }
                     val encryptedNote = note.toEncryptedData()
                     val deviceId = if (encryptedNote.mymobiledeviceid.isNotEmpty()) encryptedNote.mymobiledeviceid else passphrase
                     notesRef.child(deviceId).child(note.id).setValue(encryptedNote).await()
+                    uploadedCount++
+                }
+                if (skippedBlankCount > 0) {
+                    Log.w(TAG, "Skipped uploading $skippedBlankCount blank/failed local notes (and purged from Firebase)")
                 }
 
                 val remindersRef = userRef.child("reminders")
@@ -298,9 +327,9 @@ object SyncManager {
                 }
 
                 userRef.child("lastSyncAt").setValue(System.currentTimeMillis()).await()
-                userRef.child("totalNotes").setValue(localNotes.size).await()
+                userRef.child("totalNotes").setValue(uploadedCount).await()
 
-                Log.d(TAG, "Uploaded ${localNotes.size} notes and ${localReminders.size} reminders to Firebase")
+                Log.d(TAG, "Uploaded $uploadedCount notes and ${localReminders.size} reminders to Firebase")
                 Result.success(Unit)
 
             } catch (e: Exception) {

@@ -138,10 +138,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Top-level Regex constants — avoids recreating on every recomposition
-private val MINUTE_REGEX = Regex(
-    "\\b(\\d{1,3})\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b",
-    RegexOption.IGNORE_CASE
-)
 private val DIGIT_REGEX = Regex("(\\d+)")
 private val HTML_TAG_REGEX = Regex("<[^>]+>")
 
@@ -268,6 +264,42 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
+    // ── Edit-mode smart reminder trigger ──────────────────────────────────────
+    // When an existing note finishes loading, the text-change LaunchedEffect may
+    // capture an empty richTextState snapshot (title sets before setHtml settles).
+    // This dedicated effect fires once after loading completes and runs a fresh
+    // reminder analysis on the fully-loaded content.
+    LaunchedEffect(isLoading) {
+        if (!isLoading && isEditing) {
+            // Give Compose one frame (+ a small buffer) for richTextState to stabilise
+            delay(350)
+            val descText = RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
+            val combined = "$title. $descText".trim()
+            if (combined.length >= 3 && smartReminderAI.hasReminderKeywords(combined)) {
+                isAnalyzingText = true
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        smartReminderAI.analyzeTextForReminders(combined, title)
+                    }
+                    if (result.isSuccess) {
+                        val reminders = result.getOrNull()
+                            ?.filter { it.confidence >= 0.6f }
+                            ?: emptyList()
+                        if (reminders.isNotEmpty()) {
+                            pendingReminders  = reminders
+                            detectedReminders = reminders
+                            Log.d("AddScreen", "Edit-load analysis found ${reminders.size} reminder(s)")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AddScreen", "Edit-load reminder analysis failed", e)
+                } finally {
+                    isAnalyzingText = false
+                }
+            }
+        }
+    }
+
     // BUG-015 FIX: Clipboard HTML detection for title only — description is handled natively by RichTextEditor
     LaunchedEffect(Unit) {
         try {
@@ -348,41 +380,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             titleHtml = null
         }
 
-        // Run minute-pattern fallback first (lightweight regex — OK after debounce)
-        try {
-            val match = MINUTE_REGEX.find(combinedText)
-            if (match != null) {
-                val n = match.groupValues[1].toIntOrNull()
-                if (n != null && n > 0) {
-                    val cal = java.util.Calendar.getInstance()
-                    cal.add(java.util.Calendar.MINUTE, n)
-                    val ts = cal.timeInMillis
-                    val snippet = match.value.trim()
-                    val userTitle = title.ifBlank { "Untitled" }
-                    val detected = DetectedReminder(
-                        id = java.util.UUID.randomUUID().toString(),
-                        title = userTitle,
-                        description = RichTextBridge.stripHtmlToPlainText(richTextState.toHtml()),
-                        extractedText = snippet,
-                        reminderDateTime = ts,
-                        confidence = 0.8f,
-                        entityType = "MinuteFallback",
-                        originalNoteTitle = userTitle
-                    )
-
-                    // Show as suggestion chip — user confirms via UI
-                    pendingReminders = listOf(detected)
-                    detectedReminders = listOf(detected)
-                    Log.d("AddScreen", "Minute-fallback reminder suggestion shown: $n minutes")
-
-                    return@LaunchedEffect
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("AddScreen", "Error in minute fallback detection (pre-check)", e)
-        }
-
-        // Only run AI analysis when relevant keywords found
+        // Use the unified analyzer only. This avoids standalone snippets like "5pm" or "18/8"
+        // bypassing the sentence-level reminder intent checks.
         if (smartReminderAI.hasReminderKeywords(combinedText)) {
 
             // Additional debounce for AI (heavy operation)
@@ -573,6 +572,37 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                    if (result.isSuccess) {
                        val savedNoteId = result.getOrNull()
                        val finalNoteId = savedNoteId ?: noteId
+
+                        // ── Final save-time reminder scan ──────────────────────────────
+                        // If the user saved quickly (before the 1500 ms typing debounce
+                        // fired) or if the edit-load analysis hasn't finished yet, run a
+                        // last-chance LLM check on the actual saved content so no reminder
+                        // keywords are missed.
+                        if (pendingReminders.isEmpty() && confirmedPendingReminders.isEmpty()) {
+                            val plainDesc = if (isChecklistMode)
+                                checklistItems.joinToString(". ") { it.text }
+                            else
+                                RichTextBridge.stripHtmlToPlainText(descToSave)
+                            val scanText = "$effectiveTitle. $plainDesc".trim()
+                            if (scanText.length >= 3 && smartReminderAI.hasReminderKeywords(scanText)) {
+                                try {
+                                    val scanResult = withContext(Dispatchers.IO) {
+                                        smartReminderAI.analyzeTextForReminders(scanText, effectiveTitle)
+                                    }
+                                    if (scanResult.isSuccess) {
+                                        val fresh = scanResult.getOrNull()
+                                            ?.filter { it.confidence >= 0.6f }
+                                            ?: emptyList()
+                                        if (fresh.isNotEmpty()) {
+                                            Log.d("AddScreen", "Save-time scan found ${fresh.size} reminder(s)")
+                                            pendingReminders = fresh
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("AddScreen", "Save-time reminder scan failed", e)
+                                }
+                            }
+                        }
 
                         // Create any pending smart reminders for newly saved notes.
                         // Includes both:

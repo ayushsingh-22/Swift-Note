@@ -32,8 +32,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
@@ -123,8 +121,8 @@ private fun getGreeting(): String {
         // Early morning (5-7)
         hour in 5..6 -> listOf(
             "Rise and shine! ✨",
-            "Early bird! 🐦",
-            "Fresh start! 🌅"
+            "Early bird! 🐣",
+            "Fresh start! 🌞"
         ).random()
 
         // Morning (7-11)
@@ -442,29 +440,27 @@ fun NotesScreen(navController: NavHostController) {
 
                             Spacer(modifier = Modifier.width(6.dp))
 
-                            // Sync settings — icon/colour changes with SyncMode (Phase 6)
-                            val (syncSettingsIcon, syncSettingsContainer, syncSettingsContent) =
+                            // Sync settings — always show the profile icon; only the
+                            // container/content colours reflect the active SyncMode.
+                            val (syncSettingsContainer, syncSettingsContent) =
                                 when (syncMode) {
-                                    SyncMode.CONTINUOUS -> Triple(
-                                        Icons.Filled.Sync,
+                                    SyncMode.CONTINUOUS -> Pair(
                                         NoteTheme.SuccessContainer.copy(alpha = 0.8f),
                                         NoteTheme.OnSuccessContainer
                                     )
-                                    SyncMode.ONE_TIME_IMPORTED -> Triple(
-                                        Icons.Filled.CloudDownload,
+                                    SyncMode.ONE_TIME_IMPORTED -> Pair(
                                         NoteTheme.PrimaryContainer.copy(alpha = 0.8f),
                                         NoteTheme.OnPrimaryContainer
                                     )
-                                    SyncMode.LOCAL_ONLY -> Triple(
-                                        Icons.Outlined.Person,
+                                    SyncMode.LOCAL_ONLY -> Pair(
                                         adaptiveIconContainer,
                                         adaptiveIconContent
                                     )
                                 }
                             IconActionButton(
                                 onClick = { navController.navigate("syncSettings") },
-                                icon = syncSettingsIcon,
-                                contentDescription = "Sync Settings",
+                                icon = Icons.Outlined.Person,
+                                contentDescription = "Profile & Sync Settings",
                                 containerColor = syncSettingsContainer,
                                 contentColor = syncSettingsContent
                             )

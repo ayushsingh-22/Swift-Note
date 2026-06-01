@@ -17,6 +17,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
+
 class SmartReminderAI(private val context: Context) {
     private val TAG = "SmartReminderAI"
 
@@ -71,85 +72,97 @@ class SmartReminderAI(private val context: Context) {
      * Analyze text for date/time entities and return detected reminders.
      *
      * Pipeline (smartest → fastest):
-     *   1. Gemini AI (cloud, ~1-2s) — tried first if available (user has API key)
-     *   2. ML Kit Entity Extraction (on-device, instant) — fallback if Gemini fails/unavailable
+     *   1. AI (cloud, ~1-2s) — tried first if available (user has API key, Gemini or Groq)
+     *   2. ML Kit Entity Extraction (on-device, instant) — fallback if AI fails/unavailable
      *   3. Regex fallback (on-device, instant, handles Hinglish) — last resort
      */
     suspend fun analyzeTextForReminders(
         text: String,
         noteTitle: String = "Untitled"
     ): Result<List<DetectedReminder>> = withContext(Dispatchers.IO) {
-        val combinedText = "$noteTitle. $text".trim()
-        Log.d(TAG, "🔍 Analyzing text for reminders: ${combinedText.take(100)}...")
+        val analysisText = ReminderIntentAnalyzer.buildAnalysisText(
+            noteBody = text,
+            noteTitle = noteTitle
+        )
 
-        // ─── Stage 1: Try Gemini FIRST (if available and keywords present) ───
-        if (hasReminderKeywords(combinedText)) {
-            val geminiResults = tryGeminiParsing(text, noteTitle)
-            if (geminiResults.isNotEmpty()) {
-                Log.d(TAG, "🤖 Gemini returned ${geminiResults.size} reminder(s) — using Gemini response")
-                return@withContext Result.success(geminiResults)
-            }
-            Log.d(TAG, "🤖 Gemini returned no results or unavailable — falling back to on-device methods")
+        if (analysisText.isNullOrBlank()) {
+            Log.d(TAG, "No sentence-level reminder intent found, skipping analysis")
+            return@withContext Result.success(emptyList())
         }
 
-        // ─── Stage 2: ML Kit Entity Extraction (on-device fallback) ───
+        Log.d(TAG, "Analyzing reminder-focused text: ${analysisText.take(100)}...")
+
+        if (hasReminderKeywords(analysisText)) {
+            val geminiResults = tryGeminiParsing(analysisText, noteTitle)
+            if (geminiResults.isNotEmpty()) {
+                Log.d(TAG, "AI returned ${geminiResults.size} reminder(s) - using AI response")
+                return@withContext Result.success(geminiResults)
+            }
+            Log.d(TAG, "AI returned no results or is unavailable - falling back to on-device methods")
+        }
+
         if (!isInitialized) {
-            Log.w(TAG, "⚠️ Entity Extractor not initialized, attempting to initialize...")
+            Log.w(TAG, "Entity Extractor not initialized, attempting to initialize...")
             val initResult = initialize()
             if (initResult.isFailure) {
-                Log.w(TAG, "⚠️ ML Kit init failed, using regex fallback: ${initResult.exceptionOrNull()?.message}")
-                // ML Kit can't initialize — go straight to regex
-                val regexResults = try { regexFallbackForReminders(combinedText, noteTitle) } catch (_: Exception) { emptyList() }
+                Log.w(TAG, "ML Kit init failed, using regex fallback: ${initResult.exceptionOrNull()?.message}")
+                val regexResults = try {
+                    regexFallbackForReminders(analysisText, noteTitle)
+                } catch (_: Exception) {
+                    emptyList()
+                }
                 return@withContext Result.success(regexResults)
             }
         }
 
         return@withContext try {
             suspendCancellableCoroutine<Result<List<DetectedReminder>>> { continuation ->
-                entityExtractor.annotate(combinedText)
+                entityExtractor.annotate(analysisText)
                     .addOnSuccessListener { entityAnnotations ->
                         val detectedReminders = processEntityAnnotations(
                             entityAnnotations,
-                            combinedText,
+                            analysisText,
                             noteTitle
                         )
 
-                        // If ML Kit didn't find anything, try regex fallback
                         val finalResults = detectedReminders.ifEmpty {
-                            val fallback = regexFallbackForReminders(combinedText, noteTitle)
+                            val fallback = regexFallbackForReminders(analysisText, noteTitle)
                             if (fallback.isNotEmpty()) {
-                                Log.d(TAG, "🔁 Regex fallback detected ${fallback.size} reminder(s)")
+                                Log.d(TAG, "Regex fallback detected ${fallback.size} reminder(s)")
                             }
                             fallback
                         }
 
-                        Log.d(TAG, "✅ Found ${finalResults.size} potential reminders (on-device)")
+                        Log.d(TAG, "Found ${finalResults.size} potential reminders (on-device)")
                         continuation.resume(Result.success(finalResults))
                     }
                     .addOnFailureListener { exception ->
-                        Log.e(TAG, "❌ ML Kit annotation failed, using regex fallback", exception)
+                        Log.e(TAG, "ML Kit annotation failed, using regex fallback", exception)
 
-                        // On ML Kit failure, use regex as final fallback
-                        val fallback = regexFallbackForReminders(combinedText, noteTitle)
+                        val fallback = regexFallbackForReminders(analysisText, noteTitle)
                         if (fallback.isNotEmpty()) {
-                            Log.d(TAG, "🔁 Regex fallback detected ${fallback.size} reminder(s) after ML Kit failure")
+                            Log.d(TAG, "Regex fallback detected ${fallback.size} reminder(s) after ML Kit failure")
                         }
                         continuation.resume(Result.success(fallback))
                     }
 
                 continuation.invokeOnCancellation {
-                    Log.d(TAG, "🔄 Text analysis cancelled")
+                    Log.d(TAG, "Text analysis cancelled")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error in analyzeTextForReminders — falling back to regex", e)
-            val regexResults = try { regexFallbackForReminders(combinedText, noteTitle) } catch (_: Exception) { emptyList() }
+            Log.e(TAG, "Error in analyzeTextForReminders - falling back to regex", e)
+            val regexResults = try {
+                regexFallbackForReminders(analysisText, noteTitle)
+            } catch (_: Exception) {
+                emptyList()
+            }
             return@withContext Result.success(regexResults)
         }
     }
 
     /**
-     * Try parsing with Gemini AI. Returns empty list on failure (never throws).
+     * Try parsing with AI (Gemini or Groq). Returns empty list on failure (never throws).
      * This is the intelligent fallback for when on-device methods can't parse the text.
      */
     private suspend fun tryGeminiParsing(text: String, noteTitle: String): List<DetectedReminder> {
@@ -158,26 +171,26 @@ class SmartReminderAI(private val context: Context) {
             val parsed = gemini.parseReminderIntent(text, noteTitle)
             if (parsed != null) {
                 val results = gemini.toDetectedReminders(parsed, noteTitle)
-                Log.d(TAG, "🤖 Gemini detected ${results.size} reminder(s)")
+                Log.d(TAG, "🤖 AI detected ${results.size} reminder(s)")
                 results
             } else {
-                Log.d(TAG, "🤖 Gemini found no reminder intent")
+                Log.d(TAG, "🤖 AI found no reminder intent")
                 emptyList()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Gemini parsing failed silently: ${e.message}")
+            Log.e(TAG, "❌ AI parsing failed silently: ${e.message}")
             emptyList()
         }
     }
 
     /**
-     * Explicitly analyze text using Gemini AI (bypasses ML Kit + regex).
+     * Explicitly analyze text using AI (bypasses ML Kit + regex).
      * Use this when:
      * - User taps "Analyze with AI" button
      * - On-device methods returned no results but user insists there's a reminder
      * - Text is in a language that regex/ML Kit can't handle well
      *
-     * @return Result with list of detected reminders, or failure if Gemini is unavailable
+     * @return Result with list of detected reminders, or failure if AI is unavailable
      */
     suspend fun analyzeWithGemini(
         text: String,
@@ -188,7 +201,7 @@ class SmartReminderAI(private val context: Context) {
             val parsed = gemini.parseReminderIntent(text, noteTitle)
             if (parsed != null) {
                 val results = gemini.toDetectedReminders(parsed, noteTitle)
-                Log.d(TAG, "🤖 Gemini explicit analysis: ${results.size} reminder(s)")
+                Log.d(TAG, "🤖 AI explicit analysis: ${results.size} reminder(s)")
                 Result.success(results)
             } else {
                 Result.success(emptyList())
@@ -307,56 +320,7 @@ class SmartReminderAI(private val context: Context) {
      * Check if text contains potential reminder keywords
      */
     fun hasReminderKeywords(text: String): Boolean {
-        val lowercaseText = text.lowercase()
-
-        // Built-in English patterns for date/time detection
-        val englishPatterns = listOf(
-            Regex("\\b(?:today|tomorrow|tonight|morning|afternoon|evening)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b\\d{1,2}(:\\d{2})?\\s?(?:am|pm)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b([01]?\\d|2[0-3]):[0-5]\\d\\b"),
-            // numeric minutes like '5 min', '10 mins', including common misspellings and Hinglish suffixes
-            Regex("\\b\\d{1,3}\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b(?:at|on|by|before|after|next|this|remind|reminder|appointment|meeting|call|deadline|alarm)\\b", RegexOption.IGNORE_CASE),
-            // Phase 2: Recurrence patterns
-            Regex("\\b(?:every\\s+day|daily|weekly|monthly|yearly|annually|every\\s+week|every\\s+month|every\\s+year)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\b(?:every\\s+\\d+\\s+(?:days?|weeks?|months?|years?))\\b", RegexOption.IGNORE_CASE),
-            Regex("\\bevery\\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\\b", RegexOption.IGNORE_CASE),
-            Regex("\\bweekdays?\\b", RegexOption.IGNORE_CASE)
-        )
-
-        if (englishPatterns.any { it.containsMatchIn(text) }) return true
-
-        // User-visible keyword list (Hinglish + English). When you or others update this list,
-        // adding words here will trigger the reminder analysis. We match whole words/phrases.
-        val keywordLiterals = listOf(
-            // English literals (common triggers) - keep small and explicit so user edits are easy
-            "today", "tomorrow", "tonight", "meeting", "call", "appointment", "deadline", "reminder", "remind",
-
-            // Hinglish literals (common triggers)
-            "kal", "aaj", "abhi", "parso", "baad mein", "subah", "subh", "dopahar", "shaam", "raat",
-            "yaad dilana", "yaad dila", "yaad rakna", "remind kar", "yaad kar", "meeting hai", "call karna", "appointment hai",
-            "deadline hai", "baje", "bje", "bjey", "bajke", "time pe", "samay pe", "waqt pe",
-            // minute-related Hinglish fragments
-            "min", "mins", "minm", "min mein", "min mai", "minute", "minutes",
-
-            // action phrases
-            "karna hai", "check karna", "submit karna", "pick up", "drop",
-
-            // Phase 2: Recurrence Hinglish keywords
-            "roz", "har din", "har roz", "har hafte", "har hafta", "har mahine", "har mahiney", "har saal"
-        )
-
-        // Build regex patterns with word boundaries for each literal to avoid substring matches
-        val literalPatterns = keywordLiterals.map { kw ->
-            Regex("\\b" + Regex.escape(kw) + "\\b", RegexOption.IGNORE_CASE)
-        }
-
-        if (literalPatterns.any { it.containsMatchIn(text) }) return true
-
-        // Finally, also match simple token contains for multi-word Hinglish fragments (fallback)
-        return keywordLiterals.any { lowercaseText.contains(it) }
+        return ReminderIntentAnalyzer.hasReminderIntent(noteBody = text)
     }
 
     /**
@@ -419,9 +383,18 @@ class SmartReminderAI(private val context: Context) {
              // Pattern: (today|tomorrow|tonight)( at)? TIME?
              val relativePattern = Regex("\\b(today|tomorrow|tonight)\\b(?:\\s+at)?\\s*(\\d{1,2}(:\\d{2})?\\s?(?:am|pm)?)?",
                  RegexOption.IGNORE_CASE)
+            // Check once whether the full text already has a relative-duration expression
+            // ("in X min/hours" or "N min"). If so, bare day words are context only — skip them.
+            val textHasRelativeDuration = Regex(
+                "\\bin\\s+\\d+\\s*(?:min|mins|minute|minutes|hour|hours)\\b|\\b\\d+\\s*(?:min|mins|minm|minute|minutes)\\s*(?:mai|mein)?\\b",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(text)
             relativePattern.findAll(text).forEach { m ->
                 val whenWord = m.groupValues[1].lowercase()
                 val timePart = m.groupValues.getOrNull(2)
+                // If no explicit time was captured and the text already has a "in X min/hours"
+                // duration expression, this day word is only providing event context — skip it.
+                if (timePart.isNullOrBlank() && textHasRelativeDuration) return@forEach
                 val cal = Calendar.getInstance()
                 when (whenWord) {
                     "today", "tonight" -> { /* keep today */ }
@@ -616,6 +589,7 @@ class SmartReminderAI(private val context: Context) {
             // Pattern: numeric date like 05/09 or 5-9 or 2025-09-05 -> try MM/DD or DD/MM where reasonable
             val numericDatePattern = Regex("\\b(\\d{1,4})[/-](\\d{1,2})(?:[/-](\\d{2,4}))?\\b")
             numericDatePattern.findAll(text).forEach { m ->
+                if (!isLikelyNumericDateMatch(text, m)) return@forEach
                 try {
                     val p1 = m.groupValues[1].toIntOrNull() ?: return@forEach
                     val p2 = m.groupValues[2].toIntOrNull() ?: return@forEach
@@ -688,6 +662,28 @@ class SmartReminderAI(private val context: Context) {
         }
 
         return reminders.distinctBy { it.reminderDateTime }.sortedBy { it.reminderDateTime }
+    }
+
+    private fun isLikelyNumericDateMatch(text: String, match: MatchResult): Boolean {
+        val first = match.groupValues[1].toIntOrNull() ?: return false
+        val second = match.groupValues[2].toIntOrNull() ?: return false
+        val third = match.groupValues.getOrNull(3).orEmpty()
+
+        if (third.isNotBlank()) return true
+
+        val contextStart = (match.range.first - 20).coerceAtLeast(0)
+        val contextEnd = (match.range.last + 21).coerceAtMost(text.length)
+        val context = text.substring(contextStart, contextEnd)
+
+        val dateCuePattern = Regex(
+            "\\b(?:on|by|due|before|after|until|till|from|starting|schedule(?:d)?|appointment|meeting|deadline|birthday|anniversary|flight|exam|doctor|dentist|visit|renew|renewal|submit|pay|bill)\\b",
+            RegexOption.IGNORE_CASE
+        )
+
+        return when {
+            first > 12 || second > 12 -> true
+            else -> dateCuePattern.containsMatchIn(context)
+        }
     }
 
     // Parse time strings like "10am", "10:30 pm", "7:15PM" into hour and minute
