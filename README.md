@@ -4,9 +4,6 @@
 
 **SwiftNote** is an offline-first Android note-taking app built with **Kotlin**, **Jetpack Compose**, **Room**, and **Firebase Realtime Database**. It combines private multi-device sync, encrypted note storage, AI-assisted reminder detection, rich text editing, recurring reminders, and fast local-first performance.
 
-> **Namespace:** `com.amvarpvtltd.swiftNote`  
-> **Application ID:** `com.amvarpvtltd.selfnote`  
-> **Current app version:** `2.0.1` (`versionCode 10`)
 
 ---
 
