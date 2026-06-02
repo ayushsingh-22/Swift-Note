@@ -20,10 +20,14 @@ SwiftNote is an offline-first Android note-taking app (package: `com.amvarpvtltd
 app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── ai/
 │   ├── SmartReminderAI.kt          # ML Kit entity extraction + regex fallback
-│   ├── GeminiReminderParser.kt     # Gemini 2.0 Flash reminder parser (user API key, Hinglish, rate-limited)
+│   ├── GeminiReminderParser.kt     # Reminder parser — now routes through LlmService (Gemini or Groq)
 │   ├── SmartEntityDetector.kt      # Unified entity detector: TextClassifier + regex, LRU-cached by noteId
-│   ├── AITitleGenerator.kt         # Gemini multi-model title generator; rotates FREE_MODELS list on quota errors; rate-limited (3/min, 60/day); falls back to AutoTitleGenerator
-│   └── DetectedEntity.kt           # Sealed hierarchy: PhoneNumber, Email, Url, Address, DateTime, Amount, TrackingNumber
+│   ├── AITitleGenerator.kt         # Multi-model title generator — now routes through LlmService; rate-limited (3/min, 60/day); falls back to AutoTitleGenerator
+│   ├── DetectedEntity.kt           # Sealed hierarchy: PhoneNumber, Email, Url, Address, DateTime, Amount, TrackingNumber
+│   ├── LlmService.kt               # **NEW** Unified LLM service (single entry-point for all AI calls); routes to Gemini or Groq based on active key's provider; Gemini rate-limited (5/min, 80/day), Groq rate-limited (30/min, 250/day); 12s timeout; singleton via LlmService.getInstance(context)
+│   ├── LlmProvider.kt              # **NEW** Enum: GEMINI, GROQ + LlmModels object (GEMINI_MODELS, GROQ_MODELS free-tier lists)
+│   ├── GroqClient.kt               # **NEW** Groq REST client (OpenAI-compatible endpoint, java.net only, no extra HTTP lib); free tier: 30 req/min, 14,400 req/day; models: llama-3.3-70b-versatile, llama-3.1-8b-instant, gemma2-9b-it, mixtral-8x7b-32768
+│   └── ReminderIntentAnalyzer.kt   # **NEW** Pre-LLM intent filter; scores sentences for explicit/action/temporal signals (English + Hinglish); use hasReminderIntent() before invoking LlmService to avoid wasted calls
 ├── auth/                           # DeviceIdManager, DeviceManager, PassphraseManager
 │   └── SyncMode.kt                 # Enum: LOCAL_ONLY, CONTINUOUS, ONE_TIME_IMPORTED (persisted via PassphraseManager)
 ├── viewmodel/                      # AddNoteViewModel, NotesViewModel, ViewNoteViewModel
@@ -70,7 +74,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   └── RecurrenceCalculator.kt     # Pure-function next-occurrence calculator (DAILY/WEEKLY/MONTHLY/YEARLY)
 ├── security/
 │   ├── EncryptionUtil.kt           # AES note encryption
-│   ├── GeminiKeyManager.kt         # Multi-key Gemini API key storage in EncryptedSharedPreferences
+│   ├── GeminiKeyManager.kt         # Multi-key LLM API key storage (Gemini + Groq) in EncryptedSharedPreferences; GeminiApiKey now has a `provider` field (LlmProvider.name); use getActiveKeyObject() for provider-aware routing
 │   └── HashUtils.kt                # PBKDF2-HMAC-SHA256 (120k iter) for passphrases; SHA-256 for checksums
 ├── categories/CategoryManager.kt   # Note categories with preset colors
 ├── checklist/ChecklistParser.kt    # Checklist item parsing
@@ -128,18 +132,19 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 1. **Adding a new screen**: Create composable in `design/`, add route in `navbar.kt` NavHost, pass dependencies manually.
 2. **Adding a Room entity**: Create Entity + DAO in `room/`, update `AppDatabase` `@Database(entities=[...])`, increment DB version, add migration in `AppDatabase.kt`.
 3. **Firebase sync**: Always encrypt before writing to Firebase, decrypt after reading. Use the Note model's built-in encryption methods.
-4. **Reminders pipeline**: `SmartReminderAI` (ML Kit regex) or `GeminiReminderParser` (Gemini 2.0 Flash, requires user API key) detects → `ReminderRepository.createReminder()` persists entity → `ReminderScheduler.scheduleReminder()` registers an AlarmManager exact alarm (`setExactAndAllowWhileIdle`, with `setAndAllowWhileIdle` fallback when exact-alarm permission is not granted) → `ReminderReceiver` (BroadcastReceiver) fires → `SystemNotificationHelper` posts the system notification. For recurring reminders, `ReminderReceiver` computes the next occurrence via `RecurrenceCalculator.getNextOccurrence()` and re-inserts a new `ReminderEntity`. `BootReceiver` re-arms all active reminders on `ACTION_BOOT_COMPLETED`.
+4. **Reminders pipeline**: `ReminderIntentAnalyzer.hasReminderIntent(body, title)` pre-screens note text (English + Hinglish signals) before invoking the LLM — skip LLM calls when it returns false. Then: `SmartReminderAI` (ML Kit regex) or `GeminiReminderParser` (routes through `LlmService`, supports Gemini + Groq) detects → `ReminderRepository.createReminder()` persists entity → `ReminderScheduler.scheduleReminder()` registers an AlarmManager exact alarm (`setExactAndAllowWhileIdle`, with `setAndAllowWhileIdle` fallback when exact-alarm permission is not granted) → `ReminderReceiver` (BroadcastReceiver) fires → `SystemNotificationHelper` posts the system notification. For recurring reminders, `ReminderReceiver` computes the next occurrence via `RecurrenceCalculator.getNextOccurrence()` and re-inserts a new `ReminderEntity`. `BootReceiver` re-arms all active reminders on `ACTION_BOOT_COMPLETED`.
 5. **Adding a ViewModel**: Create in `viewmodel/`, extend `AndroidViewModel`, expose state via `StateFlow`, emit one-shot events via `SharedFlow`.
-6. **Gemini API key management**: Keys live only on-device in `EncryptedSharedPreferences` (no developer key bundled). Access via `GeminiKeyManager.getActiveApiKey(context)`. Call `GeminiReminderParser.invalidate()` after the user adds/removes keys. Respect the 15-calls/minute free-tier rate limit already enforced in `GeminiReminderParser`.
+6. **LLM/AI key management**: All AI calls now go through `LlmService.getInstance(context).generateText(prompt)` — it automatically routes to Gemini or Groq based on the active key's `provider` field. Keys (both Gemini `AIza...` and Groq `gsk_...`) live only on-device in `EncryptedSharedPreferences` via `GeminiKeyManager`. Call `LlmService.invalidate()` after the user adds/removes/changes keys. Rate limits are provider-specific: Gemini (5/min, 80/day), Groq (30/min, 250/day). `GeminiKeyManager.getActiveKeyObject(context)` returns `GeminiApiKey` with `.provider` for direct provider-aware routing. `LlmService.isAvailable()` returns false when no key is configured.
 7. **Smart Action Chips**: `SmartEntityDetector.analyze(context, text, noteId)` returns `List<DetectedEntity>`; pass to `SmartActionChipRow` composable. Invalidate the note's cache entry with `SmartEntityDetector.invalidateCache(noteId)` on every save.
-8. **Auto title generation**: Two-tier pipeline — `AITitleGenerator.getInstance(context).generate(description)` (suspend, Gemini multi-model with rotation) falls back automatically to `AutoTitleGenerator.generate(description)` (sync, 8-strategy rule-based, offline-safe). Use `AutoTitleGenerator` directly for live suggestion chips (instant, no coroutine needed). `AITitleGenerator.isAvailable()` returns false when no Gemini key is set.
+8. **Auto title generation**: Two-tier pipeline — `AITitleGenerator.getInstance(context).generate(description)` (suspend, routes through `LlmService` with multi-model rotation for both Gemini and Groq) falls back automatically to `AutoTitleGenerator.generate(description)` (sync, 8-strategy rule-based, offline-safe). Use `AutoTitleGenerator` directly for live suggestion chips (instant, no coroutine needed). `AITitleGenerator.isAvailable()` returns false when no LLM key is set.
 9. **Theme switching**: Set theme reactively via `AppThemeState.setTheme(context, ThemeMode.DARK/LIGHT/SYSTEM)`; observe via `AppThemeState.themeMode.collectAsState()`. Never call `ThemeManager` directly from UI — always go through `AppThemeState`.
 
 ## External Services
 
 - **Firebase**: Realtime Database (note sync), Auth (anonymous), Firestore, Crashlytics, Analytics
-- **Google AI (Gemini)**: `generativeai:0.9.0`, model `gemini-2.0-flash`. No developer key bundled — user provides their own free key via AI Settings; stored via `GeminiKeyManager` in `EncryptedSharedPreferences`. Multi-key support with usage tracking and rotation.
-- **ML Kit**: `entity-extraction:16.0.0-beta5` for NLP reminder detection
+- **Google AI (Gemini)**: `generativeai:0.9.0`, models rotated from `LlmModels.GEMINI_MODELS` (gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash, etc.). No developer key bundled — user provides their own free key via AI Settings; stored via `GeminiKeyManager` in `EncryptedSharedPreferences`. Multi-key support with usage tracking and rotation.
+- **Groq**: REST client (`GroqClient.kt`, no extra HTTP lib) using OpenAI-compatible endpoint. Free tier: 30 req/min, 14,400 req/day. User provides `gsk_...` key via AI Settings; stored alongside Gemini keys in `GeminiKeyManager`.
+- **ML Kit**: `entity-extraction:16.0.0-beta6` for NLP reminder detection
 - **CameraX + ML Kit Barcode**: QR code scanning for device pairing
 - **ZXing**: QR code generation
 - **Glance**: App widget framework (`QuickNoteWidget`) for home screen quick capture

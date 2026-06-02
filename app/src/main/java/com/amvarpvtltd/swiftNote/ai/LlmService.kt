@@ -35,8 +35,14 @@ class LlmService private constructor(private val context: Context) {
         private const val KEY_DAY = "daily_call_date"
         private const val KEY_DAY_COUNT = "daily_call_count"
 
-        private const val MAX_CALLS_PER_MINUTE = 5
-        private const val MAX_CALLS_PER_DAY = 80
+        // Gemini free-tier limits
+        private const val GEMINI_MAX_PER_MINUTE = 5
+        private const val GEMINI_MAX_PER_DAY    = 80
+
+        // Groq free-tier limits
+        private const val GROQ_MAX_PER_MINUTE = 30
+        private const val GROQ_MAX_PER_DAY    = 250
+
         private const val TIMEOUT_MS = 12_000L
 
         private val callTimestamps = mutableListOf<Long>()
@@ -364,9 +370,13 @@ class LlmService private constructor(private val context: Context) {
     }
 
     private fun canMakeCall(): Boolean {
+        val provider = getActiveProvider()
+        val maxPerMinute = if (provider == LlmProvider.GROQ) GROQ_MAX_PER_MINUTE else GEMINI_MAX_PER_MINUTE
+        val maxPerDay    = if (provider == LlmProvider.GROQ) GROQ_MAX_PER_DAY    else GEMINI_MAX_PER_DAY
+
         val now = System.currentTimeMillis()
         callTimestamps.removeAll { now - it > 60_000 }
-        if (callTimestamps.size >= MAX_CALLS_PER_MINUTE) return false
+        if (callTimestamps.size >= maxPerMinute) return false
 
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val savedDay = prefs.getString(KEY_DAY, "")
@@ -376,7 +386,7 @@ class LlmService private constructor(private val context: Context) {
             0
         }
 
-        return dayCount < MAX_CALLS_PER_DAY
+        return dayCount < maxPerDay
     }
 
     private fun recordCall() {
