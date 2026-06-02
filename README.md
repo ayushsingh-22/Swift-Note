@@ -1,245 +1,313 @@
-# [SwiftNote - Smart Note Taking App](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
+# [SwiftNote - Offline-First Smart Notes for Android](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
 
 [![Get it on Google Play](https://img.shields.io/badge/Get%20it%20on-Google%20Play-green?logo=google-play)](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
 
-**SwiftNote** is a modern, intelligent, and offline-first note-taking Android application built with **Jetpack Compose**. It combines clean UI/UX with powerful AI-driven reminders, making note-taking not just easier but smarter. Whether you’re writing down quick thoughts, managing tasks, or setting time-sensitive reminders, SwiftNote ensures everything stays organized and accessible anytime, even without an internet connection.
+**SwiftNote** is an offline-first Android note-taking app built with **Kotlin**, **Jetpack Compose**, **Room**, and **Firebase Realtime Database**. It combines private multi-device sync, encrypted note storage, AI-assisted reminder detection, rich text editing, recurring reminders, and fast local-first performance.
+
+> **Namespace:** `com.amvarpvtltd.swiftNote`  
+> **Application ID:** `com.amvarpvtltd.selfnote`  
+> **Current app version:** `2.0.1` (`versionCode 10`)
 
 ---
 
-## ✨ Features
+## ✨ What SwiftNote currently includes
 
-### 📱 Modern UI/UX
+### 📝 Notes, writing, and organization
 
-* Built **entirely with Jetpack Compose**, offering declarative and reactive UI.
-* Designed using **Material Design 3 principles**, ensuring a consistent, beautiful user experience.
-* Smooth animations and intuitive transitions make the app feel lively and responsive.
-* Optimized **responsive layouts** for mobile devices of different screen sizes.
-* **Light & Dark theme support**, adapting seamlessly to user preferences.
+- Create, edit, archive, pin, search, and delete notes.
+- Rich text note editing and display using `compose-rich-editor` with HTML as the storage format.
+- Checklist-friendly note flows and quick note creation.
+- Categories and note color tagging.
+- “Today” / Daily Review screen for reminders and recent activity.
+- Share text into SwiftNote from other apps using `ShareReceiverActivity`.
+- Home screen quick-capture widget built with Glance.
 
-### 📝 Powerful Note Management
+### 🤖 AI features
 
-* Create, edit, and delete notes with ease.
-* **Rich text formatting support** for bold, italic, and underline styles.
-* **Character counter with progress indicators** for focused writing.
-* Built-in validation for title and content ensures structured note-taking.
-* **Offline-first data persistence** ensures no data loss when connectivity drops.
+- **AI reminder detection** while writing notes.
+- **Tiered reminder pipeline**:
+  1. User-provided **Gemini** or **Groq** key via `LlmService`
+  2. On-device **ML Kit Entity Extraction**
+  3. Regex fallback for English and Hinglish-style date/time phrases
+- **Reminder intent pre-filtering** to avoid unnecessary LLM calls.
+- **AI title generation** with offline fallback when no AI key is configured.
+- **Smart Action Chips** for detected entities like links, phone numbers, email addresses, dates, addresses, and amounts.
 
-### 🤖 AI-Powered Smart Reminders
+### ⏰ Reminder system
 
-* Integrated with **Google ML Kit** for on-device NLP (Natural Language Processing).
-* Automatic **reminder detection** from text content — no need to manually add reminders.
-* Supports both **English and Hinglish**, recognizing dates and times in natural language.
-* Can detect **multiple reminders** within a single note.
-* Suggests reminders contextually while writing notes.
+- One-time and recurring reminders.
+- Daily, weekly, monthly, and yearly recurrence support.
+- Exact alarm scheduling with Android 12+ permission handling.
+- Boot-time reminder re-registration after device restart or app update.
+- System notifications for reminders and note deep-linking.
+- Works offline; alarms are scheduled locally on-device.
 
-### ⏰ Advanced Reminder Features
+### 🔐 Privacy, sync, and offline-first behavior
 
-* Flexible scheduling options for reminders.
-* Quick preset shortcuts (10min, 30min, 1hour, 1day) for convenience.
-* **Custom date and time picker** for precise scheduling.
-* Persistent **system notifications** for important tasks.
-* **Snooze functionality** for delaying tasks when needed.
-* Reminders work fully **offline**, syncing when internet returns.
-
-### 🔄 Offline-First Architecture
-
-* Notes are available offline at all times.
-* **Background sync** keeps data consistent across devices.
-* Smart **conflict resolution** ensures no overwriting when multiple updates happen.
-
-### 📲 Device Sync via Device ID & QR Code
-
-* Seamlessly **sync notes across multiple devices** without requiring an account.
-* Each installation generates a unique **Device ID** that can be securely shared.
-* Quickly link devices by **scanning a QR code**, enabling instant pairing.
-* Works fully offline-first, with background sync resuming when internet connectivity is available.
-* Ensures secure, private, and anonymous syncing between your personal devices.
+- Room is the source of truth; writes happen locally first.
+- Notes are encrypted for persistence and before remote sync.
+- Multi-device sync uses a **passphrase-based identity model**, not a traditional email/password account system.
+- QR-based device pairing and manual passphrase restore flows.
+- Sync modes support:
+  - `LOCAL_ONLY`
+  - `CONTINUOUS`
+  - `ONE_TIME_IMPORTED`
+- Firebase Anonymous Auth is used only to satisfy backend rules; it is **not** the user identity model.
 
 ---
 
-## 🛠️ Technical Highlights
+## 🏗️ Architecture
 
-### 🏗️ Architecture
+SwiftNote follows an **MVVM + Repository** approach:
 
-* **MVVM (Model-View-ViewModel)** for clear separation of concerns.
-* **Repository pattern** for data handling and abstraction.
-* **Coroutines** for asynchronous tasks with structured concurrency.
-* **StateFlow** for real-time, reactive UI updates.
-* Dependency Injection with **Hilt** (expandable for future scaling).
-* **Device Sync Module** for managing unique Device IDs, QR code generation, and secure device-to-device linking.
+- **UI:** Jetpack Compose screens and reusable components
+- **State:** `StateFlow` + `SharedFlow`
+- **ViewModels:** `AddNoteViewModel`, `NotesViewModel`, `ViewNoteViewModel`
+- **Persistence:** Room (`AppDatabase`, DB version `8`)
+- **Sync:** Firebase Realtime Database with offline-first sync behavior
+- **Encryption:** note content is encrypted/decrypted through the `Note` model and mapper layer
+- **Dependency management:** manual instantiation / singletons; **no Hilt/Dagger in the current codebase**
 
-### ⚙️ Technologies Used
+Core data flow:
 
-* **Kotlin** — primary development language.
-* **Jetpack Compose** — modern UI toolkit.
-* **Room Database** — local persistence layer.
-* **ML Kit** — natural language entity extraction for reminders.
-* **WorkManager** — background processing and sync tasks.
-* **AndroidX Libraries** — lifecycle-aware, robust components.
-* **ZXing / ML Kit Barcode** — QR code generation and scanning for device linking.
-
-### 💡 Smart AI Features
-
-* On-device processing ensures **privacy and security** of user data.
-* Recognizes natural date/time expressions like *“tomorrow at 5pm”* or *“next Monday”*.
-* Handles **context-aware scenarios**, like differentiating *“Meeting at 3”* vs *“Finish report by 3”*.
-* Intelligent formatting detection makes notes consistent without manual effort.
-
----
-
-## 📂 Project Structure
-
+```text
+Compose UI → ViewModel → Repository → Room (local first) → Firebase sync (background)
 ```
-SwiftNote/
+
+---
+
+## 🧠 AI and reminder pipeline
+
+SwiftNote’s reminder stack is more advanced than a single NLP call:
+
+1. `ReminderIntentAnalyzer` checks whether the note actually looks like a reminder.
+2. `SmartReminderAI` tries to extract reminder candidates.
+3. If configured, `LlmService` routes requests to the active AI provider:
+   - **Gemini**
+   - **Groq**
+4. If cloud AI is unavailable, the app falls back to **ML Kit** and then regex-based extraction.
+5. Accepted reminders are persisted in Room and scheduled through AlarmManager.
+6. Recurring reminders compute the next occurrence and re-schedule themselves.
+
+AI keys are **user-supplied** and stored securely in `EncryptedSharedPreferences`. No Gemini or Groq key is bundled with the app.
+
+---
+
+## 📲 Navigation routes
+
+The app uses a single-activity Compose navigation graph defined in `navbar.kt`.
+
+| Route | Screen |
+|---|---|
+| `onboarding` | First-run onboarding / restore options |
+| `main` | Notes list |
+| `addscreen` | Create note |
+| `addscreen/{noteId}` | Edit note |
+| `viewnote/{noteId}` | View note |
+| `syncSettings` | Sync and passphrase settings |
+| `offlineSyncScreen` | Device pairing / sync status |
+| `aiSettings` | Gemini/Groq key management |
+| `archive` | Archived notes |
+| `today` | Daily review / today’s reminders |
+
+---
+
+## ⚙️ Tech stack
+
+| Area | Current setup |
+|---|---|
+| Language | Kotlin `2.2.10` |
+| Android Gradle Plugin | `9.2.1` |
+| UI | Jetpack Compose (BOM `2024.12.01`) |
+| Material | Material 3 + Compose Material |
+| Local database | Room `2.7.1` |
+| Cloud sync | Firebase Realtime Database |
+| Auth model | Firebase Anonymous Auth + passphrase identity |
+| AI providers | Gemini (`0.9.0`) and Groq via custom REST client |
+| On-device NLP | ML Kit Entity Extraction `16.0.0-beta6` |
+| Background work | WorkManager `2.10.0` |
+| QR scanning | CameraX + ML Kit Barcode |
+| QR generation | ZXing |
+| Secure storage | AndroidX Security Crypto |
+| Widget | Glance `1.1.1` |
+| Rich text | `richeditor-compose 1.0.0-rc14` |
+| HTML processing | Jsoup `1.18.1` |
+
+---
+
+## 🗂️ Project structure
+
+```text
+Swift-Note/
+├── AGENTS.md
+├── AUTHENTICATION_FLOW.md
 ├── app/
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/amvarpvtltd/selfnote/
-│   │   │   │   ├── ai/
-│   │   │   │   │   └── SmartReminderAI.kt        # AI-powered reminder detection
-│   │   │   │   ├── components/
-│   │   │   │   │   └── ReminderComponents.kt     # Reusable UI elements
-│   │   │   │   ├── design/
-│   │   │   │   │   └── add_Note.kt              # Note creation & editing screen
-│   │   │   │   ├── notifications/
-│   │   │   │   │   └── NotificationHelper.kt     # Notification manager
-│   │   │   │   └── reminders/
-│   │   │   │       └── ReminderManager.kt        # Reminder scheduling system
-│   │   │   ├── res/                              # Resources (icons, fonts, values)
-│   │   │   └── AndroidManifest.xml
-│   │   ├── androidTest/                          # Instrumentation tests
-│   │   └── test/                                 # Unit tests
 │   ├── build.gradle.kts
-│   └── proguard-rules.pro
+│   └── src/
+│       ├── main/
+│       │   ├── AndroidManifest.xml
+│       │   └── java/com/amvarpvtltd/swiftNote/
+│       │       ├── ai/                 # Reminder detection, LLM routing, title generation
+│       │       ├── auth/               # Device ID, passphrase, sync modes
+│       │       ├── categories/         # Category and color helpers
+│       │       ├── components/         # Reusable Compose UI pieces
+│       │       ├── design/             # App screens
+│       │       ├── notifications/      # Notification posting/actions
+│       │       ├── offline/            # Offline note state management
+│       │       ├── reminders/          # Reminder entities, repository, recurrence logic
+│       │       ├── repository/         # Note repository + sync orchestration
+│       │       ├── richtext/           # HTML sanitizing and plain-text conversion
+│       │       ├── room/               # Room entities, DAO, DB, mapper
+│       │       ├── security/           # Encryption, key storage, hashing
+│       │       ├── share/              # Share-to-app capture flow
+│       │       ├── sync/               # Cross-device sync logic
+│       │       ├── viewmodel/          # MVVM view models
+│       │       └── widget/             # Glance app widget
+│       ├── test/                       # Unit tests
+│       └── androidTest/                # Instrumented tests
 ├── gradle/
 │   └── libs.versions.toml
-├── build.gradle.kts
-└── settings.gradle.kts
+└── build.gradle.kts
 ```
 
 ---
 
-## 📱 Screenshots  
+## 📱 Screenshots
 
 <table>
   <tr>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/f9b4800a-81d3-46fa-bc6d-2a4a97f2ec13" /></td>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/449e5270-8e63-4933-a4d5-dcdac85aeaf9" /></td>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/a773dedb-8159-4731-a1c4-973fa0e3ee82" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 1" src="https://github.com/user-attachments/assets/f9b4800a-81d3-46fa-bc6d-2a4a97f2ec13" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 2" src="https://github.com/user-attachments/assets/449e5270-8e63-4933-a4d5-dcdac85aeaf9" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 3" src="https://github.com/user-attachments/assets/a773dedb-8159-4731-a1c4-973fa0e3ee82" /></td>
   </tr>
   <tr>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/9027efac-7541-4fec-bbc1-8bf634122703" /></td>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/e9db5c02-b1ea-4bea-a69a-d523cc1bdfc5" /></td>
-    <td><img width="230" height="510" alt="5 1" src="https://github.com/user-attachments/assets/bb4ebcd7-a476-4d15-889e-8637331864b6" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 4" src="https://github.com/user-attachments/assets/9027efac-7541-4fec-bbc1-8bf634122703" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 5" src="https://github.com/user-attachments/assets/e9db5c02-b1ea-4bea-a69a-d523cc1bdfc5" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot" src="https://github.com/user-attachments/assets/bb4ebcd7-a476-4d15-889e-8637331864b6" /></td>
   </tr>
   <tr>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/7cbf1a6a-8f77-414b-a8a4-0933e4fb93e7" /></td>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/41f2e952-3ba1-4f6d-9c99-125ad13a2472" /></td>
-    <td><img width="230" height="510" src="https://github.com/user-attachments/assets/9e940054-0089-4ba7-9fbb-4970b150585f" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 7" src="https://github.com/user-attachments/assets/7cbf1a6a-8f77-414b-a8a4-0933e4fb93e7" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 8" src="https://github.com/user-attachments/assets/41f2e952-3ba1-4f6d-9c99-125ad13a2472" /></td>
+    <td><img width="230" height="510" alt="SwiftNote screenshot 9" src="https://github.com/user-attachments/assets/9e940054-0089-4ba7-9fbb-4970b150585f" /></td>
   </tr>
 </table>
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
-### Prerequisites
+### Requirements
 
-* Android Studio **Arctic Fox (or newer)**.
-* **Minimum SDK:** 21 (Android 5.0 Lollipop).
-* **Target SDK:** 34.
-* Kotlin version: **1.9.x or newer**.
+- Android Studio with recent Compose/AGP support
+- JDK `11`
+- Android SDK `36`
+- **minSdk:** `31`
+- **targetSdk:** `36`
+- Kotlin `2.2.10`
 
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-    git clone https://github.com/ayushsingh-22/SwiftNote.git
-   ```
-
-   👉 [Click here to view the repository](https://github.com/ayushsingh-22/SwiftNote.git)
-   
-3. Open the project in **Android Studio**.
-4. Sync Gradle dependencies.
-5. Run the app on a physical device or emulator.
-
-### Building from Source
-
-* **From Android Studio:**
-
-  * Select *Build > Make Project*.
-  * Click ▶️ (Run) to launch.
-* **From CLI:**
-
-  ```bash
-  ./gradlew assembleDebug    # Debug build
-  ./gradlew assembleRelease  # Release build
-  ```
-
-### Testing
+### Clone the repository
 
 ```bash
-./gradlew test            # Unit tests
-./gradlew connectedCheck  # Instrumented tests
+git clone https://github.com/ayushsingh-22/Swift-Note.git
+cd Swift-Note
+```
+
+### Open and run
+
+1. Open the project in Android Studio.
+2. Let Gradle sync.
+3. Run on an emulator or physical device with Android 12+.
+
+### Build from the command line
+
+**macOS / Linux**
+
+```bash
+./gradlew assembleDebug
+./gradlew assembleRelease
+```
+
+**Windows PowerShell**
+
+```powershell
+.\gradlew.bat assembleDebug
+.\gradlew.bat assembleRelease
+```
+
+### Run tests
+
+**macOS / Linux**
+
+```bash
+./gradlew test
+./gradlew connectedCheck
+```
+
+**Windows PowerShell**
+
+```powershell
+.\gradlew.bat test
+.\gradlew.bat connectedCheck
 ```
 
 ---
 
-## 📄 License
+## 🧪 Testing stack
 
-This project is licensed under the **\[MIT License]** — see the LICENSE file for details.
+The project includes unit tests around encryption, recurrence logic, search/sort behavior, sync-related utilities, rich text sanitization, and AI reminder intent handling.
+
+Main test tooling in the project:
+
+- JUnit 4
+- Mockito + Mockito-Kotlin
+- `kotlinx-coroutines-test`
+- Turbine
+- Robolectric
+
+---
+
+## 🔑 AI setup notes
+
+- SwiftNote does **not** ship with a Gemini or Groq API key.
+- Users can add their own keys from the in-app **AI Settings** screen.
+- Keys are stored on-device using `EncryptedSharedPreferences`.
+- If no AI key is configured, reminder detection still falls back to on-device and regex-based logic.
+
+---
+
+## 📚 Additional docs in this repository
+
+- `AGENTS.md` — project architecture, conventions, and implementation notes
+- `AUTHENTICATION_FLOW.md` — detailed passphrase-based identity and sync behavior
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here’s how you can help:
+Contributions are welcome. If you plan to change architecture or storage/sync behavior, review `AGENTS.md` and `AUTHENTICATION_FLOW.md` first so new changes stay aligned with the existing app model.
 
-1. Fork the repository.
-2. Create a new feature branch:
+General guidelines:
 
-   ```bash
-   git checkout -b feature/AmazingFeature
-   ```
-3. Commit your changes:
-
-   ```bash
-   git commit -m "Add AmazingFeature"
-   ```
-4. Push the branch:
-
-   ```bash
-   git push origin feature/AmazingFeature
-   ```
-5. Open a Pull Request.
-
-**Contribution Guidelines:**
-
-* Follow official **Kotlin coding conventions**.
-* Use clear, meaningful names for variables and functions.
-* Add comments for non-trivial logic.
-* Ensure new features are covered with **unit tests**.
+- Follow Kotlin and Compose conventions already used in the project.
+- Preserve the offline-first Room → Firebase flow.
+- Keep note encryption intact when touching persistence or sync code.
+- Add or update tests for non-trivial logic changes.
 
 ---
 
-## 🙏 Acknowledgments
+## 📌 Notes
 
-* **Google’s ML Kit** — natural language AI.
-* **Jetpack Compose** — modern UI toolkit.
-* **Material Design 3** — for visual consistency.
-* **Android Architecture Components** — lifecycle-aware building blocks.
+- The repository currently does **not** include a `LICENSE` file, so no license is declared here.
+- Some Firebase services are present in the build for app features and telemetry, including Realtime Database, Auth, Firestore, Crashlytics, and Analytics.
 
 ---
 
 ## 📞 Contact
 
-* Author: [**Ayush Kumar**](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
-* Project Repository: [**Repository**](https://github.com/ayushsingh-22/Swift-Note)
-* LinkedIn: [**Ayush Kumar**](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
+- Author: [**Ayush Kumar**](https://www.linkedin.com/in/ayush-kumar-a2880a258/)
+- Repository: [**Swift-Note**](https://github.com/ayushsingh-22/Swift-Note)
+- Play Store: [**SwiftNote**](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
 
 ---
-
-💡 *SwiftNote is built with love and care to make note-taking simpler, faster, and smarter.*
 
 Made with ❤️ using **Jetpack Compose**.
