@@ -280,7 +280,12 @@ class SmartReminderAI(private val context: Context) {
             }
         }
 
-        return reminders.distinctBy { it.reminderDateTime }.sortedBy { it.reminderDateTime }
+        // Bucket by minute so ML Kit overlapping annotations for the same phrase
+        // (e.g. "in 2 min", "2 min", "2") collapse to a single reminder even when
+        // their timestampMillis differ by sub-second drift.
+        return reminders
+            .distinctBy { it.reminderDateTime / 60_000L }
+            .sortedBy { it.reminderDateTime }
     }
     private fun processDateTimeEntity(entity: DateTimeEntity): Long? {
         return try {
@@ -688,7 +693,11 @@ class SmartReminderAI(private val context: Context) {
             Log.e(TAG, "❌ Error in regexFallbackForReminders", ex)
         }
 
-        return reminders.distinctBy { it.reminderDateTime }.sortedBy { it.reminderDateTime }
+        // Bucket by minute so overlapping patterns (e.g. "in 2 min" hit by both
+        // `minuteVariants` and `inMinutesPattern`) collapse to a single reminder.
+        return reminders
+            .distinctBy { it.reminderDateTime / 60_000L }
+            .sortedBy { it.reminderDateTime }
     }
 
     private fun isLikelyNumericDateMatch(text: String, match: MatchResult): Boolean {

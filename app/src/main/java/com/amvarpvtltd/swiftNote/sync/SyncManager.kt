@@ -7,6 +7,7 @@ import com.amvarpvtltd.swiftNote.dataclass
 import com.amvarpvtltd.swiftNote.isBlank
 import com.amvarpvtltd.swiftNote.isDecryptFailed
 import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
+import com.amvarpvtltd.swiftNote.reminders.isDecryptFailed
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import com.amvarpvtltd.swiftNote.security.EncryptionUtil
@@ -222,12 +223,26 @@ object SyncManager {
 
                 // Process reminders
                 if (remindersSnapshot.exists()) {
+                    val reminderKeyCandidates = listOfNotNull(
+                        currentPassphrase,
+                        sourcePassphrase,
+                        myGlobalMobileDeviceId
+                    ).filter { it.isNotEmpty() }.distinct()
+
                     for (reminderChild in remindersSnapshot.children) {
                         try {
                             val reminderData = reminderChild.getValue(ReminderEntity::class.java)
                             if (reminderData != null) {
-                                reminderDao.insertReminder(reminderData)
-                                Log.d(TAG, "Synced reminder: ${reminderData.noteTitle}")
+                                val decryptedReminder = ReminderEntity.fromEncryptedData(
+                                    reminderData,
+                                    reminderKeyCandidates
+                                )
+                                if (decryptedReminder.isDecryptFailed()) {
+                                    Log.w(TAG, "Skipping reminder ${reminderData.id} — decryption failed for all keys")
+                                } else {
+                                    reminderDao.insertReminder(decryptedReminder)
+                                    Log.d(TAG, "Synced reminder: ${decryptedReminder.noteTitle}")
+                                }
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to sync reminder: ${reminderChild.key}", e)
@@ -323,7 +338,16 @@ object SyncManager {
 
                 val remindersRef = userRef.child("reminders")
                 for (reminder in localReminders) {
-                    remindersRef.child(reminder.id).setValue(reminder).await()
+                    val encryptedReminder = try {
+                        reminder.toEncryptedData(passphrase)
+                    } catch (e: IllegalArgumentException) {
+                        Log.w(TAG, "Skipping reminder ${reminder.id}: ${e.message}")
+                        continue
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to encrypt reminder ${reminder.id}, skipping upload", e)
+                        continue
+                    }
+                    remindersRef.child(reminder.id).setValue(encryptedReminder).await()
                 }
 
                 userRef.child("lastSyncAt").setValue(System.currentTimeMillis()).await()

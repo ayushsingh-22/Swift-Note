@@ -315,13 +315,30 @@ class ReminderManager private constructor(private val context: Context) {
 
     /**
      * Create a reminder from AI detection
-     * This is a convenience method that wraps scheduleReminder with proper error handling
+     * This is a convenience method that wraps scheduleReminder with proper error handling.
+     *
+     * Safety net: refuses to schedule if the same note already has an active reminder
+     * firing in the same minute bucket. This is the last line of defense against
+     * duplicate detections from ML Kit overlapping annotations, regex overlap,
+     * LLM hallucinations, or double-saves.
      */
     suspend fun createReminderFromDetection(
         detectedReminder: DetectedReminder,
         noteId: String
     ): Boolean {
         return try {
+            val targetBucket = detectedReminder.reminderDateTime / 60_000L
+            val existing = try {
+                reminderDao.getRemindersForNote(noteId)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val duplicate = existing.any { it.reminderTime / 60_000L == targetBucket }
+            if (duplicate) {
+                Log.d(TAG, "⏭️ Skipping duplicate reminder for note $noteId at bucket $targetBucket")
+                return true // Treat as success — the user's intent is already satisfied
+            }
+
             val result = scheduleReminder(detectedReminder, noteId)
             result.isSuccess
         } catch (e: Exception) {

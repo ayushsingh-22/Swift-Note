@@ -145,90 +145,219 @@ private val HTML_TAG_REGEX = Regex("<[^>]+>")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddScreen(navController: NavHostController, noteId: String?) {
+fun AddScreen(
+    navController: NavHostController,
+    noteId: String?
+) {
     val dims = rememberResponsiveDimensions()
     var title by remember { mutableStateOf("") }
     // Phase 2: description migrated to RichTextState (compose-rich-editor library)
     val richTextState = rememberRichTextState()
-    var isLoading by remember { mutableStateOf(false) }
-    var isSaving by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showBackDialog by remember { mutableStateOf(false) }
+    var isLoading by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var isSaving by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var showDeleteDialog by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var showBackDialog by remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     // Smart Reminders state
-    var detectedReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
-    var pendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
+    var detectedReminders by remember {
+        mutableStateOf<List<DetectedReminder>>(
+            emptyList()
+        )
+    }
+    var pendingReminders by remember {
+        mutableStateOf<List<DetectedReminder>>(
+            emptyList()
+        )
+    }
     // Reminders explicitly confirmed by the user via "Set" chip on a NEW note (not yet saved).
     // These are carried forward and created at save time alongside pendingReminders.
-    var confirmedPendingReminders by remember { mutableStateOf<List<DetectedReminder>>(emptyList()) }
-    var isAnalyzingText by remember { mutableStateOf(false) }
+    var confirmedPendingReminders by remember {
+        mutableStateOf<List<DetectedReminder>>(
+            emptyList()
+        )
+    }
+    var isAnalyzingText by remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     // Permission state for notification/alarm access (Phase 0.2: point-of-use)
-    var showPermissionRationale by remember { mutableStateOf(false) }
-    var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
-    var pendingReminderAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showPermissionRationale by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var missingPermissionType by remember {
+        mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(
+            null
+        )
+    }
+    var pendingReminderAction by remember {
+        mutableStateOf<(() -> Unit)?>(
+            null
+        )
+    }
     // True when the permission sheet was triggered from saveNote() (not from a "Set" chip tap)
-    var isSaveReminderPending by remember { mutableStateOf(false) }
+    var isSaveReminderPending by remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     // Phase 1: Checklist mode state
-    var isChecklistMode by remember { mutableStateOf(false) }
-    var checklistItems by remember { mutableStateOf(listOf(ChecklistItem(order = 0))) }
-    var focusedItemIndex by remember { mutableStateOf(-1) }
+    var isChecklistMode by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var checklistItems by remember {
+        mutableStateOf(
+            listOf(ChecklistItem(order = 0))
+        )
+    }
+    var focusedItemIndex by remember {
+        mutableStateOf(
+            -1
+        )
+    }
     // Phase 4: Category state
-    var selectedCategory by remember { mutableStateOf("") }
+    var selectedCategory by remember {
+        mutableStateOf(
+            ""
+        )
+    }
     // Phase 2: Toolbar focus + preview mode
-    var descriptionFocused by remember { mutableStateOf(false) }
-    var isPreviewMode by remember { mutableStateOf(false) }
+    var descriptionFocused by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var isPreviewMode by remember {
+        mutableStateOf(
+            false
+        )
+    }
     // Formatted preview states (when clipboard HTML is pasted)
-    var titleFormatted by remember { mutableStateOf<AnnotatedString?>(null) }
+    var titleFormatted by remember {
+        mutableStateOf<AnnotatedString?>(
+            null
+        )
+    }
     // Preserve original HTML (if pasted) so we can save/load formatted content
-    var titleHtml by remember { mutableStateOf<String?>(null) }
+    var titleHtml by remember {
+        mutableStateOf<String?>(
+            null
+        )
+    }
 
     val context = LocalContext.current
-    val noteRepository = remember { NoteRepository(context) }
-    val reminderManager = remember { ReminderManager.getInstance(context) }
-    val smartReminderAI = remember { SmartReminderAI.getInstance(context) }
+    val noteRepository =
+        remember { NoteRepository(context) }
+    val reminderManager = remember {
+        ReminderManager.getInstance(context)
+    }
+    val smartReminderAI = remember {
+        SmartReminderAI.getInstance(context)
+    }
     val scope = rememberCoroutineScope()
-    val titleFocusRequester = remember { FocusRequester() }
-    val hapticFeedback = LocalHapticFeedback.current
-    var categoryOptions by remember { mutableStateOf(com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(context)) }
-    var showCustomCategoryDialog by remember { mutableStateOf(false) }
-    var customCategoryName by remember { mutableStateOf("") }
+    val titleFocusRequester =
+        remember { FocusRequester() }
+    val hapticFeedback =
+        LocalHapticFeedback.current
+    var categoryOptions by remember {
+        mutableStateOf(
+            com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(
+                context
+            )
+        )
+    }
+    var showCustomCategoryDialog by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var customCategoryName by remember {
+        mutableStateOf(
+            ""
+        )
+    }
     var customCategoryColor by remember {
         mutableStateOf(com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.first())
     }
 
     val isEditing = noteId != null
     // Performance: derivedStateOf prevents recomposition unless the derived value actually changes
-    val canSave by remember { derivedStateOf {
-        if (isChecklistMode) {
-            checklistItems.any { it.text.isNotBlank() } &&
-                (title.trim().length >= Constants.MIN_CONTENT_LENGTH ||
-                    AutoTitleGenerator.canGenerateTitle(ChecklistParser.serializeItems(checklistItems)))
-        } else {
-            ValidationUtils.canSaveNote(title, richTextState.annotatedString.text)
+    val canSave by remember {
+        derivedStateOf {
+            if (isChecklistMode) {
+                checklistItems.any { it.text.isNotBlank() } &&
+                        (title.trim().length >= Constants.MIN_CONTENT_LENGTH ||
+                                AutoTitleGenerator.canGenerateTitle(
+                                    ChecklistParser.serializeItems(
+                                        checklistItems
+                                    )
+                                ))
+            } else {
+                ValidationUtils.canSaveNote(
+                    title,
+                    richTextState.annotatedString.text
+                )
+            }
         }
-    } }
-    val hasContent by remember { derivedStateOf {
-        title.trim().isNotEmpty() || richTextState.annotatedString.text.trim().isNotEmpty() ||
-            (isChecklistMode && checklistItems.any { it.text.isNotBlank() })
-    } }
+    }
+    val hasContent by remember {
+        derivedStateOf {
+            title.trim()
+                .isNotEmpty() || richTextState.annotatedString.text.trim()
+                .isNotEmpty() ||
+                    (isChecklistMode && checklistItems.any { it.text.isNotBlank() })
+        }
+    }
 
     // Theme management
-    val themeState = com.amvarpvtltd.swiftNote.theme.rememberThemeState()
+    val themeState =
+        com.amvarpvtltd.swiftNote.theme.rememberThemeState()
     var currentTheme by themeState
 
     // Scroll state for reading progress indicator
     val scrollState = rememberScrollState()
-    val scrollFraction = if (scrollState.maxValue > 0)
-        scrollState.value.toFloat() / scrollState.maxValue.toFloat() else 0f
+    val scrollFraction =
+        if (scrollState.maxValue > 0)
+            scrollState.value.toFloat() / scrollState.maxValue.toFloat() else 0f
     val animatedScrollProgress by animateFloatAsState(
-        targetValue = scrollFraction, animationSpec = tween(150), label = "scroll_progress"
+        targetValue = scrollFraction,
+        animationSpec = tween(150),
+        label = "scroll_progress"
     )
 
     // Staggered entrance animations
-    var heroVisible by remember { mutableStateOf(false) }
-    var contentVisible by remember { mutableStateOf(false) }
+    var heroVisible by remember {
+        mutableStateOf(
+            false
+        )
+    }
+    var contentVisible by remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     LaunchedEffect(isLoading) {
         if (!isLoading) {
@@ -240,22 +369,54 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     }
 
     // Performance: derivedStateOf for progress calculations - only recomputes when title/description length changes
-    val titleProgress by remember { derivedStateOf { UIUtils.calculateProgress(title.length, Constants.TITLE_MAX_LENGTH) } }
+    val titleProgress by remember {
+        derivedStateOf {
+            UIUtils.calculateProgress(
+                title.length,
+                Constants.TITLE_MAX_LENGTH
+            )
+        }
+    }
 
     // Clamp lengths to the respective max to avoid incorrect thresholds for extremely large inputs
-    val safeTitleLength by remember { derivedStateOf { title.length.coerceAtMost(Constants.TITLE_MAX_LENGTH) } }
-    val safeDescriptionLength by remember { derivedStateOf { richTextState.annotatedString.text.length.coerceAtMost(Constants.DESCRIPTION_MAX_LENGTH) } }
+    val safeTitleLength by remember {
+        derivedStateOf {
+            title.length.coerceAtMost(
+                Constants.TITLE_MAX_LENGTH
+            )
+        }
+    }
+    val safeDescriptionLength by remember {
+        derivedStateOf {
+            richTextState.annotatedString.text.length.coerceAtMost(
+                Constants.DESCRIPTION_MAX_LENGTH
+            )
+        }
+    }
 
-    val descriptionProgress by remember { derivedStateOf { UIUtils.calculateProgress(safeDescriptionLength, Constants.DESCRIPTION_MAX_LENGTH) } }
+    val descriptionProgress by remember {
+        derivedStateOf {
+            UIUtils.calculateProgress(
+                safeDescriptionLength,
+                Constants.DESCRIPTION_MAX_LENGTH
+            )
+        }
+    }
 
     val titleCountColor by animateColorAsState(
-        targetValue = UIUtils.getProgressColor(safeTitleLength, Constants.TITLE_MAX_LENGTH),
+        targetValue = UIUtils.getProgressColor(
+            safeTitleLength,
+            Constants.TITLE_MAX_LENGTH
+        ),
         animationSpec = UIUtils.getColorAnimationSpec(),
         label = "title_count_color"
     )
 
     val descCountColor by animateColorAsState(
-        targetValue = UIUtils.getProgressColor(safeDescriptionLength, Constants.DESCRIPTION_MAX_LENGTH),
+        targetValue = UIUtils.getProgressColor(
+            safeDescriptionLength,
+            Constants.DESCRIPTION_MAX_LENGTH
+        ),
         animationSpec = UIUtils.getColorAnimationSpec(),
         label = "desc_count_color"
     )
@@ -276,26 +437,47 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (!isLoading && isEditing) {
             // Give Compose one frame (+ a small buffer) for richTextState to stabilise
             delay(350)
-            val descText = RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
-            val combined = "$title. $descText".trim()
-            if (combined.length >= 3 && smartReminderAI.hasReminderKeywords(combined)) {
+            val descText =
+                RichTextBridge.stripHtmlToPlainText(
+                    richTextState.toHtml()
+                )
+            val combined =
+                "$title. $descText".trim()
+            if (combined.length >= 3 && smartReminderAI.hasReminderKeywords(
+                    combined
+                )
+            ) {
                 isAnalyzingText = true
                 try {
-                    val result = withContext(Dispatchers.IO) {
-                        smartReminderAI.analyzeTextForReminders(combined, title)
-                    }
+                    val result =
+                        withContext(Dispatchers.IO) {
+                            smartReminderAI.analyzeTextForReminders(
+                                combined,
+                                title
+                            )
+                        }
                     if (result.isSuccess) {
-                        val reminders = result.getOrNull()
-                            ?.filter { it.confidence >= 0.6f }
-                            ?: emptyList()
+                        val reminders =
+                            result.getOrNull()
+                                ?.filter { it.confidence >= 0.6f }
+                                ?: emptyList()
                         if (reminders.isNotEmpty()) {
-                            pendingReminders  = reminders
-                            detectedReminders = reminders
-                            Log.d("AddScreen", "Edit-load analysis found ${reminders.size} reminder(s)")
+                            pendingReminders =
+                                reminders
+                            detectedReminders =
+                                reminders
+                            Log.d(
+                                "AddScreen",
+                                "Edit-load analysis found ${reminders.size} reminder(s)"
+                            )
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("AddScreen", "Edit-load reminder analysis failed", e)
+                    Log.e(
+                        "AddScreen",
+                        "Edit-load reminder analysis failed",
+                        e
+                    )
                 } finally {
                     isAnalyzingText = false
                 }
@@ -306,31 +488,50 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // BUG-015 FIX: Clipboard HTML detection for title only � description is handled natively by RichTextEditor
     LaunchedEffect(Unit) {
         try {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipboard =
+                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = clipboard.primaryClip
             val item = clip?.getItemAt(0)
             val htmlText = item?.htmlText
-            val plain = item?.coerceToText(context)?.toString()
+            val plain =
+                item?.coerceToText(context)
+                    ?.toString()
 
             if (!htmlText.isNullOrBlank() && !plain.isNullOrBlank()) {
-                val spanned: Spanned = fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY)
+                val spanned: Spanned = fromHtml(
+                    htmlText,
+                    Html.FROM_HTML_MODE_LEGACY
+                )
                 if (plain.trim() == title.trim() && title.isNotBlank()) {
-                    titleFormatted = AnnotatedString(spanned.toString())
+                    titleFormatted =
+                        AnnotatedString(spanned.toString())
                     titleHtml = htmlText
                 }
             }
         } catch (e: Exception) {
-            Log.d("AddScreen", "Clipboard HTML detection skipped: ${e.message}")
+            Log.d(
+                "AddScreen",
+                "Clipboard HTML detection skipped: ${e.message}"
+            )
         }
     }
 
     // Phase 3: Smart paste detection � auto-convert markdown to HTML when pasted
     // Monitors text length for sudden large increases (>20 chars = likely a paste event).
     // If pasted text contains markdown, converts to HTML for proper rich text display.
-    var previousTextLength by remember { mutableStateOf(-1) }
-    var skipNextConversion by remember { mutableStateOf(false) }
+    var previousTextLength by remember {
+        mutableStateOf(
+            -1
+        )
+    }
+    var skipNextConversion by remember {
+        mutableStateOf(
+            false
+        )
+    }
     LaunchedEffect(richTextState.annotatedString.text) {
-        val currentText = richTextState.annotatedString.text
+        val currentText =
+            richTextState.annotatedString.text
         val currentLength = currentText.length
 
         // Skip if this is the result of our own setHtml conversion
@@ -340,18 +541,27 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             return@LaunchedEffect
         }
 
-        val delta = currentLength - previousTextLength
+        val delta =
+            currentLength - previousTextLength
 
         // Detect paste: large sudden insertion (>15 chars) that isn't initial load
         // Also handle first paste into empty note (previousTextLength == 0)
         if (delta > 15 && previousTextLength >= 0 && !isLoading) {
             // Only convert if the visible text contains markdown patterns
             // (annotatedString.text is the rendered text without HTML tags)
-            if (com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(currentText)) {
-                val convertedHtml = com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(currentText)
+            if (com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(
+                    currentText
+                )
+            ) {
+                val convertedHtml =
+                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(
+                        currentText
+                    )
                 if (convertedHtml != null) {
                     skipNextConversion = true
-                    richTextState.setHtml(convertedHtml)
+                    richTextState.setHtml(
+                        convertedHtml
+                    )
                 }
             }
         }
@@ -360,16 +570,28 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     }
 
     // Phase 1: Derive checklist text for Smart Reminder AI analysis
-    val checklistTextForAI by remember { derivedStateOf {
-        if (isChecklistMode) checklistItems.joinToString(". ") { it.text } else ""
-    } }
+    val checklistTextForAI by remember {
+        derivedStateOf {
+            if (isChecklistMode) checklistItems.joinToString(
+                ". "
+            ) { it.text } else ""
+        }
+    }
 
     // BUG-015 FIX: Debounced reminder analysis � only after user stops typing (800ms)
     // BUG-006 FIX: All Toast calls wrapped in withContext(Dispatchers.Main)
-    LaunchedEffect(title, richTextState.annotatedString.text, checklistTextForAI) {
-        val descriptionForAnalysis = if (isChecklistMode) checklistTextForAI
-            else RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
-        val combinedText = "$title. $descriptionForAnalysis".trim()
+    LaunchedEffect(
+        title,
+        richTextState.annotatedString.text,
+        checklistTextForAI
+    ) {
+        val descriptionForAnalysis =
+            if (isChecklistMode) checklistTextForAI
+            else RichTextBridge.stripHtmlToPlainText(
+                richTextState.toHtml()
+            )
+        val combinedText =
+            "$title. $descriptionForAnalysis".trim()
 
         // Fast exit: skip all processing for very short input
         if (combinedText.length < 3) return@LaunchedEffect
@@ -385,34 +607,57 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
         // Use the unified analyzer only. This avoids standalone snippets like "5pm" or "18/8"
         // bypassing the sentence-level reminder intent checks.
-        if (smartReminderAI.hasReminderKeywords(combinedText)) {
+        if (smartReminderAI.hasReminderKeywords(
+                combinedText
+            )
+        ) {
 
             // Additional debounce for AI (heavy operation)
             delay(700)
 
             isAnalyzingText = true
             try {
-                val result = withContext(Dispatchers.IO) {
-                    smartReminderAI.analyzeTextForReminders(combinedText, title)
-                }
+                val result =
+                    withContext(Dispatchers.IO) {
+                        smartReminderAI.analyzeTextForReminders(
+                            combinedText,
+                            title
+                        )
+                    }
                 if (result.isSuccess) {
-                    val reminders = result.getOrNull() ?: emptyList()
+                    val reminders =
+                        result.getOrNull()
+                            ?: emptyList()
                     if (reminders.isNotEmpty()) {
                         // Show as suggestion chips � user confirms via UI (both new and editing notes)
-                        val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
+                        val highConfidenceReminders =
+                            reminders.filter { it.confidence >= 0.6f }
                         if (highConfidenceReminders.isNotEmpty()) {
-                            pendingReminders = highConfidenceReminders
-                            detectedReminders = highConfidenceReminders
-                            Log.d("AddScreen", "Showing ${highConfidenceReminders.size} reminder suggestion chips")
+                            pendingReminders =
+                                highConfidenceReminders
+                            detectedReminders =
+                                highConfidenceReminders
+                            Log.d(
+                                "AddScreen",
+                                "Showing ${highConfidenceReminders.size} reminder suggestion chips"
+                            )
                         }
                     } else {
-                        detectedReminders = emptyList()
+                        detectedReminders =
+                            emptyList()
                     }
                 } else {
-                    Log.w("AddScreen", "SmartReminderAI analysis failed: ${result.exceptionOrNull()?.message}")
+                    Log.w(
+                        "AddScreen",
+                        "SmartReminderAI analysis failed: ${result.exceptionOrNull()?.message}"
+                    )
                 }
             } catch (e: Exception) {
-                Log.e("AddScreen", "Error analyzing text for reminders", e)
+                Log.e(
+                    "AddScreen",
+                    "Error analyzing text for reminders",
+                    e
+                )
             } finally {
                 isAnalyzingText = false
             }
@@ -429,57 +674,111 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (noteId != null) {
             isLoading = true
             try {
-                val result = noteRepository.loadNote(noteId, context)
+                val result =
+                    noteRepository.loadNote(
+                        noteId,
+                        context
+                    )
                 if (result.isSuccess) {
                     val note = result.getOrNull()
                     note?.let {
                         // Phase 4: Load category
-                        selectedCategory = it.category
+                        selectedCategory =
+                            it.category
 
                         // If stored content contains HTML tags, render formatted preview and keep plain text in fields
-                        val titleCandidate = it.title
-                        val descCandidate = it.description
+                        val titleCandidate =
+                            it.title
+                        val descCandidate =
+                            it.description
 
                         // Phase 1: Detect checklist content
-                        if (ChecklistParser.isChecklistContent(descCandidate)) {
+                        if (ChecklistParser.isChecklistContent(
+                                descCandidate
+                            )
+                        ) {
                             isChecklistMode = true
                             title = titleCandidate
-                            val items = ChecklistParser.parseItems(descCandidate)
-                            checklistItems = if (items.isEmpty()) listOf(ChecklistItem(order = 0)) else items
-                            richTextState.setHtml("") // Keep description empty in checklist mode
+                            val items =
+                                ChecklistParser.parseItems(
+                                    descCandidate
+                                )
+                            checklistItems =
+                                if (items.isEmpty()) listOf(
+                                    ChecklistItem(
+                                        order = 0
+                                    )
+                                ) else items
+                            richTextState.setHtml(
+                                ""
+                            ) // Keep description empty in checklist mode
                         } else {
 
-                        fun looksLikeHtml(s: String) = HTML_TAG_REGEX.containsMatchIn(s)
+                            fun looksLikeHtml(s: String) =
+                                HTML_TAG_REGEX.containsMatchIn(
+                                    s
+                                )
 
-                        if (looksLikeHtml(titleCandidate)) {
-                            val sp = fromHtml(titleCandidate, Html.FROM_HTML_MODE_LEGACY)
-                            titleFormatted = AnnotatedString(sp.toString())
-                            titleHtml = titleCandidate
-                            title = sp.toString()
-                        } else {
-                            title = titleCandidate
-                        }
+                            if (looksLikeHtml(
+                                    titleCandidate
+                                )
+                            ) {
+                                val sp = fromHtml(
+                                    titleCandidate,
+                                    Html.FROM_HTML_MODE_LEGACY
+                                )
+                                titleFormatted =
+                                    AnnotatedString(
+                                        sp.toString()
+                                    )
+                                titleHtml =
+                                    titleCandidate
+                                title =
+                                    sp.toString()
+                            } else {
+                                title =
+                                    titleCandidate
+                            }
 
-                        // Library handles HTML and plain text uniformly via setHtml().
-                        // Phase 3: Also detect markdown content and convert for proper rendering.
-                        val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(descCandidate) &&
-                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(descCandidate)) {
-                            com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(descCandidate) ?: descCandidate
-                        } else {
-                            descCandidate
-                        }
-                        richTextState.setHtml(htmlToLoad)
+                            // Library handles HTML and plain text uniformly via setHtml().
+                            // Phase 3: Also detect markdown content and convert for proper rendering.
+                            val htmlToLoad =
+                                if (!HTML_TAG_REGEX.containsMatchIn(
+                                        descCandidate
+                                    ) &&
+                                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(
+                                        descCandidate
+                                    )
+                                ) {
+                                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(
+                                        descCandidate
+                                    )
+                                        ?: descCandidate
+                                } else {
+                                    descCandidate
+                                }
+                            richTextState.setHtml(
+                                htmlToLoad
+                            )
                         } // end else (non-checklist)
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Error loading note: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG)
+                        Toast.makeText(
+                            context,
+                            "Error loading note: ${result.exceptionOrNull()?.message}",
+                            Toast.LENGTH_LONG
+                        )
                             .show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error loading note: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Error loading note: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } finally {
                 isLoading = false
@@ -491,20 +790,30 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     LaunchedEffect(Unit) {
         if (noteId == null && com.amvarpvtltd.swiftNote.share.SharedNoteData.hasPendingData) {
             val (sharedTitle, sharedDescription, asChecklist) = com.amvarpvtltd.swiftNote.share.SharedNoteData.consume()
-            if (sharedTitle.isNotEmpty()) title = sharedTitle
+            if (sharedTitle.isNotEmpty()) title =
+                sharedTitle
             if (sharedDescription.isNotEmpty()) {
                 // Phase 3: Detect markdown in shared content and convert to HTML
-                val htmlToLoad = if (!HTML_TAG_REGEX.containsMatchIn(sharedDescription) &&
-                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(sharedDescription)) {
-                    com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(sharedDescription) ?: sharedDescription
-                } else {
-                    sharedDescription
-                }
+                val htmlToLoad =
+                    if (!HTML_TAG_REGEX.containsMatchIn(
+                            sharedDescription
+                        ) &&
+                        com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.containsMarkdown(
+                            sharedDescription
+                        )
+                    ) {
+                        com.amvarpvtltd.swiftNote.richtext.MarkdownToHtmlConverter.convert(
+                            sharedDescription
+                        ) ?: sharedDescription
+                    } else {
+                        sharedDescription
+                    }
                 richTextState.setHtml(htmlToLoad)
             }
             if (asChecklist) {
                 isChecklistMode = true
-                checklistItems = listOf(ChecklistItem(order = 0))
+                checklistItems =
+                    listOf(ChecklistItem(order = 0))
             }
         }
     }
@@ -513,19 +822,28 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     fun saveNote() {
         if (isSaving) return  // BUG-021 FIX: Prevent double-tap duplicate saves
         if (!canSave) {
-            Toast.makeText(context, Constants.VALIDATION_WARNING_MESSAGE, Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                Constants.VALIDATION_WARNING_MESSAGE,
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
 
         // Pre-save permission check: if there are pending smart reminders, ensure notification/alarm
         // permissions are granted BEFORE saving so the user sees a clear prompt rather than silently
         // losing their reminder.
-        val hasPendingReminders = (pendingReminders + confirmedPendingReminders).any { it.confidence >= 0.6f }
+        val hasPendingReminders =
+            (pendingReminders + confirmedPendingReminders).any { it.confidence >= 0.6f }
         if (hasPendingReminders) {
-            val missing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+            val missing =
+                com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
+                    context
+                )
             if (missing != null) {
                 isSaveReminderPending = true
-                pendingReminderAction = { saveNote() }
+                pendingReminderAction =
+                    { saveNote() }
                 missingPermissionType = missing
                 showPermissionRationale = true
                 return // pause save � resume after permission decision
@@ -537,42 +855,69 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             try {
                 // ALWAYS save to Room database first (offline-first)
                 // If we have HTML saved from a paste, persist the HTML so formatting is preserved.
-                val descToSave = if (isChecklistMode) {
-                    ChecklistParser.serializeItems(checklistItems)
-                } else {
-                    richTextState.toHtml()
-                }
+                val descToSave =
+                    if (isChecklistMode) {
+                        ChecklistParser.serializeItems(
+                            checklistItems
+                        )
+                    } else {
+                        richTextState.toHtml()
+                    }
 
                 // Phase 4: Auto-title � try LLM first, fall back to rule-based
-                val effectiveTitle = if (title.trim().length >= Constants.MIN_CONTENT_LENGTH) {
-                    title
-                } else {
-                    // Try AI-powered title generation (Gemini/Groq), falls back to rules
-                    val aiTitleGen = AITitleGenerator.getInstance(context)
-                    Log.d("AddScreen", "?? Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}")
-                    val aiTitle = try {
-                        aiTitleGen.generate(descToSave)
-                    } catch (e: Exception) {
-                        Log.e("AddScreen", "?? AI title generation threw exception", e)
-                        ""
+                val effectiveTitle =
+                    if (title.trim().length >= Constants.MIN_CONTENT_LENGTH) {
+                        title
+                    } else {
+                        // Try AI-powered title generation (Gemini/Groq), falls back to rules
+                        val aiTitleGen =
+                            AITitleGenerator.getInstance(
+                                context
+                            )
+                        Log.d(
+                            "AddScreen",
+                            "?? Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}"
+                        )
+                        val aiTitle = try {
+                            aiTitleGen.generate(
+                                descToSave
+                            )
+                        } catch (e: Exception) {
+                            Log.e(
+                                "AddScreen",
+                                "?? AI title generation threw exception",
+                                e
+                            )
+                            ""
+                        }
+                        Log.d(
+                            "AddScreen",
+                            "?? AI title result: \"$aiTitle\""
+                        )
+                        aiTitle.ifEmpty {
+                            AutoTitleGenerator.generate(
+                                descToSave
+                            )
+                        }.ifEmpty { title }
                     }
-                    Log.d("AddScreen", "?? AI title result: \"$aiTitle\"")
-                    aiTitle.ifEmpty { AutoTitleGenerator.generate(descToSave) }.ifEmpty { title }
-                }
-                val titleToSave = titleHtml ?: effectiveTitle
+                val titleToSave =
+                    titleHtml ?: effectiveTitle
 
-                val result = noteRepository.saveNote(
-                    title = titleToSave,
-                    description = descToSave,
-                    noteId = noteId,
-                    context = context,
-                    category = selectedCategory
-                )
+                val result =
+                    noteRepository.saveNote(
+                        title = titleToSave,
+                        description = descToSave,
+                        noteId = noteId,
+                        context = context,
+                        category = selectedCategory
+                    )
 
-               withContext(Dispatchers.Main) {
-                   if (result.isSuccess) {
-                       val savedNoteId = result.getOrNull()
-                       val finalNoteId = savedNoteId ?: noteId
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        val savedNoteId =
+                            result.getOrNull()
+                        val finalNoteId =
+                            savedNoteId ?: noteId
 
                         // -- Final save-time reminder scan ------------------------------
                         // If the user saved quickly (before the 1500 ms typing debounce
@@ -580,27 +925,51 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         // last-chance LLM check on the actual saved content so no reminder
                         // keywords are missed.
                         if (pendingReminders.isEmpty() && confirmedPendingReminders.isEmpty()) {
-                            val plainDesc = if (isChecklistMode)
-                                checklistItems.joinToString(". ") { it.text }
-                            else
-                                RichTextBridge.stripHtmlToPlainText(descToSave)
-                            val scanText = "$effectiveTitle. $plainDesc".trim()
-                            if (scanText.length >= 3 && smartReminderAI.hasReminderKeywords(scanText)) {
+                            val plainDesc =
+                                if (isChecklistMode)
+                                    checklistItems.joinToString(
+                                        ". "
+                                    ) { it.text }
+                                else
+                                    RichTextBridge.stripHtmlToPlainText(
+                                        descToSave
+                                    )
+                            val scanText =
+                                "$effectiveTitle. $plainDesc".trim()
+                            if (scanText.length >= 3 && smartReminderAI.hasReminderKeywords(
+                                    scanText
+                                )
+                            ) {
                                 try {
-                                    val scanResult = withContext(Dispatchers.IO) {
-                                        smartReminderAI.analyzeTextForReminders(scanText, effectiveTitle)
-                                    }
+                                    val scanResult =
+                                        withContext(
+                                            Dispatchers.IO
+                                        ) {
+                                            smartReminderAI.analyzeTextForReminders(
+                                                scanText,
+                                                effectiveTitle
+                                            )
+                                        }
                                     if (scanResult.isSuccess) {
-                                        val fresh = scanResult.getOrNull()
-                                            ?.filter { it.confidence >= 0.6f }
-                                            ?: emptyList()
+                                        val fresh =
+                                            scanResult.getOrNull()
+                                                ?.filter { it.confidence >= 0.6f }
+                                                ?: emptyList()
                                         if (fresh.isNotEmpty()) {
-                                            Log.d("AddScreen", "Save-time scan found ${fresh.size} reminder(s)")
-                                            pendingReminders = fresh
+                                            Log.d(
+                                                "AddScreen",
+                                                "Save-time scan found ${fresh.size} reminder(s)"
+                                            )
+                                            pendingReminders =
+                                                fresh
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("AddScreen", "Save-time reminder scan failed", e)
+                                    Log.e(
+                                        "AddScreen",
+                                        "Save-time reminder scan failed",
+                                        e
+                                    )
                                 }
                             }
                         }
@@ -610,80 +979,161 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         //  � pendingReminders  � suggestions not yet explicitly confirmed
                         //  � confirmedPendingReminders � suggestions the user tapped "Set" on
                         //    while the note wasn't saved yet (new note path, isEditing=false)
-                        val hasNotificationPermission = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context) == null
-                        val remindersToCreate = (pendingReminders + confirmedPendingReminders).distinctBy { it.id }
+                        val hasNotificationPermission =
+                            com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
+                                context
+                            ) == null
+                        // Dedup by (minute bucket, normalized title) — UUID-based dedup is
+                        // useless because every analysis run mints new UUIDs. This collapses
+                        // ML Kit overlapping annotations, regex pattern overlap, LLM
+                        // hallucinations, and accidental double-confirms into one reminder.
+                        val remindersToCreate =
+                            (pendingReminders + confirmedPendingReminders)
+                                .distinctBy {
+                                    it.reminderDateTime / 60_000L to it.title.trim()
+                                        .lowercase()
+                                }
                         if (finalNoteId != null && remindersToCreate.isNotEmpty() && hasNotificationPermission) {
-                           var createdCount = 0
-                           try {
-                               withContext(Dispatchers.IO) {
-                                   remindersToCreate.forEach { reminder ->
-                                       if (reminder.confidence >= 0.6f) {
-                                           try {
-                                               // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
-                                                val actualReminder = if (reminder.entityType == "MinuteFallback") {
-                                                    val minuteMatch = DIGIT_REGEX.find(reminder.extractedText)
-                                                   val minutes = minuteMatch?.value?.toIntOrNull()
-                                                   if (minutes != null) {
-                                                       val freshCal = java.util.Calendar.getInstance()
-                                                       freshCal.add(java.util.Calendar.MINUTE, minutes)
-                                                       reminder.copy(reminderDateTime = freshCal.timeInMillis)
-                                                   } else reminder
-                                               } else reminder
+                            var createdCount = 0
+                            try {
+                                withContext(
+                                    Dispatchers.IO
+                                ) {
+                                    remindersToCreate.forEach { reminder ->
+                                        if (reminder.confidence >= 0.6f) {
+                                            try {
+                                                // BUG-035 FIX: For minute-based reminders, recompute time from NOW (save time)
+                                                val actualReminder =
+                                                    if (reminder.entityType == "MinuteFallback") {
+                                                        val minuteMatch =
+                                                            DIGIT_REGEX.find(
+                                                                reminder.extractedText
+                                                            )
+                                                        val minutes =
+                                                            minuteMatch?.value?.toIntOrNull()
+                                                        if (minutes != null) {
+                                                            val freshCal =
+                                                                java.util.Calendar.getInstance()
+                                                            freshCal.add(
+                                                                java.util.Calendar.MINUTE,
+                                                                minutes
+                                                            )
+                                                            reminder.copy(
+                                                                reminderDateTime = freshCal.timeInMillis
+                                                            )
+                                                        } else reminder
+                                                    } else reminder
 
-                                               val success = reminderManager.createReminderFromDetection(actualReminder, finalNoteId)
-                                               if (success) createdCount++
-                                           } catch (e: Exception) {
-                                               Log.e("AddScreen", "Error creating pending smart reminder", e)
-                                           }
-                                       }
-                                   }
-                               }
+                                                val success =
+                                                    reminderManager.createReminderFromDetection(
+                                                        actualReminder,
+                                                        finalNoteId
+                                                    )
+                                                if (success) createdCount++
+                                            } catch (e: Exception) {
+                                                Log.e(
+                                                    "AddScreen",
+                                                    "Error creating pending smart reminder",
+                                                    e
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
 
-                               if (createdCount > 0) {
-                                   // Clear all reminder queues and update detected list for UI
-                                   detectedReminders = remindersToCreate.filter { it.confidence >= 0.6f }
-                                   pendingReminders = emptyList()
-                                   confirmedPendingReminders = emptyList()
-                                   Toast.makeText(
-                                       context,
-                                       "?? Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
-                                       Toast.LENGTH_SHORT
-                                   ).show()
-                               }
-                           } catch (e: Exception) {
-                               Log.e("AddScreen", "Error creating pending reminders after save", e)
-                           }
+                                if (createdCount > 0) {
+                                    // Clear all reminder queues and update detected list for UI
+                                    detectedReminders =
+                                        remindersToCreate.filter { it.confidence >= 0.6f }
+                                    pendingReminders =
+                                        emptyList()
+                                    confirmedPendingReminders =
+                                        emptyList()
+                                    Toast.makeText(
+                                        context,
+                                        "?? Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } catch (e: Exception) {
+                                Log.e(
+                                    "AddScreen",
+                                    "Error creating pending reminders after save",
+                                    e
+                                )
+                            }
                         }
 
-                       val networkManager = com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(context)
-                       val isOnline = networkManager.isConnected()
+                        val networkManager =
+                            com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(
+                                context
+                            )
+                        val isOnline =
+                            networkManager.isConnected()
 
-                       if (isOnline) {
-                           Toast.makeText(context, Constants.SAVE_SUCCESS_MESSAGE, Toast.LENGTH_SHORT).show()
-                       } else {
-                           Toast.makeText(context, "?? Note saved offline. Will sync when online.", Toast.LENGTH_SHORT).show()
-                       }
+                        if (isOnline) {
+                            Toast.makeText(
+                                context,
+                                Constants.SAVE_SUCCESS_MESSAGE,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "?? Note saved offline. Will sync when online.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
 
-                       Log.d("AddScreen", "Save successful � currentRoute=${navController.currentBackStackEntry?.destination?.route}")
+                        Log.d(
+                            "AddScreen",
+                            "Save successful � currentRoute=${navController.currentBackStackEntry?.destination?.route}"
+                        )
 
-                       try {
-                           navController.navigate("main") {
-                               popUpTo("main") { inclusive = false }
-                               launchSingleTop = true
-                               restoreState = true
-                           }
-                           Log.d("AddScreen", "Navigation to main requested")
-                       } catch (e: Exception) {
-                           Log.e("AddScreen", "Navigation failed", e)
-                           Toast.makeText(context, "Navigation error: ${e.message}", Toast.LENGTH_LONG).show()
-                       }
-                   } else {
-                       Toast.makeText(context, "Error saving note", Toast.LENGTH_LONG).show()
-                   }
-               }
+                        try {
+                            navController.navigate(
+                                "main"
+                            ) {
+                                popUpTo("main") {
+                                    inclusive =
+                                        false
+                                }
+                                launchSingleTop =
+                                    true
+                                restoreState =
+                                    true
+                            }
+                            Log.d(
+                                "AddScreen",
+                                "Navigation to main requested"
+                            )
+                        } catch (e: Exception) {
+                            Log.e(
+                                "AddScreen",
+                                "Navigation failed",
+                                e
+                            )
+                            Toast.makeText(
+                                context,
+                                "Navigation error: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Error saving note",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error saving note: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Error saving note: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } finally {
                 withContext(Dispatchers.Main) {
@@ -699,14 +1149,26 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
         scope.launch(Dispatchers.IO) {
             try {
-                val result = noteRepository.deleteNote(noteId, context)
+                val result =
+                    noteRepository.deleteNote(
+                        noteId,
+                        context
+                    )
                 if (result.isSuccess) {
                     withContext(Dispatchers.Main) {
-                        val networkManager = com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(context)
-                        val isOnline = networkManager.isConnected()
+                        val networkManager =
+                            com.amvarpvtltd.swiftNote.utils.NetworkManager.getInstance(
+                                context
+                            )
+                        val isOnline =
+                            networkManager.isConnected()
 
                         if (!isOnline) {
-                            Toast.makeText(context, "?? Note deleted offline. Will sync when online.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                "?? Note deleted offline. Will sync when online.",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
 
                         navController.navigate("main")
@@ -714,9 +1176,17 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error deleting note", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Error deleting note",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-                Log.e("AddScreen", "Error in deleteNote", e)
+                Log.e(
+                    "AddScreen",
+                    "Error in deleteNote",
+                    e
+                )
             }
         }
     }
@@ -737,8 +1207,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     // Clear pending reminders and save the note anyway (without reminder).
                     isSaveReminderPending = false
                     pendingReminders = emptyList()
-                    confirmedPendingReminders = emptyList()
-                    Toast.makeText(context, "?? Saving note without reminder", Toast.LENGTH_SHORT).show()
+                    confirmedPendingReminders =
+                        emptyList()
+                    Toast.makeText(
+                        context,
+                        "?? Saving note without reminder",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     saveNote()
                 } else {
                     isSaveReminderPending = false
@@ -748,9 +1223,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 showPermissionRationale = false
                 missingPermissionType = null
                 // Re-check: if there's another missing permission, show it; otherwise execute the pending action
-                val nextMissing = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context)
+                val nextMissing =
+                    com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
+                        context
+                    )
                 if (nextMissing != null) {
-                    missingPermissionType = nextMissing
+                    missingPermissionType =
+                        nextMissing
                     showPermissionRationale = true
                 } else {
                     // Permission granted � execute the pending reminder action
@@ -765,7 +1244,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Enhanced delete confirmation dialog
     if (showDeleteDialog) {
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
+            onDismissRequest = {
+                showDeleteDialog = false
+            },
             icon = {
                 Box(
                     modifier = Modifier
@@ -773,8 +1254,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         .background(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    NoteTheme.Error.copy(alpha = 0.2f),
-                                    NoteTheme.Error.copy(alpha = 0.05f)
+                                    NoteTheme.Error.copy(
+                                        alpha = 0.2f
+                                    ),
+                                    NoteTheme.Error.copy(
+                                        alpha = 0.05f
+                                    )
                                 )
                             ),
                             shape = CircleShape
@@ -785,7 +1270,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         Icons.Outlined.DeleteOutline,
                         contentDescription = null,
                         tint = NoteTheme.Error,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(
+                            32.dp
+                        )
                     )
                 }
             },
@@ -804,22 +1291,36 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         style = MaterialTheme.typography.bodyLarge,
                         color = NoteTheme.OnSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(
+                        modifier = Modifier.height(
+                            8.dp
+                        )
+                    )
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = NoteTheme.ErrorContainer.copy(alpha = 0.3f)
+                            containerColor = NoteTheme.ErrorContainer.copy(
+                                alpha = 0.3f
+                            )
                         ),
-                        shape = RoundedCornerShape(dims.cornerSmall)
+                        shape = RoundedCornerShape(
+                            dims.cornerSmall
+                        )
                     ) {
                         Text(
                             text = "\"$title\"",
                             style = MaterialTheme.typography.bodyMedium,
                             color = NoteTheme.OnSurface,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(dims.cornerSmall)
+                            modifier = Modifier.padding(
+                                dims.cornerSmall
+                            )
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(
+                        modifier = Modifier.height(
+                            8.dp
+                        )
+                    )
                     Text(
                         "This action cannot be undone.",
                         style = MaterialTheme.typography.bodySmall,
@@ -831,7 +1332,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             confirmButton = {
                 Button(
                     onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        hapticFeedback.performHapticFeedback(
+                            HapticFeedbackType.LongPress
+                        )
                         showDeleteDialog = false
                         deleteNote()
                     },
@@ -839,26 +1342,44 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         containerColor = NoteTheme.Error,
                         contentColor = NoteTheme.OnPrimary
                     ),
-                    shape = RoundedCornerShape(dims.cornerSmall)
+                    shape = RoundedCornerShape(
+                        dims.cornerSmall
+                    )
                 ) {
                     Icon(
                         Icons.Outlined.Delete,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(
+                            18.dp
+                        )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Delete", fontWeight = FontWeight.Bold)
+                    Spacer(
+                        modifier = Modifier.width(
+                            8.dp
+                        )
+                    )
+                    Text(
+                        "Delete",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 OutlinedButton(
-                    onClick = { showDeleteDialog = false },
+                    onClick = {
+                        showDeleteDialog = false
+                    },
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NoteTheme.OnSurfaceVariant
                     ),
-                    shape = RoundedCornerShape(dims.cornerSmall)
+                    shape = RoundedCornerShape(
+                        dims.cornerSmall
+                    )
                 ) {
-                    Text("Cancel", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Cancel",
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             },
             shape = RoundedCornerShape(dims.cornerXL),
@@ -869,7 +1390,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Back confirmation dialog
     if (showBackDialog) {
         AlertDialog(
-            onDismissRequest = { showBackDialog = false },
+            onDismissRequest = {
+                showBackDialog = false
+            },
             icon = {
                 Box(
                     modifier = Modifier
@@ -877,8 +1400,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         .background(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    NoteTheme.Warning.copy(alpha = 0.2f),
-                                    NoteTheme.Warning.copy(alpha = 0.05f)
+                                    NoteTheme.Warning.copy(
+                                        alpha = 0.2f
+                                    ),
+                                    NoteTheme.Warning.copy(
+                                        alpha = 0.05f
+                                    )
                                 )
                             ),
                             shape = CircleShape
@@ -889,7 +1416,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         Icons.Outlined.Warning,
                         contentDescription = null,
                         tint = NoteTheme.Warning,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(
+                            32.dp
+                        )
                     )
                 }
             },
@@ -911,7 +1440,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
             confirmButton = {
                 Button(
                     onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        hapticFeedback.performHapticFeedback(
+                            HapticFeedbackType.LongPress
+                        )
                         showBackDialog = false
                         navController.navigateUp()
                     },
@@ -919,26 +1450,44 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         containerColor = NoteTheme.Warning,
                         contentColor = NoteTheme.OnPrimary
                     ),
-                    shape = RoundedCornerShape(dims.cornerSmall)
+                    shape = RoundedCornerShape(
+                        dims.cornerSmall
+                    )
                 ) {
                     Icon(
                         Icons.AutoMirrored.Outlined.ExitToApp,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(
+                            18.dp
+                        )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Discard", fontWeight = FontWeight.Bold)
+                    Spacer(
+                        modifier = Modifier.width(
+                            8.dp
+                        )
+                    )
+                    Text(
+                        "Discard",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 OutlinedButton(
-                    onClick = { showBackDialog = false },
+                    onClick = {
+                        showBackDialog = false
+                    },
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NoteTheme.OnSurfaceVariant
                     ),
-                    shape = RoundedCornerShape(dims.cornerSmall)
+                    shape = RoundedCornerShape(
+                        dims.cornerSmall
+                    )
                 ) {
-                    Text("Keep Editing", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Keep Editing",
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             },
             shape = RoundedCornerShape(dims.cornerXL),
@@ -950,7 +1499,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         NoteScreenBackground {
             Scaffold(
                 containerColor = Color.Transparent,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                contentWindowInsets = WindowInsets(
+                    0,
+                    0,
+                    0,
+                    0
+                ),
                 topBar = {
                     Column {
 
@@ -1102,7 +1656,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         if (scrollState.maxValue > 0) {
                             LinearProgressIndicator(
                                 progress = { animatedScrollProgress },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
                                     .height(3.dp),
                                 color = NoteTheme.Primary,
                                 trackColor = NoteTheme.Primary.copy(
@@ -1128,1347 +1683,1378 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .imePadding()
-                            .padding(
-                                bottom = if (descriptionFocused && !isChecklistMode && !isPreviewMode)
-                                    56.dp else 0.dp
-                            )
-                            .responsiveContentWidth(dims) // Phase 7: cap editor at 720dp on tablets/foldables, no-op on phones
-                            .padding(dims.paddingMedium)
-                            .verticalScroll(scrollState),
-                        verticalArrangement = Arrangement.spacedBy(dims.cornerLarge)
-                    ) {
-                        // Title Section
-                        AnimatedVisibility(
-                            visible = heroVisible,
-                            enter = fadeIn(
-                                tween(
-                                    400
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    paddingValues
                                 )
-                            ) + slideInVertically(
-                                spring(Spring.DampingRatioMediumBouncy),
-                                initialOffsetY = { it / 4 }
+                                .imePadding()
+                                .padding(
+                                    bottom = if (descriptionFocused && !isChecklistMode && !isPreviewMode)
+                                        56.dp else 0.dp
+                                )
+                                .responsiveContentWidth(
+                                    dims
+                                ) // Phase 7: cap editor at 720dp on tablets/foldables, no-op on phones
+                                .padding(dims.paddingMedium)
+                                .verticalScroll(
+                                    scrollState
+                                ),
+                            verticalArrangement = Arrangement.spacedBy(
+                                dims.cornerLarge
                             )
                         ) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateContentSize(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Surface
-                                ),
-                                shape = RoundedCornerShape(
-                                    20.dp
-                                ),
-                                elevation = CardDefaults.cardElevation(
-                                    defaultElevation = 1.dp
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    NoteTheme.Outline.copy(
-                                        alpha = 0.5f
+                            // Title Section
+                            AnimatedVisibility(
+                                visible = heroVisible,
+                                enter = fadeIn(
+                                    tween(
+                                        400
                                     )
+                                ) + slideInVertically(
+                                    spring(Spring.DampingRatioMediumBouncy),
+                                    initialOffsetY = { it / 4 }
                                 )
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        horizontal = 20.dp,
-                                        vertical = 18.dp
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .animateContentSize(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Surface
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        20.dp
+                                    ),
+                                    elevation = CardDefaults.cardElevation(
+                                        defaultElevation = 1.dp
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        NoteTheme.Outline.copy(
+                                            alpha = 0.5f
+                                        )
                                     )
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            horizontal = 20.dp,
+                                            vertical = 18.dp
+                                        )
                                     ) {
                                         Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Title,
-                                                contentDescription = null,
-                                                tint = NoteTheme.Primary,
-                                                modifier = Modifier.size(
-                                                    dims.iconMedium
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    dims.paddingSmall
-                                                )
-                                            )
-                                            Text(
-                                                text = "Title",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = NoteTheme.OnSurface,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // Progress indicator
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(
-                                                        dims.iconLarge
-                                                    )
-                                                    .background(
-                                                        color = titleCountColor.copy(
-                                                            alpha = 0.1f
-                                                        ),
-                                                        shape = CircleShape
-                                                    ),
-                                                contentAlignment = Alignment.Center
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                CircularProgressIndicator(
-                                                    progress = { titleProgress },
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    color = titleCountColor,
-                                                    strokeWidth = 2.dp
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Title,
+                                                    contentDescription = null,
+                                                    tint = NoteTheme.Primary,
+                                                    modifier = Modifier.size(
+                                                        dims.iconMedium
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        dims.paddingSmall
+                                                    )
+                                                )
+                                                Text(
+                                                    text = "Title",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = NoteTheme.OnSurface,
+                                                    fontWeight = FontWeight.SemiBold
                                                 )
                                             }
 
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    dims.paddingSmall
-                                                )
-                                            )
-
-                                            Text(
-                                                text = UIUtils.formatCharacterCount(
-                                                    title.length,
-                                                    Constants.TITLE_MAX_LENGTH
-                                                ),
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = titleCountColor,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(
-                                        modifier = Modifier.height(
-                                            dims.paddingMedium
-                                        )
-                                    )
-
-                                    OutlinedTextField(
-                                        value = title,
-                                        onValueChange = {
-                                            if (it.length <= Constants.TITLE_MAX_LENGTH) title =
-                                                it
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(
-                                                titleFocusRequester
-                                            ),
-                                        placeholder = {
-                                            Text(
-                                                "Enter a compelling title...",
-                                                color = NoteTheme.OnSurfaceVariant.copy(
-                                                    alpha = 0.5f
-                                                )
-                                            )
-                                        },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(
-                                            imeAction = ImeAction.Next
-                                        ),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = titleCountColor,
-                                            unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
-                                                alpha = 0.3f
-                                            ),
-                                            cursorColor = NoteTheme.Primary,
-                                            focusedLabelColor = titleCountColor,
-                                            focusedTextColor = NoteTheme.OnSurface,
-                                            unfocusedTextColor = NoteTheme.OnSurface
-                                        ),
-                                        shape = RoundedCornerShape(
-                                            dims.cornerSmall
-                                        )
-                                    )
-
-                                    // Title requirements indicator
-                                    AnimatedVisibility(
-                                        visible = !ValidationUtils.isValidTitle(
-                                            title
-                                        ),
-                                        enter = slideInVertically() + fadeIn(),
-                                        exit = slideOutVertically() + fadeOut()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(
-                                                top = dims.paddingSmall
-                                            ),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Info,
-                                                contentDescription = null,
-                                                tint = titleCountColor,
-                                                modifier = Modifier.size(
-                                                    dims.iconSmall
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    6.dp
-                                                )
-                                            )
-                                            Text(
-                                                text = ValidationUtils.getTitleValidationMessage(),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = titleCountColor,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } // end AnimatedVisibility heroVisible
-
-                        // Phase 4: Auto-title suggestion chip (rule-based instant + AI-enhanced async)
-                        val descriptionText = richTextState.annotatedString.text
-                        // Instant rule-based suggestion
-                        val ruleBasedTitle = remember(descriptionText, title, isChecklistMode, checklistItems) {
-                            if (title.isBlank() && (descriptionText.isNotBlank() || (isChecklistMode && checklistItems.any { it.text.isNotBlank() }))) {
-                                AutoTitleGenerator.generate(
-                                    if (isChecklistMode) ChecklistParser.serializeItems(checklistItems)
-                                    else descriptionText
-                                )
-                            } else ""
-                        }
-
-                        // AI-enhanced suggestion (debounced, async)
-                        var aiSuggestedTitle by remember { mutableStateOf("") }
-                        var isAiTitleLoading by remember { mutableStateOf(false) }
-                        LaunchedEffect(descriptionText, title, isChecklistMode, checklistItems) {
-                            aiSuggestedTitle = "" // Reset on new input
-                            if (title.isNotBlank() || (descriptionText.isBlank() && !isChecklistMode)) {
-                                return@LaunchedEffect
-                            }
-                            val descForAI = if (isChecklistMode) ChecklistParser.serializeItems(checklistItems)
-                                else richTextState.toHtml()
-                            if (descForAI.isBlank()) return@LaunchedEffect
-
-                            // Debounce: wait 1.5s after user stops typing before calling LLM
-                            delay(1500)
-
-                            val aiGen = AITitleGenerator.getInstance(context)
-                            if (!aiGen.isAvailable()) {
-                                Log.d("AddScreen", "?? AI title chip: AI not available (no API key)")
-                                return@LaunchedEffect
-                            }
-
-                            isAiTitleLoading = true
-                            Log.d("AddScreen", "?? AI title chip: triggering AI generation...")
-                            try {
-                                val result = withContext(Dispatchers.IO) {
-                                    aiGen.generate(descForAI)
-                                }
-                                if (result.isNotBlank() && result != ruleBasedTitle) {
-                                    aiSuggestedTitle = result
-                                    Log.d("AddScreen", "?? AI title chip: got result \"$result\"")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("AddScreen", "?? AI title chip: failed", e)
-                            } finally {
-                                isAiTitleLoading = false
-                            }
-                        }
-
-                        // Show the best available title (AI > rule-based)
-                        val suggestedTitle = aiSuggestedTitle.ifEmpty { ruleBasedTitle }
-
-                        AnimatedVisibility(
-                            visible = title.isBlank() && (suggestedTitle.isNotBlank() || isAiTitleLoading),
-                            enter = fadeIn(tween(200)) + slideInVertically(initialOffsetY = { -it / 4 }),
-                            exit = fadeOut(tween(150)) + slideOutVertically(targetOffsetY = { -it / 4 })
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        start = dims.paddingSmall,
-                                        top = 4.dp,
-                                        bottom = 4.dp
-                                    )
-                                    .clickable {
-                                        if (suggestedTitle.isNotBlank()) {
-                                            title = suggestedTitle
-                                        }
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isAiTitleLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = NoteTheme.Primary
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Outlined.EditNote,
-                                        contentDescription = null,
-                                        tint = NoteTheme.Primary,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = if (isAiTitleLoading && suggestedTitle.isBlank()) {
-                                        "? Generating AI title..."
-                                    } else if (aiSuggestedTitle.isNotBlank()) {
-                                        "? \"$suggestedTitle\""
-                                    } else {
-                                        "Use \"$suggestedTitle\""
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = NoteTheme.Primary,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        // Phase 4: Category Picker
-                        AnimatedVisibility(
-                            visible = contentVisible,
-                            enter = fadeIn(
-                                tween(
-                                    350
-                                )
-                            ) + slideInVertically(
-                                spring(Spring.DampingRatioMediumBouncy),
-                                initialOffsetY = { it / 3 }
-                            )
-                        ) {
-                            var showCategoryPicker by remember {
-                                mutableStateOf(
-                                    false
-                                )
-                            }
-
-                            Column {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            showCategoryPicker =
-                                                !showCategoryPicker
-                                        }
-                                        .padding(
-                                            vertical = 8.dp
-                                        ),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(
-                                        8.dp
-                                    )
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Outlined.Label,
-                                        contentDescription = null,
-                                        tint = NoteTheme.OnSurfaceVariant,
-                                        modifier = Modifier.size(
-                                            18.dp
-                                        )
-                                    )
-                                    Text(
-                                        text = if (selectedCategory.isBlank()) "Add category" else selectedCategory,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = if (selectedCategory.isBlank()) NoteTheme.OnSurfaceVariant.copy(
-                                            alpha = 0.6f
-                                        ) else NoteTheme.OnSurface,
-                                        fontWeight = if (selectedCategory.isNotBlank()) FontWeight.Medium else FontWeight.Normal
-                                    )
-                                    if (selectedCategory.isNotBlank()) {
-                                        val catColor =
-                                            com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(
-                                                context,
-                                                selectedCategory
-                                            )
-                                        if (catColor != null) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(
-                                                        10.dp
-                                                    )
-                                                    .background(
-                                                        catColor,
-                                                        CircleShape
-                                                    )
-                                            )
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(
-                                    visible = showCategoryPicker
-                                ) {
-                                    androidx.compose.foundation.lazy.LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(
-                                            8.dp
-                                        ),
-                                        modifier = Modifier.padding(
-                                            bottom = 8.dp
-                                        )
-                                    ) {
-                                        // "None" option
-                                        item {
-                                            FilterChip(
-                                                selected = selectedCategory.isBlank(),
-                                                onClick = {
-                                                    selectedCategory =
-                                                        ""; showCategoryPicker =
-                                                    false
-                                                },
-                                                label = {
-                                                    Text(
-                                                        "None",
-                                                        fontSize = 12.sp,
-                                                        color = NoteTheme.OnSurface
-                                                    )
-                                                }
-                                            )
-                                        }
-                                        items(
-                                            categoryOptions.size
-                                        ) { idx ->
-                                            val cat =
-                                                categoryOptions[idx]
-                                            FilterChip(
-                                                selected = selectedCategory.equals(
-                                                    cat.name,
-                                                    ignoreCase = true
-                                                ),
-                                                onClick = {
-                                                    selectedCategory =
-                                                        cat.name; showCategoryPicker =
-                                                    false
-                                                },
-                                                label = {
-                                                    Text(
-                                                        cat.name,
-                                                        fontSize = 12.sp,
-                                                        color = NoteTheme.OnSurface
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(
-                                                                8.dp
-                                                            )
-                                                            .background(
-                                                                cat.color,
-                                                                CircleShape
-                                                            )
-                                                    )
-                                                },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = cat.color.copy(
-                                                        alpha = 0.15f
-                                                    ),
-                                                    selectedLabelColor = cat.color
-                                                )
-                                            )
-                                        }
-                                        item {
-                                            FilterChip(
-                                                selected = false,
-                                                onClick = {
-                                                    customCategoryName =
-                                                        ""
-                                                    customCategoryColor =
-                                                        com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.first()
-                                                    showCustomCategoryDialog =
-                                                        true
-                                                },
-                                                label = {
-                                                    Text(
-                                                        "Add custom",
-                                                        fontSize = 12.sp
-                                                    )
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (showCustomCategoryDialog) {
-                            AlertDialog(
-                                onDismissRequest = {
-                                    showCustomCategoryDialog =
-                                        false
-                                },
-                                title = {
-                                    Text(
-                                        text = "Create Category",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = NoteTheme.OnSurface
-                                    )
-                                },
-                                text = {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(
-                                            12.dp
-                                        )
-                                    ) {
-                                        OutlinedTextField(
-                                            value = customCategoryName,
-                                            onValueChange = {
-                                                customCategoryName =
-                                                    it.take(
-                                                        24
-                                                    )
-                                            },
-                                            singleLine = true,
-                                            label = {
-                                                Text(
-                                                    "Category name"
-                                                )
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = NoteTheme.Primary,
-                                                focusedLabelColor = NoteTheme.Primary
-                                            )
-                                        )
-
-                                        Text(
-                                            text = "Choose a color",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = NoteTheme.OnSurfaceVariant
-                                        )
-
-                                        androidx.compose.foundation.layout.FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(
-                                                8.dp
-                                            ),
-                                            verticalArrangement = Arrangement.spacedBy(
-                                                8.dp
-                                            )
-                                        ) {
-                                            com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.forEach { colorHex ->
-                                                val swatchColor =
-                                                    Color(
-                                                        colorHex
-                                                    )
-                                                val isSelected =
-                                                    customCategoryColor == colorHex
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Progress indicator
                                                 Box(
                                                     modifier = Modifier
                                                         .size(
-                                                            32.dp
-                                                        )
-                                                        .clip(
-                                                            CircleShape
+                                                            dims.iconLarge
                                                         )
                                                         .background(
-                                                            swatchColor
-                                                        )
-                                                        .border(
-                                                            width = if (isSelected) 3.dp else 1.dp,
-                                                            color = if (isSelected) NoteTheme.OnSurface else swatchColor.copy(
-                                                                alpha = 0.25f
+                                                            color = titleCountColor.copy(
+                                                                alpha = 0.1f
                                                             ),
                                                             shape = CircleShape
-                                                        )
-                                                        .clickable {
-                                                            customCategoryColor =
-                                                                colorHex
-                                                        }
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            val trimmedName =
-                                                customCategoryName.trim()
-                                            if (trimmedName.isEmpty()) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Category name can't be empty",
-                                                    Toast.LENGTH_SHORT
-                                                )
-                                                    .show()
-                                                return@TextButton
-                                            }
-
-                                            val added =
-                                                com.amvarpvtltd.swiftNote.categories.CategoryManager.addCustom(
-                                                    context = context,
-                                                    name = trimmedName,
-                                                    colorHex = customCategoryColor
-                                                )
-                                            if (added) {
-                                                categoryOptions =
-                                                    com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(
-                                                        context
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        progress = { titleProgress },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        color = titleCountColor,
+                                                        strokeWidth = 2.dp
                                                     )
-                                                selectedCategory =
-                                                    trimmedName
-                                                showCustomCategoryDialog =
-                                                    false
-                                            } else {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Category already exists or limit reached",
-                                                    Toast.LENGTH_SHORT
-                                                )
-                                                    .show()
-                                            }
-                                        }
-                                    ) {
-                                        Text("Save")
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(
-                                        onClick = {
-                                            showCustomCategoryDialog =
-                                                false
-                                        }) {
-                                        Text("Cancel")
-                                    }
-                                }
-                            )
-                        }
-
-                        // Phase 1: Note Mode Toggle (Text / Checklist)
-                        AnimatedVisibility(
-                            visible = contentVisible,
-                            enter = fadeIn(
-                                tween(
-                                    400
-                                )
-                            ) + slideInVertically(
-                                spring(Spring.DampingRatioMediumBouncy),
-                                initialOffsetY = { it / 3 }
-                            )
-                        ) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.SurfaceVariant.copy(
-                                        alpha = 0.3f
-                                    )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(
-                                            dims.paddingSmall
-                                        ),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Text mode button
-                                    Card(
-                                        modifier = Modifier
-                                            .weight(
-                                                1f
-                                            )
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                if (isChecklistMode) {
-                                                    // Convert checklist ? text
-                                                    richTextState.setHtml(
-                                                        ChecklistParser.checklistToText(
-                                                            checklistItems
-                                                        )
-                                                    )
-                                                    isChecklistMode =
-                                                        false
                                                 }
-                                            },
-                                        shape = RoundedCornerShape(
-                                            dims.cornerSmall
-                                        ),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (!isChecklistMode) NoteTheme.Primary.copy(
-                                                alpha = 0.15f
-                                            )
-                                            else Color.Transparent
-                                        ),
-                                        elevation = CardDefaults.cardElevation(
-                                            defaultElevation = 0.dp
-                                        )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(
-                                                    vertical = 10.dp
-                                                ),
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.Description,
-                                                contentDescription = null,
-                                                tint = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
-                                                modifier = Modifier.size(
-                                                    18.dp
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    6.dp
-                                                )
-                                            )
-                                            Text(
-                                                "Text",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = if (!isChecklistMode) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
-                                            )
-                                        }
-                                    }
 
-                                    Spacer(
-                                        modifier = Modifier.width(
-                                            8.dp
-                                        )
-                                    )
-
-                                    // Checklist mode button
-                                    Card(
-                                        modifier = Modifier
-                                            .weight(
-                                                1f
-                                            )
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                if (!isChecklistMode) {
-                                                    // Convert text ? checklist
-                                                    checklistItems =
-                                                        if (richTextState.annotatedString.text.isNotBlank()) {
-                                                            ChecklistParser.textToChecklist(
-                                                                RichTextBridge.stripHtmlToPlainText(richTextState.toHtml())
-                                                            )
-                                                        } else {
-                                                            listOf(
-                                                                ChecklistItem(
-                                                                    order = 0
-                                                                )
-                                                            )
-                                                        }
-                                                    isChecklistMode =
-                                                        true
-                                                }
-                                            },
-                                        shape = RoundedCornerShape(
-                                            dims.cornerSmall
-                                        ),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isChecklistMode) NoteTheme.Primary.copy(
-                                                alpha = 0.15f
-                                            )
-                                            else Color.Transparent
-                                        ),
-                                        elevation = CardDefaults.cardElevation(
-                                            defaultElevation = 0.dp
-                                        )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(
-                                                    vertical = 10.dp
-                                                ),
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.CheckCircle,
-                                                contentDescription = null,
-                                                tint = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
-                                                modifier = Modifier.size(
-                                                    18.dp
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    6.dp
-                                                )
-                                            )
-                                            Text(
-                                                "Checklist",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = if (isChecklistMode) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } // end AnimatedVisibility contentVisible
-
-                        // Phase 1: Checklist Editor Section
-                        if (isChecklistMode) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = dims.editorMinHeight)
-                                    .animateContentSize(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Surface
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerLarge
-                                ),
-                                elevation = CardDefaults.cardElevation(
-                                    defaultElevation = 1.dp
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    NoteTheme.Outline.copy(
-                                        alpha = 0.5f
-                                    )
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        dims.cornerLarge
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.CheckCircle,
-                                                contentDescription = null,
-                                                tint = NoteTheme.Primary,
-                                                modifier = Modifier.size(
-                                                    dims.iconMedium
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    dims.paddingSmall
-                                                )
-                                            )
-                                            Text(
-                                                text = "Checklist",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = NoteTheme.OnSurface,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-
-                                        // Item count
-                                        val checkedCount =
-                                            checklistItems.count { it.isChecked }
-                                        val totalCount =
-                                            checklistItems.count { it.text.isNotBlank() }
-                                        if (totalCount > 0) {
-                                            Text(
-                                                text = "$checkedCount/$totalCount done",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = NoteTheme.Primary,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(
-                                        modifier = Modifier.height(
-                                            dims.paddingMedium
-                                        )
-                                    )
-
-                                    // Checklist items with drag-to-reorder
-                                    com.amvarpvtltd.swiftNote.components.ReorderableChecklistColumn(
-                                        items = checklistItems,
-                                        onReorder = { fromIndex, toIndex ->
-                                            checklistItems =
-                                                checklistItems.toMutableList()
-                                                    .also {
-                                                        val item =
-                                                            it.removeAt(
-                                                                fromIndex
-                                                            )
-                                                        it.add(
-                                                            toIndex,
-                                                            item
-                                                        )
-                                                    }
-                                        },
-                                        onCheckedChange = { index, checked ->
-                                            checklistItems =
-                                                checklistItems.toMutableList()
-                                                    .also {
-                                                        it[index] =
-                                                            it[index].copy(
-                                                                isChecked = checked
-                                                            )
-                                                    }
-                                        },
-                                        onTextChange = { index, newText ->
-                                            checklistItems =
-                                                checklistItems.toMutableList()
-                                                    .also {
-                                                        it[index] =
-                                                            it[index].copy(
-                                                                text = newText
-                                                            )
-                                                    }
-                                        },
-                                        onDelete = { index ->
-                                            if (checklistItems.size > 1) {
-                                                checklistItems =
-                                                    checklistItems.toMutableList()
-                                                        .also {
-                                                            it.removeAt(
-                                                                index
-                                                            )
-                                                        }
-                                                focusedItemIndex =
-                                                    (index - 1).coerceAtLeast(
-                                                        0
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        dims.paddingSmall
                                                     )
-                                            }
-                                        },
-                                        onEnterPressed = { index ->
-                                            if (ChecklistParser.canAddMoreItems(
-                                                    checklistItems
                                                 )
-                                            ) {
-                                                val newItem =
-                                                    ChecklistItem(
-                                                        order = index + 1
-                                                    )
-                                                checklistItems =
-                                                    checklistItems.toMutableList()
-                                                        .also {
-                                                            it.add(
-                                                                index + 1,
-                                                                newItem
-                                                            )
-                                                        }
-                                                focusedItemIndex =
-                                                    index + 1
-                                            }
-                                        },
-                                        onBackspaceOnEmpty = { index ->
-                                            if (checklistItems.size > 1) {
-                                                checklistItems =
-                                                    checklistItems.toMutableList()
-                                                        .also {
-                                                            it.removeAt(
-                                                                index
-                                                            )
-                                                        }
-                                                focusedItemIndex =
-                                                    (index - 1).coerceAtLeast(
-                                                        0
-                                                    )
-                                            }
-                                        },
-                                        focusedItemIndex = focusedItemIndex
-                                    )
 
-                                    // Reset focusedItemIndex after it has been consumed
-                                    LaunchedEffect(
-                                        focusedItemIndex
-                                    ) {
-                                        if (focusedItemIndex >= 0) {
-                                            delay(
-                                                100
-                                            )
-                                            focusedItemIndex =
-                                                -1
+                                                Text(
+                                                    text = UIUtils.formatCharacterCount(
+                                                        title.length,
+                                                        Constants.TITLE_MAX_LENGTH
+                                                    ),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = titleCountColor,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    // Add item button
-                                    if (ChecklistParser.canAddMoreItems(
-                                            checklistItems
-                                        )
-                                    ) {
                                         Spacer(
                                             modifier = Modifier.height(
-                                                8.dp
+                                                dims.paddingMedium
                                             )
                                         )
-                                        Row(
+
+                                        OutlinedTextField(
+                                            value = title,
+                                            onValueChange = {
+                                                if (it.length <= Constants.TITLE_MAX_LENGTH) title =
+                                                    it
+                                            },
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    val newItem =
-                                                        ChecklistItem(
-                                                            order = checklistItems.size
-                                                        )
-                                                    checklistItems =
-                                                        checklistItems + newItem
-                                                    focusedItemIndex =
-                                                        checklistItems.size // will be new last index
-                                                }
-                                                .padding(
-                                                    vertical = 8.dp,
-                                                    horizontal = 4.dp
+                                                .focusRequester(
+                                                    titleFocusRequester
                                                 ),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.Check,
-                                                contentDescription = "Add item",
-                                                tint = NoteTheme.Primary.copy(
-                                                    alpha = 0.6f
-                                                ),
-                                                modifier = Modifier.size(
-                                                    20.dp
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    12.dp
-                                                )
-                                            )
-                                            Text(
-                                                "Add item",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = NoteTheme.Primary.copy(
-                                                    alpha = 0.6f
-                                                ),
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Description Section
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = dims.editorMinHeight) // Set minimum height instead of weight
-                                    .animateContentSize(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Surface
-                                ),
-                                shape = RoundedCornerShape(
-                                    20.dp
-                                ),
-                                elevation = CardDefaults.cardElevation(
-                                    defaultElevation = 1.dp
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    NoteTheme.Outline.copy(
-                                        alpha = 0.5f
-                                    )
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        horizontal = 20.dp,
-                                        vertical = 18.dp
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Description,
-                                                contentDescription = null,
-                                                tint = NoteTheme.Secondary,
-                                                modifier = Modifier.size(
-                                                    dims.iconMedium
-                                                )
-                                            )
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    dims.paddingSmall
-                                                )
-                                            )
-
-                                            Text(
-                                                text = "Description",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = NoteTheme.OnSurface,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // Progress indicator
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(
-                                                        dims.iconLarge
-                                                    )
-                                                    .background(
-                                                        color = descCountColor.copy(
-                                                            alpha = 0.1f
-                                                        ),
-                                                        shape = CircleShape
-                                                    ),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    progress = { descriptionProgress },
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    color = descCountColor,
-                                                    strokeWidth = 2.dp
-                                                )
-                                            }
-
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    dims.paddingSmall
-                                                )
-                                            )
-
-                                            Text(
-                                                text = UIUtils.formatCharacterCount(
-                                                    richTextState.annotatedString.text.length,
-                                                    Constants.DESCRIPTION_MAX_LENGTH
-                                                ),
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = descCountColor,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(
-                                        modifier = Modifier.height(
-                                            dims.paddingMedium
-                                        )
-                                    )
-
-                                    // -- Phase 2: WYSIWYG editor (no preview/edit toggle needed) ---
-                                    if (isPreviewMode) {
-                                        androidx.compose.material3.Card(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(
-                                                    min = 120.dp
-                                                ),
-                                            colors = androidx.compose.material3.CardDefaults.cardColors(
-                                                containerColor = NoteTheme.SurfaceVariant.copy(
-                                                    alpha = 0.5f
-                                                )
-                                            ),
-                                            shape = RoundedCornerShape(
-                                                dims.cornerSmall
-                                            )
-                                        ) {
-                                            RichTextDisplay(
-                                                html = richTextState.toHtml(),
-                                                modifier = Modifier.padding(
-                                                    16.dp
-                                                )
-                                            )
-                                        }
-                                    } else {
-                                        RichTextEditor(
-                                            state = richTextState,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(
-                                                    min = 200.dp
-                                                )
-                                                .onFocusChanged { focusState ->
-                                                    descriptionFocused =
-                                                        focusState.isFocused
-                                                    if (focusState.isFocused) {
-                                                        scope.launch {
-                                                            delay(
-                                                                300
-                                                            )
-                                                            scrollState.animateScrollTo(
-                                                                scrollState.maxValue
-                                                            )
-                                                        }
-                                                    }
-                                                },
-                                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                                color = NoteTheme.OnSurface
-                                            ),
                                             placeholder = {
                                                 Text(
-                                                    "Write your thoughts here...\n\nExpress your ideas, capture important information, or jot down anything that comes to mind.",
+                                                    "Enter a compelling title...",
                                                     color = NoteTheme.OnSurfaceVariant.copy(
                                                         alpha = 0.5f
                                                     )
                                                 )
                                             },
-                                            colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
-                                                focusedBorderColor = descCountColor,
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(
+                                                imeAction = ImeAction.Next
+                                            ),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = titleCountColor,
                                                 unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
                                                     alpha = 0.3f
                                                 ),
-                                                cursorColor = NoteTheme.Secondary
+                                                cursorColor = NoteTheme.Primary,
+                                                focusedLabelColor = titleCountColor,
+                                                focusedTextColor = NoteTheme.OnSurface,
+                                                unfocusedTextColor = NoteTheme.OnSurface
                                             ),
                                             shape = RoundedCornerShape(
                                                 dims.cornerSmall
                                             )
                                         )
-                                    } // end preview/edit toggle
+
+                                        // Title requirements indicator
+                                        AnimatedVisibility(
+                                            visible = !ValidationUtils.isValidTitle(
+                                                title
+                                            ),
+                                            enter = slideInVertically() + fadeIn(),
+                                            exit = slideOutVertically() + fadeOut()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(
+                                                    top = dims.paddingSmall
+                                                ),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Info,
+                                                    contentDescription = null,
+                                                    tint = titleCountColor,
+                                                    modifier = Modifier.size(
+                                                        dims.iconSmall
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        6.dp
+                                                    )
+                                                )
+                                                Text(
+                                                    text = ValidationUtils.getTitleValidationMessage(),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = titleCountColor,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } // end AnimatedVisibility heroVisible
+
+                            // Phase 4: Auto-title suggestion chip (rule-based instant + AI-enhanced async)
+                            val descriptionText =
+                                richTextState.annotatedString.text
+                            // Instant rule-based suggestion
+                            val ruleBasedTitle =
+                                remember(
+                                    descriptionText,
+                                    title,
+                                    isChecklistMode,
+                                    checklistItems
+                                ) {
+                                    if (title.isBlank() && (descriptionText.isNotBlank() || (isChecklistMode && checklistItems.any { it.text.isNotBlank() }))) {
+                                        AutoTitleGenerator.generate(
+                                            if (isChecklistMode) ChecklistParser.serializeItems(
+                                                checklistItems
+                                            )
+                                            else descriptionText
+                                        )
+                                    } else ""
+                                }
+
+                            // AI-enhanced suggestion (debounced, async)
+                            var aiSuggestedTitle by remember {
+                                mutableStateOf(
+                                    ""
+                                )
+                            }
+                            var isAiTitleLoading by remember {
+                                mutableStateOf(
+                                    false
+                                )
+                            }
+                            LaunchedEffect(
+                                descriptionText,
+                                title,
+                                isChecklistMode,
+                                checklistItems
+                            ) {
+                                aiSuggestedTitle =
+                                    "" // Reset on new input
+                                if (title.isNotBlank() || (descriptionText.isBlank() && !isChecklistMode)) {
+                                    return@LaunchedEffect
+                                }
+                                val descForAI =
+                                    if (isChecklistMode) ChecklistParser.serializeItems(
+                                        checklistItems
+                                    )
+                                    else richTextState.toHtml()
+                                if (descForAI.isBlank()) return@LaunchedEffect
+
+                                // Debounce: wait 1.5s after user stops typing before calling LLM
+                                delay(1500)
+
+                                val aiGen =
+                                    AITitleGenerator.getInstance(
+                                        context
+                                    )
+                                if (!aiGen.isAvailable()) {
+                                    Log.d(
+                                        "AddScreen",
+                                        "?? AI title chip: AI not available (no API key)"
+                                    )
+                                    return@LaunchedEffect
+                                }
+
+                                isAiTitleLoading =
+                                    true
+                                Log.d(
+                                    "AddScreen",
+                                    "?? AI title chip: triggering AI generation..."
+                                )
+                                try {
+                                    val result =
+                                        withContext(
+                                            Dispatchers.IO
+                                        ) {
+                                            aiGen.generate(
+                                                descForAI
+                                            )
+                                        }
+                                    if (result.isNotBlank() && result != ruleBasedTitle) {
+                                        aiSuggestedTitle =
+                                            result
+                                        Log.d(
+                                            "AddScreen",
+                                            "?? AI title chip: got result \"$result\""
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(
+                                        "AddScreen",
+                                        "?? AI title chip: failed",
+                                        e
+                                    )
+                                } finally {
+                                    isAiTitleLoading =
+                                        false
                                 }
                             }
-                        } // end else (text mode description)
 
-                        // Validation warning section
-                        AnimatedVisibility(
-                            visible = !canSave,
-                            enter = slideInVertically() + fadeIn(),
-                            exit = slideOutVertically() + fadeOut()
-                        ) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Warning.copy(
-                                        alpha = 0.1f
-                                    )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    NoteTheme.Warning.copy(
-                                        alpha = 0.3f
-                                    )
-                                )
+                            // Show the best available title (AI > rule-based)
+                            val suggestedTitle =
+                                aiSuggestedTitle.ifEmpty { ruleBasedTitle }
+
+                            AnimatedVisibility(
+                                visible = title.isBlank() && (suggestedTitle.isNotBlank() || isAiTitleLoading),
+                                enter = fadeIn(
+                                    tween(200)
+                                ) + slideInVertically(
+                                    initialOffsetY = { -it / 4 }),
+                                exit = fadeOut(
+                                    tween(150)
+                                ) + slideOutVertically(
+                                    targetOffsetY = { -it / 4 })
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(
-                                        dims.paddingMedium
-                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            start = dims.paddingSmall,
+                                            top = 4.dp,
+                                            bottom = 4.dp
+                                        )
+                                        .clickable {
+                                            if (suggestedTitle.isNotBlank()) {
+                                                title =
+                                                    suggestedTitle
+                                            }
+                                        },
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Warning,
-                                        contentDescription = null,
-                                        tint = NoteTheme.Warning,
-                                        modifier = Modifier.size(
-                                            dims.iconMedium
+                                    if (isAiTitleLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(
+                                                12.dp
+                                            ),
+                                            strokeWidth = 1.5.dp,
+                                            color = NoteTheme.Primary
                                         )
-                                    )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Outlined.EditNote,
+                                            contentDescription = null,
+                                            tint = NoteTheme.Primary,
+                                            modifier = Modifier.size(
+                                                14.dp
+                                            )
+                                        )
+                                    }
                                     Spacer(
-                                        modifier = Modifier.width(
-                                            dims.cornerSmall
+                                        Modifier.width(
+                                            4.dp
                                         )
                                     )
                                     Text(
-                                        text = ValidationUtils.getSaveValidationMessage(),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = NoteTheme.Warning,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-
-                        // Smart Analysis Indicator - Shows when AI is analyzing text
-                        if (isAnalyzingText) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Primary.copy(
-                                        alpha = 0.05f
-                                    )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(
-                                        dims.paddingMedium
-                                    ),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(
-                                            16.dp
-                                        ),
-                                        strokeWidth = 2.dp,
-                                        color = NoteTheme.Primary
-                                    )
-                                    Spacer(
-                                        modifier = Modifier.width(
-                                            dims.paddingSmall
-                                        )
-                                    )
-                                    Text(
-                                        text = "?? Analyzing for smart reminders...",
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        text = if (isAiTitleLoading && suggestedTitle.isBlank()) {
+                                            "? Generating AI title..."
+                                        } else if (aiSuggestedTitle.isNotBlank()) {
+                                            "? \"$suggestedTitle\""
+                                        } else {
+                                            "Use \"$suggestedTitle\""
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = NoteTheme.Primary,
-                                        fontWeight = FontWeight.Medium
+                                        maxLines = 1
                                     )
                                 }
                             }
-                        }
 
-                        // Phase 1: Smart Reminder Suggestion Chips � interactive chips instead of auto-fire
-                        if (detectedReminders.isNotEmpty() && pendingReminders.isNotEmpty()) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Secondary.copy(
-                                        alpha = 0.06f
+                            // Phase 4: Category Picker
+                            AnimatedVisibility(
+                                visible = contentVisible,
+                                enter = fadeIn(
+                                    tween(
+                                        350
                                     )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    NoteTheme.Secondary.copy(
-                                        alpha = 0.2f
-                                    )
+                                ) + slideInVertically(
+                                    spring(Spring.DampingRatioMediumBouncy),
+                                    initialOffsetY = { it / 3 }
                                 )
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        dims.paddingMedium
+                                var showCategoryPicker by remember {
+                                    mutableStateOf(
+                                        false
                                     )
-                                ) {
+                                }
+
+                                Column {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                showCategoryPicker =
+                                                    !showCategoryPicker
+                                            }
+                                            .padding(
+                                                vertical = 8.dp
+                                            ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(
+                                            8.dp
+                                        )
                                     ) {
                                         Icon(
-                                            Icons.Outlined.NotificationsActive,
+                                            Icons.AutoMirrored.Outlined.Label,
                                             contentDescription = null,
-                                            tint = NoteTheme.Secondary,
+                                            tint = NoteTheme.OnSurfaceVariant,
                                             modifier = Modifier.size(
                                                 18.dp
                                             )
+                                        )
+                                        Text(
+                                            text = if (selectedCategory.isBlank()) "Add category" else selectedCategory,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (selectedCategory.isBlank()) NoteTheme.OnSurfaceVariant.copy(
+                                                alpha = 0.6f
+                                            ) else NoteTheme.OnSurface,
+                                            fontWeight = if (selectedCategory.isNotBlank()) FontWeight.Medium else FontWeight.Normal
+                                        )
+                                        if (selectedCategory.isNotBlank()) {
+                                            val catColor =
+                                                com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(
+                                                    context,
+                                                    selectedCategory
+                                                )
+                                            if (catColor != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(
+                                                            10.dp
+                                                        )
+                                                        .background(
+                                                            catColor,
+                                                            CircleShape
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    AnimatedVisibility(
+                                        visible = showCategoryPicker
+                                    ) {
+                                        androidx.compose.foundation.lazy.LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(
+                                                8.dp
+                                            ),
+                                            modifier = Modifier.padding(
+                                                bottom = 8.dp
+                                            )
+                                        ) {
+                                            // "None" option
+                                            item {
+                                                FilterChip(
+                                                    selected = selectedCategory.isBlank(),
+                                                    onClick = {
+                                                        selectedCategory =
+                                                            ""; showCategoryPicker =
+                                                        false
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            "None",
+                                                            fontSize = 12.sp,
+                                                            color = NoteTheme.OnSurface
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                            items(
+                                                categoryOptions.size
+                                            ) { idx ->
+                                                val cat =
+                                                    categoryOptions[idx]
+                                                FilterChip(
+                                                    selected = selectedCategory.equals(
+                                                        cat.name,
+                                                        ignoreCase = true
+                                                    ),
+                                                    onClick = {
+                                                        selectedCategory =
+                                                            cat.name; showCategoryPicker =
+                                                        false
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            cat.name,
+                                                            fontSize = 12.sp,
+                                                            color = NoteTheme.OnSurface
+                                                        )
+                                                    },
+                                                    leadingIcon = {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(
+                                                                    8.dp
+                                                                )
+                                                                .background(
+                                                                    cat.color,
+                                                                    CircleShape
+                                                                )
+                                                        )
+                                                    },
+                                                    colors = FilterChipDefaults.filterChipColors(
+                                                        selectedContainerColor = cat.color.copy(
+                                                            alpha = 0.15f
+                                                        ),
+                                                        selectedLabelColor = cat.color
+                                                    )
+                                                )
+                                            }
+                                            item {
+                                                FilterChip(
+                                                    selected = false,
+                                                    onClick = {
+                                                        customCategoryName =
+                                                            ""
+                                                        customCategoryColor =
+                                                            com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.first()
+                                                        showCustomCategoryDialog =
+                                                            true
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            "Add custom",
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (showCustomCategoryDialog) {
+                                AlertDialog(
+                                    onDismissRequest = {
+                                        showCustomCategoryDialog =
+                                            false
+                                    },
+                                    title = {
+                                        Text(
+                                            text = "Create Category",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = NoteTheme.OnSurface
+                                        )
+                                    },
+                                    text = {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(
+                                                12.dp
+                                            )
+                                        ) {
+                                            OutlinedTextField(
+                                                value = customCategoryName,
+                                                onValueChange = {
+                                                    customCategoryName =
+                                                        it.take(
+                                                            24
+                                                        )
+                                                },
+                                                singleLine = true,
+                                                label = {
+                                                    Text(
+                                                        "Category name"
+                                                    )
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = NoteTheme.Primary,
+                                                    focusedLabelColor = NoteTheme.Primary
+                                                )
+                                            )
+
+                                            Text(
+                                                text = "Choose a color",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = NoteTheme.OnSurfaceVariant
+                                            )
+
+                                            androidx.compose.foundation.layout.FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(
+                                                    8.dp
+                                                ),
+                                                verticalArrangement = Arrangement.spacedBy(
+                                                    8.dp
+                                                )
+                                            ) {
+                                                com.amvarpvtltd.swiftNote.categories.CategoryManager.presetColors.forEach { colorHex ->
+                                                    val swatchColor =
+                                                        Color(
+                                                            colorHex
+                                                        )
+                                                    val isSelected =
+                                                        customCategoryColor == colorHex
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(
+                                                                32.dp
+                                                            )
+                                                            .clip(
+                                                                CircleShape
+                                                            )
+                                                            .background(
+                                                                swatchColor
+                                                            )
+                                                            .border(
+                                                                width = if (isSelected) 3.dp else 1.dp,
+                                                                color = if (isSelected) NoteTheme.OnSurface else swatchColor.copy(
+                                                                    alpha = 0.25f
+                                                                ),
+                                                                shape = CircleShape
+                                                            )
+                                                            .clickable {
+                                                                customCategoryColor =
+                                                                    colorHex
+                                                            }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(
+                                            onClick = {
+                                                val trimmedName =
+                                                    customCategoryName.trim()
+                                                if (trimmedName.isEmpty()) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Category name can't be empty",
+                                                        Toast.LENGTH_SHORT
+                                                    )
+                                                        .show()
+                                                    return@TextButton
+                                                }
+
+                                                val added =
+                                                    com.amvarpvtltd.swiftNote.categories.CategoryManager.addCustom(
+                                                        context = context,
+                                                        name = trimmedName,
+                                                        colorHex = customCategoryColor
+                                                    )
+                                                if (added) {
+                                                    categoryOptions =
+                                                        com.amvarpvtltd.swiftNote.categories.CategoryManager.getAll(
+                                                            context
+                                                        )
+                                                    selectedCategory =
+                                                        trimmedName
+                                                    showCustomCategoryDialog =
+                                                        false
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Category already exists or limit reached",
+                                                        Toast.LENGTH_SHORT
+                                                    )
+                                                        .show()
+                                                }
+                                            }
+                                        ) {
+                                            Text("Save")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(
+                                            onClick = {
+                                                showCustomCategoryDialog =
+                                                    false
+                                            }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+
+                            // Phase 1: Note Mode Toggle (Text / Checklist)
+                            AnimatedVisibility(
+                                visible = contentVisible,
+                                enter = fadeIn(
+                                    tween(
+                                        400
+                                    )
+                                ) + slideInVertically(
+                                    spring(Spring.DampingRatioMediumBouncy),
+                                    initialOffsetY = { it / 3 }
+                                )
+                            ) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.SurfaceVariant.copy(
+                                            alpha = 0.3f
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(
+                                                dims.paddingSmall
+                                            ),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Text mode button
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(
+                                                    1f
+                                                )
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    if (isChecklistMode) {
+                                                        // Convert checklist ? text
+                                                        richTextState.setHtml(
+                                                            ChecklistParser.checklistToText(
+                                                                checklistItems
+                                                            )
+                                                        )
+                                                        isChecklistMode =
+                                                            false
+                                                    }
+                                                },
+                                            shape = RoundedCornerShape(
+                                                dims.cornerSmall
+                                            ),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (!isChecklistMode) NoteTheme.Primary.copy(
+                                                    alpha = 0.15f
+                                                )
+                                                else Color.Transparent
+                                            ),
+                                            elevation = CardDefaults.cardElevation(
+                                                defaultElevation = 0.dp
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(
+                                                        vertical = 10.dp
+                                                    ),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.Description,
+                                                    contentDescription = null,
+                                                    tint = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                                                    modifier = Modifier.size(
+                                                        18.dp
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        6.dp
+                                                    )
+                                                )
+                                                Text(
+                                                    "Text",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = if (!isChecklistMode) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (!isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(
+                                            modifier = Modifier.width(
+                                                8.dp
+                                            )
+                                        )
+
+                                        // Checklist mode button
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(
+                                                    1f
+                                                )
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    if (!isChecklistMode) {
+                                                        // Convert text ? checklist
+                                                        checklistItems =
+                                                            if (richTextState.annotatedString.text.isNotBlank()) {
+                                                                ChecklistParser.textToChecklist(
+                                                                    RichTextBridge.stripHtmlToPlainText(
+                                                                        richTextState.toHtml()
+                                                                    )
+                                                                )
+                                                            } else {
+                                                                listOf(
+                                                                    ChecklistItem(
+                                                                        order = 0
+                                                                    )
+                                                                )
+                                                            }
+                                                        isChecklistMode =
+                                                            true
+                                                    }
+                                                },
+                                            shape = RoundedCornerShape(
+                                                dims.cornerSmall
+                                            ),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isChecklistMode) NoteTheme.Primary.copy(
+                                                    alpha = 0.15f
+                                                )
+                                                else Color.Transparent
+                                            ),
+                                            elevation = CardDefaults.cardElevation(
+                                                defaultElevation = 0.dp
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(
+                                                        vertical = 10.dp
+                                                    ),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
+                                                    modifier = Modifier.size(
+                                                        18.dp
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        6.dp
+                                                    )
+                                                )
+                                                Text(
+                                                    "Checklist",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = if (isChecklistMode) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isChecklistMode) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } // end AnimatedVisibility contentVisible
+
+                            // Phase 1: Checklist Editor Section
+                            if (isChecklistMode) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(
+                                            min = dims.editorMinHeight
+                                        )
+                                        .animateContentSize(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Surface
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerLarge
+                                    ),
+                                    elevation = CardDefaults.cardElevation(
+                                        defaultElevation = 1.dp
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        NoteTheme.Outline.copy(
+                                            alpha = 0.5f
+                                        )
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            dims.cornerLarge
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = NoteTheme.Primary,
+                                                    modifier = Modifier.size(
+                                                        dims.iconMedium
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        dims.paddingSmall
+                                                    )
+                                                )
+                                                Text(
+                                                    text = "Checklist",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = NoteTheme.OnSurface,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+
+                                            // Item count
+                                            val checkedCount =
+                                                checklistItems.count { it.isChecked }
+                                            val totalCount =
+                                                checklistItems.count { it.text.isNotBlank() }
+                                            if (totalCount > 0) {
+                                                Text(
+                                                    text = "$checkedCount/$totalCount done",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = NoteTheme.Primary,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(
+                                            modifier = Modifier.height(
+                                                dims.paddingMedium
+                                            )
+                                        )
+
+                                        // Checklist items with drag-to-reorder
+                                        com.amvarpvtltd.swiftNote.components.ReorderableChecklistColumn(
+                                            items = checklistItems,
+                                            onReorder = { fromIndex, toIndex ->
+                                                checklistItems =
+                                                    checklistItems.toMutableList()
+                                                        .also {
+                                                            val item =
+                                                                it.removeAt(
+                                                                    fromIndex
+                                                                )
+                                                            it.add(
+                                                                toIndex,
+                                                                item
+                                                            )
+                                                        }
+                                            },
+                                            onCheckedChange = { index, checked ->
+                                                checklistItems =
+                                                    checklistItems.toMutableList()
+                                                        .also {
+                                                            it[index] =
+                                                                it[index].copy(
+                                                                    isChecked = checked
+                                                                )
+                                                        }
+                                            },
+                                            onTextChange = { index, newText ->
+                                                checklistItems =
+                                                    checklistItems.toMutableList()
+                                                        .also {
+                                                            it[index] =
+                                                                it[index].copy(
+                                                                    text = newText
+                                                                )
+                                                        }
+                                            },
+                                            onDelete = { index ->
+                                                if (checklistItems.size > 1) {
+                                                    checklistItems =
+                                                        checklistItems.toMutableList()
+                                                            .also {
+                                                                it.removeAt(
+                                                                    index
+                                                                )
+                                                            }
+                                                    focusedItemIndex =
+                                                        (index - 1).coerceAtLeast(
+                                                            0
+                                                        )
+                                                }
+                                            },
+                                            onEnterPressed = { index ->
+                                                if (ChecklistParser.canAddMoreItems(
+                                                        checklistItems
+                                                    )
+                                                ) {
+                                                    val newItem =
+                                                        ChecklistItem(
+                                                            order = index + 1
+                                                        )
+                                                    checklistItems =
+                                                        checklistItems.toMutableList()
+                                                            .also {
+                                                                it.add(
+                                                                    index + 1,
+                                                                    newItem
+                                                                )
+                                                            }
+                                                    focusedItemIndex =
+                                                        index + 1
+                                                }
+                                            },
+                                            onBackspaceOnEmpty = { index ->
+                                                if (checklistItems.size > 1) {
+                                                    checklistItems =
+                                                        checklistItems.toMutableList()
+                                                            .also {
+                                                                it.removeAt(
+                                                                    index
+                                                                )
+                                                            }
+                                                    focusedItemIndex =
+                                                        (index - 1).coerceAtLeast(
+                                                            0
+                                                        )
+                                                }
+                                            },
+                                            focusedItemIndex = focusedItemIndex
+                                        )
+
+                                        // Reset focusedItemIndex after it has been consumed
+                                        LaunchedEffect(
+                                            focusedItemIndex
+                                        ) {
+                                            if (focusedItemIndex >= 0) {
+                                                delay(
+                                                    100
+                                                )
+                                                focusedItemIndex =
+                                                    -1
+                                            }
+                                        }
+
+                                        // Add item button
+                                        if (ChecklistParser.canAddMoreItems(
+                                                checklistItems
+                                            )
+                                        ) {
+                                            Spacer(
+                                                modifier = Modifier.height(
+                                                    8.dp
+                                                )
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        val newItem =
+                                                            ChecklistItem(
+                                                                order = checklistItems.size
+                                                            )
+                                                        checklistItems =
+                                                            checklistItems + newItem
+                                                        focusedItemIndex =
+                                                            checklistItems.size // will be new last index
+                                                    }
+                                                    .padding(
+                                                        vertical = 8.dp,
+                                                        horizontal = 4.dp
+                                                    ),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.Check,
+                                                    contentDescription = "Add item",
+                                                    tint = NoteTheme.Primary.copy(
+                                                        alpha = 0.6f
+                                                    ),
+                                                    modifier = Modifier.size(
+                                                        20.dp
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        12.dp
+                                                    )
+                                                )
+                                                Text(
+                                                    "Add item",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = NoteTheme.Primary.copy(
+                                                        alpha = 0.6f
+                                                    ),
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Description Section
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(
+                                            min = dims.editorMinHeight
+                                        ) // Set minimum height instead of weight
+                                        .animateContentSize(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Surface
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        20.dp
+                                    ),
+                                    elevation = CardDefaults.cardElevation(
+                                        defaultElevation = 1.dp
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        NoteTheme.Outline.copy(
+                                            alpha = 0.5f
+                                        )
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            horizontal = 20.dp,
+                                            vertical = 18.dp
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Description,
+                                                    contentDescription = null,
+                                                    tint = NoteTheme.Secondary,
+                                                    modifier = Modifier.size(
+                                                        dims.iconMedium
+                                                    )
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        dims.paddingSmall
+                                                    )
+                                                )
+
+                                                Text(
+                                                    text = "Description",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = NoteTheme.OnSurface,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Progress indicator
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(
+                                                            dims.iconLarge
+                                                        )
+                                                        .background(
+                                                            color = descCountColor.copy(
+                                                                alpha = 0.1f
+                                                            ),
+                                                            shape = CircleShape
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        progress = { descriptionProgress },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        color = descCountColor,
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                }
+
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        dims.paddingSmall
+                                                    )
+                                                )
+
+                                                Text(
+                                                    text = UIUtils.formatCharacterCount(
+                                                        richTextState.annotatedString.text.length,
+                                                        Constants.DESCRIPTION_MAX_LENGTH
+                                                    ),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = descCountColor,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(
+                                            modifier = Modifier.height(
+                                                dims.paddingMedium
+                                            )
+                                        )
+
+                                        // -- Phase 2: WYSIWYG editor (no preview/edit toggle needed) ---
+                                        if (isPreviewMode) {
+                                            androidx.compose.material3.Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(
+                                                        min = 120.dp
+                                                    ),
+                                                colors = androidx.compose.material3.CardDefaults.cardColors(
+                                                    containerColor = NoteTheme.SurfaceVariant.copy(
+                                                        alpha = 0.5f
+                                                    )
+                                                ),
+                                                shape = RoundedCornerShape(
+                                                    dims.cornerSmall
+                                                )
+                                            ) {
+                                                RichTextDisplay(
+                                                    html = richTextState.toHtml(),
+                                                    modifier = Modifier.padding(
+                                                        16.dp
+                                                    )
+                                                )
+                                            }
+                                        } else {
+                                            RichTextEditor(
+                                                state = richTextState,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(
+                                                        min = 200.dp
+                                                    )
+                                                    .onFocusChanged { focusState ->
+                                                        descriptionFocused =
+                                                            focusState.isFocused
+                                                        if (focusState.isFocused) {
+                                                            scope.launch {
+                                                                delay(
+                                                                    300
+                                                                )
+                                                                scrollState.animateScrollTo(
+                                                                    scrollState.maxValue
+                                                                )
+                                                            }
+                                                        }
+                                                    },
+                                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                                    color = NoteTheme.OnSurface
+                                                ),
+                                                placeholder = {
+                                                    Text(
+                                                        "Write your thoughts here...\n\nExpress your ideas, capture important information, or jot down anything that comes to mind.",
+                                                        color = NoteTheme.OnSurfaceVariant.copy(
+                                                            alpha = 0.5f
+                                                        )
+                                                    )
+                                                },
+                                                colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
+                                                    focusedBorderColor = descCountColor,
+                                                    unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
+                                                        alpha = 0.3f
+                                                    ),
+                                                    cursorColor = NoteTheme.Secondary
+                                                ),
+                                                shape = RoundedCornerShape(
+                                                    dims.cornerSmall
+                                                )
+                                            )
+                                        } // end preview/edit toggle
+                                    }
+                                }
+                            } // end else (text mode description)
+
+                            // Validation warning section
+                            AnimatedVisibility(
+                                visible = !canSave,
+                                enter = slideInVertically() + fadeIn(),
+                                exit = slideOutVertically() + fadeOut()
+                            ) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Warning.copy(
+                                            alpha = 0.1f
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        NoteTheme.Warning.copy(
+                                            alpha = 0.3f
+                                        )
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            dims.paddingMedium
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Warning,
+                                            contentDescription = null,
+                                            tint = NoteTheme.Warning,
+                                            modifier = Modifier.size(
+                                                dims.iconMedium
+                                            )
+                                        )
+                                        Spacer(
+                                            modifier = Modifier.width(
+                                                dims.cornerSmall
+                                            )
+                                        )
+                                        Text(
+                                            text = ValidationUtils.getSaveValidationMessage(),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NoteTheme.Warning,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Smart Analysis Indicator - Shows when AI is analyzing text
+                            if (isAnalyzingText) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Primary.copy(
+                                            alpha = 0.05f
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            dims.paddingMedium
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(
+                                                16.dp
+                                            ),
+                                            strokeWidth = 2.dp,
+                                            color = NoteTheme.Primary
                                         )
                                         Spacer(
                                             modifier = Modifier.width(
@@ -2476,408 +3062,476 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             )
                                         )
                                         Text(
-                                            text = "Smart Reminder Suggestion",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = NoteTheme.Secondary,
-                                            fontWeight = FontWeight.SemiBold
+                                            text = "?? Analyzing for smart reminders...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NoteTheme.Primary,
+                                            fontWeight = FontWeight.Medium
                                         )
-                                    }
-
-                                    Spacer(
-                                        modifier = Modifier.height(
-                                            dims.paddingSmall
-                                        )
-                                    )
-
-                                    pendingReminders.forEach { reminder ->
-                                        val timeText =
-                                            remember(
-                                                reminder.reminderDateTime
-                                            ) {
-                                                val sdf =
-                                                    java.text.SimpleDateFormat(
-                                                        "MMM dd, hh:mm a",
-                                                        java.util.Locale.getDefault()
-                                                    )
-                                                sdf.format(
-                                                    java.util.Date(
-                                                        reminder.reminderDateTime
-                                                    )
-                                                )
-                                            }
-
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(
-                                                    vertical = 4.dp
-                                                )
-                                                .background(
-                                                    NoteTheme.Secondary.copy(
-                                                        alpha = 0.08f
-                                                    ),
-                                                    RoundedCornerShape(
-                                                        dims.cornerSmall
-                                                    )
-                                                )
-                                                .padding(
-                                                    horizontal = 12.dp,
-                                                    vertical = 10.dp
-                                                ),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.weight(
-                                                    1f
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = "\"${reminder.extractedText}\"",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = NoteTheme.OnSurface,
-                                                    fontWeight = FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = "? $timeText",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = NoteTheme.OnSurfaceVariant
-                                                )
-                                            }
-
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    8.dp
-                                                )
-                                            )
-
-                                            // Confirm chip
-                                            Card(
-                                                modifier = Modifier.clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    // Check notification permission before creating reminder
-                                                    val missing =
-                                                        com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
-                                                            context
-                                                        )
-                                                                     if (missing != null) {
-                                                                        // Store the action to execute after permission is granted
-                                                                        pendingReminderAction =
-                                                                            {
-                                                                                scope.launch {
-                                                                                    try {
-                                                                                        if (isEditing) {
-                                                                                            withContext(
-                                                                                                Dispatchers.IO
-                                                                                            ) {
-                                                                                                reminderManager.createReminderFromDetection(
-                                                                                                    reminder,
-                                                                                                    noteId!!
-                                                                                                )
-                                                                                            }
-                                                                                        } else {
-                                                                                            // New note: queue for creation at save time
-                                                                                            if (!confirmedPendingReminders.any { it.id == reminder.id }) {
-                                                                                                confirmedPendingReminders = confirmedPendingReminders + reminder
-                                                                                            }
-                                                                                        }
-                                                                                        pendingReminders =
-                                                                                            pendingReminders.filter { it.id != reminder.id }
-                                                                                        detectedReminders =
-                                                                                            detectedReminders.map {
-                                                                                                if (it.id == reminder.id) it.copy(
-                                                                                                    isConfirmed = true
-                                                                                                ) else it
-                                                                                            }
-                                                                                        Toast.makeText(
-                                                                                            context,
-                                                                                            if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
-                                                                                            Toast.LENGTH_SHORT
-                                                                                        )
-                                                                                            .show()
-                                                                                    } catch (e: Exception) {
-                                                                                        Log.e(
-                                                                                            "AddScreen",
-                                                                                            "Error confirming reminder",
-                                                                                            e
-                                                                                        )
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                        missingPermissionType =
-                                                                            missing
-                                                                        showPermissionRationale =
-                                                                            true
-                                                                     } else {
-                                                                        // Permission already granted � create the reminder
-                                                                        scope.launch {
-                                                                            try {
-                                                                                if (isEditing) {
-                                                                                    // Editing an existing note: create immediately
-                                                                                    withContext(
-                                                                                        Dispatchers.IO
-                                                                                    ) {
-                                                                                        reminderManager.createReminderFromDetection(
-                                                                                            reminder,
-                                                                                            noteId!!
-                                                                                        )
-                                                                                    }
-                                                                                } else {
-                                                                                    // New note not saved yet: queue for creation at save time
-                                                                                    if (!confirmedPendingReminders.any { it.id == reminder.id }) {
-                                                                                        confirmedPendingReminders = confirmedPendingReminders + reminder
-                                                                                    }
-                                                                                }
-                                                                                // Move from pending to confirmed
-                                                                                pendingReminders =
-                                                                                    pendingReminders.filter { it.id != reminder.id }
-                                                                                detectedReminders =
-                                                                                    detectedReminders.map {
-                                                                                        if (it.id == reminder.id) it.copy(
-                                                                                            isConfirmed = true
-                                                                                        ) else it
-                                                                                    }
-                                                                                withContext(
-                                                                                    Dispatchers.Main
-                                                                                ) {
-                                                                                    Toast.makeText(
-                                                                                        context,
-                                                                                        if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
-                                                                                        Toast.LENGTH_SHORT
-                                                                                    )
-                                                                                        .show()
-                                                                                }
-                                                                            } catch (e: Exception) {
-                                                                                Log.e(
-                                                                                    "AddScreen",
-                                                                                    "Error confirming reminder",
-                                                                                    e
-                                                                                )
-                                                                            }
-                                                                        }
-                                                                    }
-                                                },
-                                                shape = RoundedCornerShape(
-                                                    dims.cornerSmall
-                                                ),
-                                                colors = CardDefaults.cardColors(
-                                                    containerColor = NoteTheme.Primary.copy(
-                                                        alpha = 0.15f
-                                                    )
-                                                ),
-                                                elevation = CardDefaults.cardElevation(
-                                                    defaultElevation = 0.dp
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = "Set",
-                                                    modifier = Modifier.padding(
-                                                        horizontal = 12.dp,
-                                                        vertical = 6.dp
-                                                    ),
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = NoteTheme.Primary,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    6.dp
-                                                )
-                                            )
-
-                                            // Dismiss chip
-                                            Card(
-                                                modifier = Modifier.clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    // Dismiss this suggestion
-                                                    pendingReminders =
-                                                        pendingReminders.filter { it.id != reminder.id }
-                                                    if (pendingReminders.isEmpty()) {
-                                                        detectedReminders =
-                                                            emptyList()
-                                                    }
-                                                },
-                                                shape = RoundedCornerShape(
-                                                    dims.cornerSmall
-                                                ),
-                                                colors = CardDefaults.cardColors(
-                                                    containerColor = NoteTheme.OnSurfaceVariant.copy(
-                                                        alpha = 0.08f
-                                                    )
-                                                ),
-                                                elevation = CardDefaults.cardElevation(
-                                                    defaultElevation = 0.dp
-                                                )
-                                            ) {
-                                                Icon(
-                                                    Icons.Outlined.Close,
-                                                    contentDescription = "Dismiss",
-                                                    modifier = Modifier.padding(
-                                                        6.dp
-                                                    )
-                                                        .size(
-                                                            16.dp
-                                                        ),
-                                                    tint = NoteTheme.OnSurfaceVariant
-                                                )
-                                            }
-                                        }
                                     }
                                 }
                             }
-                        }
 
-                        // Confirmed Reminders Status � shows after user taps "Set"
-                        if (detectedReminders.any { it.isConfirmed }) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.Success.copy(
-                                        alpha = 0.05f
-                                    )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(
-                                        dims.paddingMedium
+                            // Phase 1: Smart Reminder Suggestion Chips � interactive chips instead of auto-fire
+                            if (detectedReminders.isNotEmpty() && pendingReminders.isNotEmpty()) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Secondary.copy(
+                                            alpha = 0.06f
+                                        )
                                     ),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.CheckCircle,
-                                        contentDescription = null,
-                                        tint = NoteTheme.Success,
-                                        modifier = Modifier.size(
-                                            16.dp
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        NoteTheme.Secondary.copy(
+                                            alpha = 0.2f
                                         )
-                                    )
-                                    Spacer(
-                                        modifier = Modifier.width(
-                                            dims.paddingSmall
-                                        )
-                                    )
-                                    val confirmedCount =
-                                        detectedReminders.count { it.isConfirmed }
-                                    Text(
-                                        text = "? $confirmedCount reminder${if (confirmedCount > 1) "s" else ""} set",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = NoteTheme.Success,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-
-                        // Formatted preview (if paste contained HTML)
-                        if (titleFormatted != null) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = NoteTheme.SurfaceVariant.copy(
-                                        alpha = 0.06f
-                                    )
-                                ),
-                                shape = RoundedCornerShape(
-                                    dims.cornerMedium
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        dims.paddingMedium
                                     )
                                 ) {
-                                    if (titleFormatted != null) {
-                                        Text(
-                                            text = "Formatted Title Preview:",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = NoteTheme.OnSurfaceVariant
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            dims.paddingMedium
                                         )
-                                        Spacer(
-                                            modifier = Modifier.height(
-                                                4.dp
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.NotificationsActive,
+                                                contentDescription = null,
+                                                tint = NoteTheme.Secondary,
+                                                modifier = Modifier.size(
+                                                    18.dp
+                                                )
                                             )
-                                        )
-                                        Text(
-                                            text = titleFormatted
-                                                ?: AnnotatedString(
-                                                    ""
-                                                ),
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
+                                            Spacer(
+                                                modifier = Modifier.width(
+                                                    dims.paddingSmall
+                                                )
+                                            )
+                                            Text(
+                                                text = "Smart Reminder Suggestion",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = NoteTheme.Secondary,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+
                                         Spacer(
                                             modifier = Modifier.height(
                                                 dims.paddingSmall
                                             )
                                         )
+
+                                        pendingReminders.forEach { reminder ->
+                                            val timeText =
+                                                remember(
+                                                    reminder.reminderDateTime
+                                                ) {
+                                                    val sdf =
+                                                        java.text.SimpleDateFormat(
+                                                            "MMM dd, hh:mm a",
+                                                            java.util.Locale.getDefault()
+                                                        )
+                                                    sdf.format(
+                                                        java.util.Date(
+                                                            reminder.reminderDateTime
+                                                        )
+                                                    )
+                                                }
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(
+                                                        vertical = 4.dp
+                                                    )
+                                                    .background(
+                                                        NoteTheme.Secondary.copy(
+                                                            alpha = 0.08f
+                                                        ),
+                                                        RoundedCornerShape(
+                                                            dims.cornerSmall
+                                                        )
+                                                    )
+                                                    .padding(
+                                                        horizontal = 12.dp,
+                                                        vertical = 10.dp
+                                                    ),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.weight(
+                                                        1f
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "\"${reminder.extractedText}\"",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = NoteTheme.OnSurface,
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "$timeText",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = NoteTheme.OnSurfaceVariant
+                                                    )
+                                                }
+
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        8.dp
+                                                    )
+                                                )
+
+                                                // Confirm chip
+                                                Card(
+                                                    modifier = Modifier.clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        // Check notification permission before creating reminder
+                                                        val missing =
+                                                            com.amvarpvtltd.swiftNote.components.checkReminderPermissions(
+                                                                context
+                                                            )
+                                                        if (missing != null) {
+                                                            // Store the action to execute after permission is granted
+                                                            pendingReminderAction =
+                                                                {
+                                                                    scope.launch {
+                                                                        try {
+                                                                            if (isEditing) {
+                                                                                withContext(
+                                                                                    Dispatchers.IO
+                                                                                ) {
+                                                                                    reminderManager.createReminderFromDetection(
+                                                                                        reminder,
+                                                                                        noteId!!
+                                                                                    )
+                                                                                }
+                                                                            } else {
+                                                                                // New note: queue for creation at save time
+                                                                                if (!confirmedPendingReminders.any { it.id == reminder.id }) {
+                                                                                    confirmedPendingReminders =
+                                                                                        confirmedPendingReminders + reminder
+                                                                                }
+                                                                            }
+                                                                            pendingReminders =
+                                                                                pendingReminders.filter { it.id != reminder.id }
+                                                                            detectedReminders =
+                                                                                detectedReminders.map {
+                                                                                    if (it.id == reminder.id) it.copy(
+                                                                                        isConfirmed = true
+                                                                                    ) else it
+                                                                                }
+                                                                            Toast.makeText(
+                                                                                context,
+                                                                                if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
+                                                                                Toast.LENGTH_SHORT
+                                                                            )
+                                                                                .show()
+                                                                        } catch (e: Exception) {
+                                                                            Log.e(
+                                                                                "AddScreen",
+                                                                                "Error confirming reminder",
+                                                                                e
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                }
+                                                            missingPermissionType =
+                                                                missing
+                                                            showPermissionRationale =
+                                                                true
+                                                        } else {
+                                                            // Permission already granted � create the reminder
+                                                            scope.launch {
+                                                                try {
+                                                                    if (isEditing) {
+                                                                        // Editing an existing note: create immediately
+                                                                        withContext(
+                                                                            Dispatchers.IO
+                                                                        ) {
+                                                                            reminderManager.createReminderFromDetection(
+                                                                                reminder,
+                                                                                noteId!!
+                                                                            )
+                                                                        }
+                                                                    } else {
+                                                                        // New note not saved yet: queue for creation at save time
+                                                                        if (!confirmedPendingReminders.any { it.id == reminder.id }) {
+                                                                            confirmedPendingReminders =
+                                                                                confirmedPendingReminders + reminder
+                                                                        }
+                                                                    }
+                                                                    // Move from pending to confirmed
+                                                                    pendingReminders =
+                                                                        pendingReminders.filter { it.id != reminder.id }
+                                                                    detectedReminders =
+                                                                        detectedReminders.map {
+                                                                            if (it.id == reminder.id) it.copy(
+                                                                                isConfirmed = true
+                                                                            ) else it
+                                                                        }
+                                                                    withContext(
+                                                                        Dispatchers.Main
+                                                                    ) {
+                                                                        Toast.makeText(
+                                                                            context,
+                                                                            if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
+                                                                            Toast.LENGTH_SHORT
+                                                                        )
+                                                                            .show()
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    Log.e(
+                                                                        "AddScreen",
+                                                                        "Error confirming reminder",
+                                                                        e
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(
+                                                        dims.cornerSmall
+                                                    ),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = NoteTheme.Primary.copy(
+                                                            alpha = 0.15f
+                                                        )
+                                                    ),
+                                                    elevation = CardDefaults.cardElevation(
+                                                        defaultElevation = 0.dp
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "Set",
+                                                        modifier = Modifier.padding(
+                                                            horizontal = 12.dp,
+                                                            vertical = 6.dp
+                                                        ),
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = NoteTheme.Primary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+
+                                                Spacer(
+                                                    modifier = Modifier.width(
+                                                        6.dp
+                                                    )
+                                                )
+
+                                                // Dismiss chip
+                                                Card(
+                                                    modifier = Modifier.clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        // Dismiss this suggestion
+                                                        pendingReminders =
+                                                            pendingReminders.filter { it.id != reminder.id }
+                                                        if (pendingReminders.isEmpty()) {
+                                                            detectedReminders =
+                                                                emptyList()
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(
+                                                        dims.cornerSmall
+                                                    ),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = NoteTheme.OnSurfaceVariant.copy(
+                                                            alpha = 0.08f
+                                                        )
+                                                    ),
+                                                    elevation = CardDefaults.cardElevation(
+                                                        defaultElevation = 0.dp
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        Icons.Outlined.Close,
+                                                        contentDescription = "Dismiss",
+                                                        modifier = Modifier
+                                                            .padding(
+                                                                6.dp
+                                                            )
+                                                            .size(
+                                                                16.dp
+                                                            ),
+                                                        tint = NoteTheme.OnSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        /* // Formatted preview - already shown above */
-
-                        // Auto-focus title when creating new note
-                        LaunchedEffect(Unit) {
-                            if (!isEditing && !isLoading) {
-                                delay(Constants.LOADING_DELAY)
-                                titleFocusRequester.requestFocus()
+                            // Confirmed Reminders Status � shows after user taps "Set"
+                            if (detectedReminders.any { it.isConfirmed }) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.Success.copy(
+                                            alpha = 0.05f
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(
+                                            dims.paddingMedium
+                                        ),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = NoteTheme.Success,
+                                            modifier = Modifier.size(
+                                                16.dp
+                                            )
+                                        )
+                                        Spacer(
+                                            modifier = Modifier.width(
+                                                dims.paddingSmall
+                                            )
+                                        )
+                                        val confirmedCount =
+                                            detectedReminders.count { it.isConfirmed }
+                                        Text(
+                                            text = "? $confirmedCount reminder${if (confirmedCount > 1) "s" else ""} set",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = NoteTheme.Success,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
-                        }
 
-                        // Handle device back button
-                        BackHandler(enabled = true) {
-                            if (hasContent && !isEditing) {
-                                showBackDialog = true
-                            } else {
-                                navController.navigateUp()
+                            // Formatted preview (if paste contained HTML)
+                            if (titleFormatted != null) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = NoteTheme.SurfaceVariant.copy(
+                                            alpha = 0.06f
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(
+                                        dims.cornerMedium
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            dims.paddingMedium
+                                        )
+                                    ) {
+                                        if (titleFormatted != null) {
+                                            Text(
+                                                text = "Formatted Title Preview:",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = NoteTheme.OnSurfaceVariant
+                                            )
+                                            Spacer(
+                                                modifier = Modifier.height(
+                                                    4.dp
+                                                )
+                                            )
+                                            Text(
+                                                text = titleFormatted
+                                                    ?: AnnotatedString(
+                                                        ""
+                                                    ),
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
+                                            Spacer(
+                                                modifier = Modifier.height(
+                                                    dims.paddingSmall
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                        }
 
-                        // Bottom spacer so content clears the FAB + toolbar
-                        Spacer(modifier = Modifier.height(dims.paddingXL * 2))
-                    } // end scrollable Column
+                            /* // Formatted preview - already shown above */
 
-                    // -- Sticky rich-text toolbar overlay (above keyboard) ----------
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = descriptionFocused && !isChecklistMode && !isPreviewMode,
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                        exit  = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                    ) {
-                        androidx.compose.material3.Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .imePadding(),
-                            color = NoteTheme.Surface,
-                            shadowElevation = 6.dp,
-                            tonalElevation  = 1.dp
+                            // Auto-focus title when creating new note
+                            LaunchedEffect(Unit) {
+                                if (!isEditing && !isLoading) {
+                                    delay(
+                                        Constants.LOADING_DELAY
+                                    )
+                                    titleFocusRequester.requestFocus()
+                                }
+                            }
+
+                            // Handle device back button
+                            BackHandler(enabled = true) {
+                                if (hasContent && !isEditing) {
+                                    showBackDialog =
+                                        true
+                                } else {
+                                    navController.navigateUp()
+                                }
+                            }
+
+                            // Bottom spacer so content clears the FAB + toolbar
+                            Spacer(
+                                modifier = Modifier.height(
+                                    dims.paddingXL * 2
+                                )
+                            )
+                        } // end scrollable Column
+
+                        // -- Sticky rich-text toolbar overlay (above keyboard) ----------
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = descriptionFocused && !isChecklistMode && !isPreviewMode,
+                            modifier = Modifier.align(
+                                Alignment.BottomCenter
+                            ),
+                            enter = slideInVertically(
+                                initialOffsetY = { it }) + fadeIn(),
+                            exit = slideOutVertically(
+                                targetOffsetY = { it }) + fadeOut()
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                            androidx.compose.material3.Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .imePadding(),
+                                color = NoteTheme.Surface,
+                                shadowElevation = 6.dp,
+                                tonalElevation = 1.dp
                             ) {
-                                androidx.compose.material3.HorizontalDivider(
-                                    color = NoteTheme.Outline.copy(alpha = 0.25f),
-                                    thickness = 1.dp
-                                )
-                                RichTextToolbar(
-                                    state = richTextState,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                )
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    androidx.compose.material3.HorizontalDivider(
+                                        color = NoteTheme.Outline.copy(
+                                            alpha = 0.25f
+                                        ),
+                                        thickness = 1.dp
+                                    )
+                                    RichTextToolbar(
+                                        state = richTextState,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp
+                                            )
+                                    )
+                                }
                             }
                         }
-                    }
                     } // end Box
                 } // end else (not loading)
             }

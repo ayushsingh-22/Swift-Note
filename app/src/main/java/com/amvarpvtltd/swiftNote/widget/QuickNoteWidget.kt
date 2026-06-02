@@ -46,6 +46,7 @@ import androidx.glance.text.TextStyle
 import com.amvarpvtltd.swiftNote.MainActivity
 import com.amvarpvtltd.swiftNote.R
 import com.amvarpvtltd.swiftNote.dataclass
+import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import java.text.SimpleDateFormat
@@ -423,6 +424,10 @@ class QuickNoteWidget : GlanceAppWidget() {
         val timeStr = formatRelativeTime(note.updatedAt)
         val hasChecklist = note.description.startsWith("[[CHECKLIST_V1]]")
 
+        // Strip HTML tags so rich-text markup (<p>, <b>, etc.) doesn't show as raw text in the widget.
+        val plainTitle = stripHtmlSafe(note.title)
+        val plainDescription = if (hasChecklist) note.description else stripHtmlSafe(note.description)
+
         val cardPadding = if (tier == SizeTier.LARGE) 10.dp else 8.dp
         val cardGap = if (tier == SizeTier.LARGE) 8.dp else 6.dp
 
@@ -459,8 +464,8 @@ class QuickNoteWidget : GlanceAppWidget() {
                     // Content
                     Column(modifier = GlanceModifier.defaultWeight()) {
                         Text(
-                            text = if (hasChecklist) "☑ ${note.title.take(28).ifEmpty { "Untitled" }}"
-                                   else note.title.take(32).ifEmpty { "Untitled" },
+                            text = if (hasChecklist) "☑ ${plainTitle.take(28).ifEmpty { "Untitled" }}"
+                                   else plainTitle.take(32).ifEmpty { "Untitled" },
                             style = TextStyle(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -469,10 +474,10 @@ class QuickNoteWidget : GlanceAppWidget() {
                             maxLines = 1
                         )
 
-                        if (!hasChecklist && note.description.isNotBlank()) {
+                        if (!hasChecklist && plainDescription.isNotBlank()) {
                             Spacer(modifier = GlanceModifier.height(2.dp))
                             Text(
-                                text = note.description.take(36).replace("\n", " "),
+                                text = plainDescription.take(36).replace("\n", " "),
                                 style = TextStyle(fontSize = 10.sp, color = BodyColor),
                                 maxLines = 1
                             )
@@ -544,6 +549,22 @@ class QuickNoteWidget : GlanceAppWidget() {
     // ═══════════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════════
+
+    /** Strip rich-text HTML to plain text so widget cells don't render <p>/<b>/etc as literal markup. */
+    private fun stripHtmlSafe(raw: String): String {
+        if (raw.isBlank()) return raw
+        return try {
+            RichTextBridge.stripHtmlToPlainText(raw).trim()
+        } catch (_: Throwable) {
+            // Fallback: regex strip + entity decode, identical to Note.isBlank()'s cheap path.
+            raw.replace(Regex("<[^>]+>"), "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .trim()
+        }
+    }
 
     private fun formatRelativeTime(timestamp: Long): String {
         if (timestamp <= 0) return ""
