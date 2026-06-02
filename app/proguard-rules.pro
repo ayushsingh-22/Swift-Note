@@ -81,6 +81,23 @@
 -keep class com.amvarpvtltd.swiftNote.sync.SyncResult { *; }
 -keep class com.amvarpvtltd.swiftNote.sync.SyncStats { *; }
 -keep class com.amvarpvtltd.swiftNote.ai.DetectedReminder { *; }
+# Phase 5: AI parser models accessed via reflection by Gemini/Groq JSON deserialization
+-keep class com.amvarpvtltd.swiftNote.ai.DetectedRecurrence { *; }
+-keep class com.amvarpvtltd.swiftNote.ai.ParsedReminderIntent { *; }
+-keep class com.amvarpvtltd.swiftNote.ai.GeminiDetectedReminder { *; }
+
+# ===============================
+# RICH TEXT EDITOR (compose-rich-editor) & JSOUP
+# ===============================
+-keep class com.mohamedrejeb.richeditor.** { *; }
+-dontwarn com.mohamedrejeb.richeditor.**
+-keep class org.jsoup.** { *; }
+-dontwarn org.jsoup.**
+
+# ===============================
+# GLANCE WIDGET (reflective instantiation by Glance/AppWidget framework)
+# ===============================
+-keep class com.amvarpvtltd.swiftNote.widget.** { *; }
 
 # ===============================
 # ML KIT

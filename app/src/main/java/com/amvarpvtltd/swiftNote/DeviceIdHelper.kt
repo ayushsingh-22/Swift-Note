@@ -19,3 +19,4 @@ fun generateUniqueDeviceId(context: Context): kotlin.String {
         java.util.UUID.randomUUID().toString()
     }
 }
+

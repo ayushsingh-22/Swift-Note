@@ -79,7 +79,8 @@ private suspend fun performContinuousRestore(
         return
     }
     if (verifyResult.getOrDefault(false) == false) {
-        Log.w("Onboarding/Continuous", "Account not found for passphrase (len=${sourcePassphrase.length})")
+        // SECURITY: Log.w survives release builds — do NOT log passphrase length (fingerprints user).
+        Log.w("Onboarding/Continuous", "Account not found for passphrase")
         onError("Account not found. Please double-check the passphrase and try again.")
         return
     }

@@ -17,6 +17,11 @@ local.properties
 /app-release.aab
 generate_screens.ps1
 
+# Release signing artifacts — MUST NOT be committed
+*.jks
+*.keystore
+keystore.properties
+
 # Firebase admin tools — secret key MUST NOT be committed
 /tools/service-account-key.json
 /tools/node_modules/

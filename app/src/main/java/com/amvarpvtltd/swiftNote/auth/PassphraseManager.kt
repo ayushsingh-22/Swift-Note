@@ -88,7 +88,7 @@ object PassphraseManager {
 
             userRef.updateChildren(userData).await()
 
-            Log.d(TAG, "Passphrase stored successfully (length=${passphrase.length})")
+            Log.d(TAG, "Passphrase stored successfully")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to store passphrase", e)
@@ -158,7 +158,7 @@ object PassphraseManager {
 
     fun extractPassphraseFromQR(qrContent: String): String? {
         try {
-            Log.d(TAG, "Processing QR content (length=${qrContent.length})")
+            Log.d(TAG, "Processing QR content")
 
             // Basic normalization: trim, remove control characters and surrounding quotes
             var content = qrContent.trim().replace("\n", "").replace("\r", "").trim()
@@ -181,7 +181,8 @@ object PassphraseManager {
                     attempts++
                 } while (decoded != content && attempts < 3)
                 if (decoded != content) {
-                    Log.d(TAG, "Nested URL-decode produced: ${'$'}{decoded.take(120)}")
+                    // SECURITY: do NOT log decoded content — may contain the passphrase itself.
+                    Log.d(TAG, "Nested URL-decode produced new content")
                     content = decoded
                 }
             } catch (e: Exception) {
@@ -195,7 +196,7 @@ object PassphraseManager {
                     val substr = content.substring(idx)
                     val extracted = substr.substringAfter("passphrase=", "").substringBefore("&").trim()
                     if (extracted.isNotEmpty()) {
-                        Log.d(TAG, "Extracted passphrase from embedded SwiftNote link (length=${extracted.length})")
+                        Log.d(TAG, "Extracted passphrase from embedded SwiftNote link")
                         return extracted
                     }
                 }
@@ -207,7 +208,7 @@ object PassphraseManager {
                         val dec = java.net.URLDecoder.decode(after, "UTF-8")
                         val extracted = dec.substringAfter("passphrase=", "").substringBefore("&").trim()
                         if (extracted.isNotEmpty()) {
-                            Log.d(TAG, "Extracted passphrase from percent-encoded SwiftNote link (length=${extracted.length})")
+                            Log.d(TAG, "Extracted passphrase from percent-encoded SwiftNote link")
                             return extracted
                         }
                     } catch (e: Exception) {
@@ -258,13 +259,13 @@ object PassphraseManager {
                             val value = parts.subList(1, parts.size).joinToString("=")
                             if (key.equals("passphrase", ignoreCase = true)) {
                                 val candidate = value.trim()
-                                Log.d(TAG, "Found passphrase param in URI (length=${candidate.length})")
+                                Log.d(TAG, "Found passphrase param in URI")
                                 if (isValidPassphraseFormat(candidate)) return candidate
                                 if (candidate.isNotEmpty()) return candidate
                             }
                             if (key.equals("deviceId", ignoreCase = true)) {
                                 val candidate = value.trim()
-                                Log.d(TAG, "Found deviceId param in URI (length=${candidate.length})")
+                                Log.d(TAG, "Found deviceId param in URI")
                                 if (candidate.isNotEmpty()) return candidate
                             }
                         }
@@ -278,14 +279,14 @@ object PassphraseManager {
             if (content.contains("passphrase=", ignoreCase = true)) {
                 val extracted = content.substringAfter("passphrase=", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted passphrase by marker (length=${extracted.length})")
+                    Log.d(TAG, "Extracted passphrase by marker")
                     return extracted
                 }
             }
             if (content.contains("deviceId=", ignoreCase = true)) {
                 val extracted = content.substringAfter("deviceId=", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted deviceId by marker (length=${extracted.length})")
+                    Log.d(TAG, "Extracted deviceId by marker")
                     return extracted
                 }
             }
@@ -296,9 +297,9 @@ object PassphraseManager {
                 return content
             }
 
-            // Accept UUID-ish device IDs (fallback)
+            // SECURITY: do NOT log raw content — may be the actual device-id / passphrase.
             if (content.matches(Regex("[0-9a-fA-F-]{8,}"))) {
-                Log.d(TAG, "QR content looks like a device id / UUID: $content")
+                Log.d(TAG, "QR content looks like a device id / UUID")
                 return content
             }
 
@@ -319,7 +320,7 @@ object PassphraseManager {
             if (content.contains("passphrase:", ignoreCase = true)) {
                 val extracted = content.substringAfter("passphrase:", "").substringBefore("&").trim()
                 if (extracted.isNotEmpty()) {
-                    Log.d(TAG, "Extracted passphrase by colon marker (length=${extracted.length})")
+                    Log.d(TAG, "Extracted passphrase by colon marker")
                     return extracted
                 }
             }
@@ -327,11 +328,11 @@ object PassphraseManager {
             // Conservative final fallback: if the content is a single token (no whitespace), reasonable length, accept it
             val singleToken = content.trim()
             if (!singleToken.contains(Regex("\\s")) && singleToken.length in 8..128) {
-                Log.d(TAG, "Fallback accepting single-token QR content (length=${singleToken.length})")
+                Log.d(TAG, "Fallback accepting single-token QR content")
                 return singleToken
             }
 
-            Log.w(TAG, "Unknown QR format after heuristics (length=${content.length})")
+            Log.w(TAG, "Unknown QR format after heuristics")
              return null
          } catch (e: Exception) {
              Log.e(TAG, "Failed to extract passphrase from QR content", e)

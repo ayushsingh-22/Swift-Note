@@ -91,7 +91,7 @@ object DataCleanupManager {
     private suspend fun resolvePreviousIdentity(context: Context): String? {
         val stored = PassphraseManager.getStoredPassphrase(context)
         if (!stored.isNullOrBlank()) {
-            Log.d(TAG, "Previous identity: stored passphrase (length=${stored.length})")
+            Log.d(TAG, "Previous identity: stored passphrase")
             return stored
         }
         // Fallback: legacy reinstall case where passphrase == deviceId.

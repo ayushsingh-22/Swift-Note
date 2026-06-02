@@ -58,6 +58,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.core.content.edit
 
+private const val TAG = "SwiftNoteNav"
+
 @Composable
 fun MyApp(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
@@ -104,7 +106,7 @@ fun MyApp(modifier: Modifier = Modifier) {
     LaunchedEffect(noteIdToOpen.value) {
         val noteId = noteIdToOpen.value
         if (!noteId.isNullOrEmpty() && !isInitializing) {
-            Log.d("MyApp", "🧭 Navigating to note from notification: $noteId")
+            Log.d(TAG, "🧭 Navigating to note from notification: $noteId")
             // Navigate to the ViewNoteScreen with the specified noteId
             navController.navigate("viewnote/$noteId") {
                 // Pop up to main screen to avoid stack build-up
@@ -136,7 +138,7 @@ fun MyApp(modifier: Modifier = Modifier) {
                 is MainActivity.QuickAction.QuickSave -> {
                     // Save the note directly via repository, then show snackbar with Undo.
                     // If the user does NOT undo, navigate to the newly saved note.
-                    Log.d("MyApp", "💾 Quick saving note from share")
+                    Log.d(TAG, "💾 Quick saving note from share")
                     try {
                         val repo = com.amvarpvtltd.swiftNote.repository.NoteRepository.getInstance(context)
                         val result = withContext(Dispatchers.IO) {
@@ -159,10 +161,10 @@ fun MyApp(modifier: Modifier = Modifier) {
                                 withContext(Dispatchers.IO) {
                                     repo.deleteNote(savedNoteId, context)
                                 }
-                                Log.d("MyApp", "↩️ Quick-save undone: deleted $savedNoteId")
+                                Log.d(TAG, "↩️ Quick-save undone: deleted $savedNoteId")
                             } else {
                                 // Snackbar dismissed — open the saved note
-                                Log.d("MyApp", "📖 Opening saved note: $savedNoteId")
+                                Log.d(TAG, "📖 Opening saved note: $savedNoteId")
                                 navController.navigate("viewnote/$savedNoteId") {
                                     popUpTo("main") { inclusive = false }
                                 }
@@ -171,7 +173,7 @@ fun MyApp(modifier: Modifier = Modifier) {
                             snackbarHostState.showSnackbar("Failed to save note")
                         }
                     } catch (e: Exception) {
-                        Log.e("MyApp", "Failed to quick save", e)
+                        Log.e(TAG, "Failed to quick save", e)
                         snackbarHostState.showSnackbar("Failed to save note")
                     }
                 }
@@ -204,7 +206,7 @@ fun MyApp(modifier: Modifier = Modifier) {
     // Initialize app and determine start destination
     LaunchedEffect(Unit) {
         try {
-            Log.d("MyApp", "🚀 Starting app initialization...")
+            Log.d(TAG, "🚀 Starting app initialization...")
 
             // ── One-time SyncMode migration ──────────────────────────────────────
             // Existing installs have no KEY_SYNC_MODE stored. We infer the correct
@@ -227,7 +229,7 @@ fun MyApp(modifier: Modifier = Modifier) {
                     }
                     com.amvarpvtltd.swiftNote.auth.PassphraseManager.setSyncMode(context, inferredMode)
                     migrationPrefs.edit { putBoolean("synced_mode_v1", true) }
-                    Log.d("MyApp", "SyncMode migration complete — inferred: $inferredMode")
+                    Log.d(TAG, "SyncMode migration complete — inferred: $inferredMode")
                 }
             }
             // ── End SyncMode migration ────────────────────────────────────────────
@@ -236,7 +238,7 @@ fun MyApp(modifier: Modifier = Modifier) {
             val storedPassphrase = com.amvarpvtltd.swiftNote.auth.PassphraseManager.getStoredPassphrase(context)
             if (!storedPassphrase.isNullOrEmpty()) {
                 DeviceIdentity.set(storedPassphrase, "NavHost.storedPassphrase")
-                Log.d("MyApp", "✅ Found stored passphrase, going to main screen")
+                Log.d(TAG, "✅ Found stored passphrase, going to main screen")
                 startDestination = "main"
                 isInitializing = false
                 return@LaunchedEffect
@@ -246,7 +248,7 @@ fun MyApp(modifier: Modifier = Modifier) {
             // BUG-004 FIX: Wrap in withTimeoutOrNull to prevent indefinite blocking on slow/unreachable networks
             try {
                 val deviceId = DeviceManager.getOrCreateDeviceId(context)
-                Log.d("MyApp", "No local notes — checking remote for deviceId: $deviceId")
+                Log.d(TAG, "No local notes — checking remote for stored identity")
 
                 val remoteImportSuccess = withContext(Dispatchers.IO) {
                     withTimeoutOrNull(5_000L) { // 5-second timeout — never block app startup
@@ -254,7 +256,7 @@ fun MyApp(modifier: Modifier = Modifier) {
                         val userRef = db.getReference("users").child(deviceId)
                         val snapshot = userRef.get().await()
                         if (snapshot.exists()) {
-                            Log.d("MyApp", "Remote data found for deviceId: $deviceId — importing to local DB")
+                            Log.d(TAG, "Remote data found for stored identity — importing to local DB")
                             val syncResult = SyncManager.syncDataFromPassphrase(context, deviceId, deviceId)
                             syncResult.isSuccess
                         } else {
@@ -265,22 +267,22 @@ fun MyApp(modifier: Modifier = Modifier) {
 
                 if (remoteImportSuccess) {
                     val deviceId2 = DeviceManager.getOrCreateDeviceId(context)
-                    Log.d("MyApp", "Imported remote notes for deviceId: $deviceId2")
+                    Log.d(TAG, "Imported remote notes for stored identity")
                     DeviceIdentity.set(deviceId2, "NavHost.remoteImport")
                     startDestination = "main"
                     isInitializing = false
                     return@LaunchedEffect
                 }
             } catch (e: Exception) {
-                Log.d("MyApp", "Remote device check failed or timed out", e)
+                Log.d(TAG, "Remote device check failed or timed out", e)
             }
 
             // No data found anywhere: show onboarding
-            Log.d("MyApp", "🆕 New user, showing onboarding")
+            Log.d(TAG, "🆕 New user, showing onboarding")
             startDestination = "onboarding"
 
         } catch (e: Exception) {
-            Log.e("MyApp", "❌ Error during app initialization", e)
+            Log.e(TAG, "❌ Error during app initialization", e)
             startDestination = "onboarding"
         } finally {
             isInitializing = false

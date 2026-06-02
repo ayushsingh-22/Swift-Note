@@ -38,6 +38,7 @@ import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.DeviceIdentity
 import com.amvarpvtltd.swiftNote.sync.SyncManager
+
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import kotlinx.coroutines.delay
@@ -50,6 +51,8 @@ import com.amvarpvtltd.swiftNote.components.DisconnectSyncDialog
 import com.amvarpvtltd.swiftNote.components.InAppNotificationBanner
 import com.amvarpvtltd.swiftNote.components.NotificationHelper
 import androidx.compose.ui.unit.sp
+
+private const val TAG = "SyncSettings"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -443,10 +446,10 @@ private suspend fun disconnectKeepNotes(context: android.content.Context): Resul
             AppDatabase.getInstance(context).noteDao().markAllUnsynced()
             // 3 — Upload to the new identity path
             SyncManager.uploadLocalDataToFirebase(context, deviceId).getOrThrow()
-            android.util.Log.d("Disconnect", "keepNotes complete — identity now $deviceId")
+            android.util.Log.d(TAG, "keepNotes complete — identity restored")
             Result.success(Unit)
         } catch (e: Exception) {
-            android.util.Log.e("Disconnect", "keepNotes failed", e)
+            android.util.Log.e(TAG, "keepNotes failed", e)
             Result.failure(e)
         }
     }
@@ -476,10 +479,10 @@ private suspend fun disconnectRemoveNotes(context: android.content.Context): Res
             PassphraseManager.setSyncMode(context, SyncMode.LOCAL_ONLY)
             // 3 — Prevent next sync cycle from re-pulling the shared account's notes
             NoteRepository.markSkipNextCloudPull(context)
-            android.util.Log.d("Disconnect", "removeNotes complete — identity now $deviceId")
+            android.util.Log.d(TAG, "removeNotes complete — identity restored")
             Result.success(Unit)
         } catch (e: Exception) {
-            android.util.Log.e("Disconnect", "removeNotes failed", e)
+            android.util.Log.e(TAG, "removeNotes failed", e)
             Result.failure(e)
         }
     }

@@ -31,7 +31,8 @@ object DeviceIdentity {
         require(value.isNotEmpty()) { "DeviceIdentity cannot be set to an empty string (caller=$caller)" }
         val old = _id.getAndSet(value)
         if (old != value) {
-            Log.w("DeviceIdentity", "Identity changed by [$caller] (old.length=${old.length}, new.length=${value.length})")
+            // SECURITY: do NOT log identity contents or lengths — both fingerprint the user.
+            Log.w("DeviceIdentity", "Identity changed by [$caller]")
         }
     }
 
@@ -48,7 +49,7 @@ object DeviceIdentity {
     @VisibleForTestingOnly
     fun resetForTesting(value: String = "") {
         _id.set(value)
-        Log.d("DeviceIdentity", "RESET for testing (length=${value.length})")
+        Log.d("DeviceIdentity", "RESET for testing")
     }
 
     private fun inferCaller(): String {

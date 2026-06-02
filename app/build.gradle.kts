@@ -35,7 +35,7 @@ android {
         applicationId = "com.amvarpvtltd.selfnote"
         minSdk = 31
         targetSdk = 36
-        versionCode = 9
+        versionCode = 10
         versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
