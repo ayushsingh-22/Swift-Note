@@ -37,6 +37,7 @@ import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
 import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -441,17 +442,18 @@ private fun FilterTabRow(
                         color = if (isSelected) NoteTheme.OnPrimary else NoteTheme.OnSurface,
                         letterSpacing = 0.sp
                     )
-                    if (count > 0) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "$count",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSelected) NoteTheme.OnPrimary.copy(alpha = 0.8f)
-                            else NoteTheme.Primary,
-                            fontSize = 11.sp
-                        )
-                    }
+                    // Always reserve the count row height so all tabs are equal size.
+                    // Render the number when > 0, otherwise an invisible placeholder.
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (count > 0) "$count" else " ",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (!isSelected && count == 0) Color.Transparent
+                               else if (isSelected) NoteTheme.OnPrimary.copy(alpha = 0.8f)
+                               else NoteTheme.Primary,
+                        fontSize = 11.sp
+                    )
                 }
             }
         }
@@ -619,9 +621,15 @@ private fun PinnedNoteChip(
     note: PinnedNoteItem,
     onClick: () -> Unit
 ) {
+    val dims = rememberResponsiveDimensions()
+    val chipWidth = when (dims.bucket) {
+        com.amvarpvtltd.swiftNote.utils.WidthBucket.COMPACT -> 130.dp
+        com.amvarpvtltd.swiftNote.utils.WidthBucket.MEDIUM -> 150.dp
+        com.amvarpvtltd.swiftNote.utils.WidthBucket.EXPANDED -> 180.dp
+    }
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(150.dp),
+        modifier = Modifier.width(chipWidth),
         shape = RoundedCornerShape(12.dp),
         color = NoteTheme.Surface,
         shadowElevation = 0.dp,

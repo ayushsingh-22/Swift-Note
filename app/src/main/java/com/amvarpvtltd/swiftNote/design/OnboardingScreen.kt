@@ -28,10 +28,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
@@ -170,7 +172,7 @@ private suspend fun performOneTimeRestore(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingScreen(navController: NavController) {
     val context = LocalContext.current
@@ -183,6 +185,22 @@ fun OnboardingScreen(navController: NavController) {
     // Non-null when a passphrase has been captured (QR or manual) and the user
     // needs to choose a sync mode before the actual sync begins.
     var pendingSyncSourcePassphrase by remember { mutableStateOf<String?>(null) }
+
+    val dims = rememberResponsiveDimensions()
+
+    // Derived responsive sizes — every hardcoded dp value in the hero / options
+    // sheet has been replaced with one of these so a 384x854 phone, a 412x912
+    // phone, and a 720dp tablet all render consistent proportions. Compact-width
+    // devices (<360 dp) get the same scaling treatment as the empty-state card.
+    val heroLogoOuter = dims.iconLarge * 4              // 80 /  96 / 112
+    val heroLogoInner = dims.iconLarge * 3              // 60 /  72 /  84
+    val heroLogoImage = dims.iconLarge * 1.8f           // 36 /  43 /  50
+    val heroHorizontalPadding = dims.paddingXL          // 24 /  32 /  40
+    val heroTopPadding = dims.paddingXL * 2             // 48 /  64 /  80
+    val heroBottomPadding = dims.paddingXL              // 24 /  32 /  40
+    val optionsHorizontalPadding = dims.paddingLarge    // 18 /  24 /  32
+    val optionCardCornerLarge = dims.cornerXL           // 20 /  24 /  28
+    val sheetTopCorner = dims.cornerXL + 8.dp           // 28 /  32 /  36
 
     // Staggered animation states
     var heroVisible by remember { mutableStateOf(false) }
@@ -206,6 +224,7 @@ fun OnboardingScreen(navController: NavController) {
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.52f)
+                .heightIn(max = 360.dp)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -234,14 +253,14 @@ fun OnboardingScreen(navController: NavController) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
-                        .padding(top = 64.dp, bottom = 32.dp),
+                        .padding(horizontal = heroHorizontalPadding)
+                        .padding(top = heroTopPadding, bottom = heroBottomPadding),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Floating logo circle
                     Box(
                         modifier = Modifier
-                            .size(96.dp)
+                            .size(heroLogoOuter)
                             .background(
                                 color = Color.White.copy(alpha = 0.15f),
                                 shape = CircleShape
@@ -250,43 +269,55 @@ fun OnboardingScreen(navController: NavController) {
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(72.dp)
+                                .size(heroLogoInner)
                                 .background(Color.White.copy(alpha = 0.9f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
                                 painter = painterResource(id = com.amvarpvtltd.swiftNote.R.drawable.logo2),
                                 contentDescription = "SwiftNote Logo",
-                                modifier = Modifier.size(44.dp)
+                                modifier = Modifier.size(heroLogoImage)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(dims.paddingLarge))
 
                     Text(
                         text = "SwiftNote",
-                        fontSize = 36.sp,
+                        fontSize = dims.scaledSp(36),
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
-                        letterSpacing = (-1).sp
+                        letterSpacing = (-1).sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(dims.paddingSmall))
 
                     Text(
                         text = "Secure. Private. Always with you.",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = dims.scaledSp(15)
+                        ),
                         color = Color.White.copy(alpha = 0.82f),
                         textAlign = TextAlign.Center,
-                        lineHeight = 24.sp
+                        lineHeight = dims.scaledSp(22)
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(dims.paddingMedium))
 
-                    // Feature chips row
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // Feature chips row — uses FlowRow so chips wrap onto a new
+                    // line on narrow screens instead of getting their text
+                    // squeezed onto 2–3 lines (the original bug on 384dp where
+                    // "AI Reminders" rendered as "AI / Remin / ders").
+                    androidx.compose.foundation.layout.FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            dims.paddingSmall,
+                            Alignment.CenterHorizontally
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                     ) {
                         listOf("✦ Offline-first", "✦ Encrypted", "✦ AI Reminders").forEach { label ->
                             Surface(
@@ -295,10 +326,18 @@ fun OnboardingScreen(navController: NavController) {
                             ) {
                                 Text(
                                     text = label,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(
+                                        horizontal = dims.paddingMedium,
+                                        vertical = dims.paddingSmall / 2
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = dims.scaledSp(11)
+                                    ),
                                     color = Color.White.copy(alpha = 0.9f),
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Visible
                                 )
                             }
                         }
@@ -317,20 +356,22 @@ fun OnboardingScreen(navController: NavController) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                        .clip(RoundedCornerShape(topStart = sheetTopCorner, topEnd = sheetTopCorner))
                         .background(NoteTheme.Background)
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 28.dp, bottom = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .padding(horizontal = optionsHorizontalPadding)
+                        .padding(top = dims.paddingLarge + 4.dp, bottom = dims.paddingXL),
+                    verticalArrangement = Arrangement.spacedBy(dims.paddingMedium)
                 ) {
                     Text(
                         text = "How would you like to start?",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = dims.scaledSp(22)
+                        ),
                         fontWeight = FontWeight.Bold,
                         color = NoteTheme.OnBackground
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(dims.paddingSmall / 2))
 
                     // ── Start Fresh Card ─────────────────────────────
                     OnboardingOptionCard(
@@ -422,18 +463,18 @@ fun OnboardingScreen(navController: NavController) {
                     // ── Scan QR Card ──────────────────────────────────
                     OnboardingOptionCard(
                         icon = Icons.Default.QrCodeScanner,
-                        iconTint = Color(0xFF8B5CF6),
-                        iconBg = Color(0xFFF3E8FF),
+                        iconTint = NoteTheme.Tertiary,
+                        iconBg = NoteTheme.TertiaryContainer,
                         title = "Restore via QR Code",
                         subtitle = "Scan a QR from another device to import your notes securely.",
-                        accentColor = Color(0xFF8B5CF6),
+                        accentColor = NoteTheme.Tertiary,
                         onClick = { showQRScanner = true }
                     )
 
                     // ── Manual Passphrase Card ────────────────────────
                     OutlinedCard(
                         onClick = { showManualDialog = true },
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(optionCardCornerLarge - 4.dp),
                         border = CardDefaults.outlinedCardBorder().copy(
                             width = 1.dp,
                             brush = androidx.compose.ui.graphics.SolidColor(
@@ -447,26 +488,30 @@ fun OnboardingScreen(navController: NavController) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                .padding(horizontal = dims.paddingLarge, vertical = dims.paddingMedium),
+                            horizontalArrangement = Arrangement.spacedBy(dims.paddingMedium),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Key,
                                 contentDescription = null,
                                 tint = NoteTheme.Primary,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(dims.iconMedium)
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Enter Passphrase Manually",
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontSize = dims.scaledSp(14)
+                                    ),
                                     fontWeight = FontWeight.SemiBold,
                                     color = NoteTheme.Primary
                                 )
                                 Text(
                                     text = "Already have a passphrase? Enter it directly.",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = dims.scaledSp(12)
+                                    ),
                                     color = NoteTheme.OnSurfaceVariant
                                 )
                             }
@@ -474,7 +519,7 @@ fun OnboardingScreen(navController: NavController) {
                                 Icons.Default.ChevronRight,
                                 contentDescription = null,
                                 tint = NoteTheme.Primary.copy(alpha = 0.5f),
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(dims.iconSmall)
                             )
                         }
                     }
@@ -483,24 +528,26 @@ fun OnboardingScreen(navController: NavController) {
                     if (isLoading) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(dims.cornerLarge),
                             colors = CardDefaults.cardColors(
                                 containerColor = NoteTheme.PrimaryContainer
                             )
                         ) {
                             Row(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.padding(dims.paddingMedium),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(dims.paddingMedium)
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(dims.iconMedium),
                                     color = NoteTheme.Primary,
                                     strokeWidth = 2.5.dp
                                 )
                                 Text(
                                     text = "Setting up your workspace…",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = dims.scaledSp(14)
+                                    ),
                                     color = NoteTheme.OnPrimaryContainer,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -673,9 +720,19 @@ private fun OnboardingOptionCard(
     accentColor: Color,
     onClick: () -> Unit
 ) {
+    val dims = rememberResponsiveDimensions()
+    // Derived sizes — keep the option card visually consistent across width
+    // buckets. The icon container scales with iconLarge so a Compact phone
+    // doesn't waste 52dp on a single icon while crushing the title/subtitle
+    // to the right of it.
+    val iconContainer = dims.iconLarge * 2.2f           // 44 /  52 /  62
+    val iconInside = dims.iconLarge * 1.1f              // 22 /  26 /  31
+    val cardCorner = dims.cornerXL                      // 20 /  24 /  28
+    val iconCorner = dims.cornerMedium - 2.dp           // 12 /  14 /  16
+
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(cardCorner),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
@@ -689,38 +746,42 @@ private fun OnboardingOptionCard(
                         1f to Color.Transparent
                     )
                 )
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(dims.paddingLarge),
+            horizontalArrangement = Arrangement.spacedBy(dims.paddingMedium),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Icon container
             Box(
                 modifier = Modifier
-                    .size(52.dp)
-                    .background(iconBg, RoundedCornerShape(14.dp)),
+                    .size(iconContainer)
+                    .background(iconBg, RoundedCornerShape(iconCorner)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(iconInside)
                 )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = dims.scaledSp(16)
+                    ),
                     fontWeight = FontWeight.Bold,
                     color = NoteTheme.OnSurface
                 )
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(dims.paddingSmall / 2))
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = dims.scaledSp(12)
+                    ),
                     color = NoteTheme.OnSurfaceVariant,
-                    lineHeight = 18.sp
+                    lineHeight = dims.scaledSp(17)
                 )
             }
 
@@ -728,7 +789,7 @@ private fun OnboardingOptionCard(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
                 tint = accentColor.copy(alpha = 0.6f),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(dims.iconSmall + 2.dp)
             )
         }
     }

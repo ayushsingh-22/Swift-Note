@@ -30,6 +30,7 @@ import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
 import com.amvarpvtltd.swiftNote.viewmodel.NotesViewModel
 import kotlinx.coroutines.launch
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 /**
  * Archive Screen — full-featured screen for archived notes with search, sort,
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArchiveScreen(navController: NavHostController) {
+    val dims = rememberResponsiveDimensions()
     val viewModel: NotesViewModel = viewModel()
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -137,14 +139,14 @@ fun ArchiveScreen(navController: NavHostController) {
                             searchQuery = ""
                             isSearchActive = false
                         },
-                        modifier = Modifier.padding(horizontal = Constants.PADDING_MEDIUM.dp)
+                        modifier = Modifier.padding(horizontal = dims.paddingMedium)
                     )
 
                     // Action row: view mode + sort
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = Constants.PADDING_MEDIUM.dp, vertical = 8.dp),
+                            .padding(horizontal = dims.paddingMedium, vertical = 8.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

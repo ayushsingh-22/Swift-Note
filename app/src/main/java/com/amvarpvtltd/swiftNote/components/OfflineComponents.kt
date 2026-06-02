@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
 import kotlinx.coroutines.delay
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 @Composable
 fun OfflineBanner(
@@ -23,6 +24,7 @@ fun OfflineBanner(
     onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     var showPulse by remember { mutableStateOf(true) }
 
     val pulseAlpha by animateFloatAsState(
@@ -54,16 +56,16 @@ fun OfflineBanner(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Constants.PADDING_MEDIUM.dp),
+                .padding(dims.paddingMedium),
             colors = CardDefaults.cardColors(
                 containerColor = NoteTheme.Warning.copy(alpha = pulseAlpha)
             ),
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp)
+            shape = RoundedCornerShape(dims.cornerMedium)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(Constants.PADDING_MEDIUM.dp),
+                    .padding(dims.paddingMedium),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -75,9 +77,9 @@ fun OfflineBanner(
                         imageVector = Icons.Outlined.CloudOff,
                         contentDescription = null,
                         tint = NoteTheme.OnSurface,
-                        modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                        modifier = Modifier.size(dims.iconMedium)
                     )
-                    Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                    Spacer(modifier = Modifier.width(dims.paddingSmall))
                     Text(
                         text = message,
                         style = MaterialTheme.typography.bodyMedium,
@@ -92,7 +94,7 @@ fun OfflineBanner(
                             imageVector = Icons.Outlined.Close,
                             contentDescription = "Dismiss",
                             tint = NoteTheme.OnSurface,
-                            modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                            modifier = Modifier.size(dims.iconSmall)
                         )
                     }
                 }

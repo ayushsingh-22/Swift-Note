@@ -57,6 +57,7 @@ import com.amvarpvtltd.swiftNote.checklist.ChecklistItem
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
 import kotlin.math.roundToInt
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 /**
  * A reorderable checklist column that supports long-press drag on the drag handle
@@ -164,6 +165,7 @@ private fun DraggableChecklistItemRow(
     requestFocus: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     val focusRequester = remember { FocusRequester() }
 
     val textColor by animateColorAsState(
@@ -192,8 +194,8 @@ private fun DraggableChecklistItemRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(elevation, RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp))
-            .clip(RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp))
+            .shadow(elevation, RoundedCornerShape(dims.cornerSmall))
+            .clip(RoundedCornerShape(dims.cornerSmall))
             .background(bgColor)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -308,6 +310,7 @@ fun ChecklistItemRow(
     readOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     val focusRequester = remember { FocusRequester() }
 
     val textColor by animateColorAsState(
@@ -333,7 +336,7 @@ fun ChecklistItemRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp))
+            .clip(RoundedCornerShape(dims.cornerSmall))
             .background(bgColor)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically

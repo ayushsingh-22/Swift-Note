@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import androidx.compose.foundation.layout.heightIn
 
 /**
  * Enum representing which permission is missing and needs rationale.
@@ -99,6 +101,7 @@ fun PermissionRationaleSheet(
     onDismiss: () -> Unit,
     onPermissionGranted: () -> Unit
 ) {
+    val dims = rememberResponsiveDimensions()
     val context = LocalContext.current
 
     // Launcher for notification permission (Android 13+)
@@ -115,8 +118,8 @@ fun PermissionRationaleSheet(
         onDismissRequest = onDismiss,
         containerColor = NoteTheme.Surface,
         shape = RoundedCornerShape(
-            topStart = Constants.CORNER_RADIUS_XL.dp,
-            topEnd = Constants.CORNER_RADIUS_XL.dp
+            topStart = dims.cornerXL,
+            topEnd = dims.cornerXL
         ),
         dragHandle = {
             Box(
@@ -131,8 +134,8 @@ fun PermissionRationaleSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Constants.PADDING_LARGE.dp)
-                .padding(bottom = Constants.PADDING_XL.dp),
+                .padding(horizontal = dims.paddingLarge)
+                .padding(bottom = dims.paddingXL),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header with close button
@@ -155,7 +158,7 @@ fun PermissionRationaleSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
+            Spacer(modifier = Modifier.height(dims.paddingMedium))
 
             // Icon
             val (icon, title, description) = when (permissionType) {
@@ -193,7 +196,7 @@ fun PermissionRationaleSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(Constants.PADDING_LARGE.dp))
+            Spacer(modifier = Modifier.height(dims.paddingLarge))
 
             Text(
                 text = title,
@@ -203,17 +206,17 @@ fun PermissionRationaleSheet(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
+            Spacer(modifier = Modifier.height(dims.paddingSmall))
 
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyMedium,
                 color = NoteTheme.OnSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = Constants.PADDING_MEDIUM.dp)
+                modifier = Modifier.padding(horizontal = dims.paddingMedium)
             )
 
-            Spacer(modifier = Modifier.height(Constants.PADDING_XL.dp))
+            Spacer(modifier = Modifier.height(dims.paddingXL))
 
             // Grant permission button
             Button(
@@ -250,21 +253,21 @@ fun PermissionRationaleSheet(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .heightIn(min = 56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = NoteTheme.Primary
                 ),
-                shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                shape = RoundedCornerShape(dims.cornerLarge)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+                    horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                 ) {
                     Icon(
                         if (permissionType == PermissionType.EXACT_ALARM) Icons.Outlined.Settings
                         else icon,
                         contentDescription = null,
-                        modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                        modifier = Modifier.size(dims.iconMedium)
                     )
                     Text(
                         text = if (permissionType == PermissionType.EXACT_ALARM)
@@ -275,7 +278,7 @@ fun PermissionRationaleSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(Constants.PADDING_MEDIUM.dp))
+            Spacer(modifier = Modifier.height(dims.paddingMedium))
 
             // Skip button
             OutlinedButton(
@@ -285,8 +288,8 @@ fun PermissionRationaleSheet(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                    .heightIn(min = 48.dp),
+                shape = RoundedCornerShape(dims.cornerLarge)
             ) {
                 Text(
                     text = "Skip for now",

@@ -99,6 +99,8 @@ import com.amvarpvtltd.swiftNote.reminders.ReminderRepository
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import com.amvarpvtltd.swiftNote.utils.ShareUtils
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
 import com.amvarpvtltd.swiftNote.repository.NoteRepository
 import com.amvarpvtltd.swiftNote.categories.CategoryManager
 import com.amvarpvtltd.swiftNote.components.RichTextDisplay
@@ -116,6 +118,7 @@ import kotlin.math.max
 @Composable
 fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     val viewModel: ViewNoteViewModel = viewModel()
+    val dims = rememberResponsiveDimensions()
 
     val note by viewModel.note.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -458,6 +461,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 .padding(paddingValues)
                                 .verticalScroll(scrollState)
                                 .navigationBarsPadding()   // sync with action bar's nav inset
+                                .responsiveContentWidth(dims) // Phase 7: cap at 720dp on tablets/foldables, no-op on phones
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 110.dp), // action card (~73dp) + box padding (40dp) - navBar already consumed
                             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -610,7 +614,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                     Card(
                                         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
                                         shape = RoundedCornerShape(20.dp),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card),
                                         border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -719,7 +723,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                     Card(
                                         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
                                         shape = RoundedCornerShape(20.dp),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card),
                                         border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -756,7 +760,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
                                     shape = RoundedCornerShape(20.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card),
                                     border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.07f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {

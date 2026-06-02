@@ -66,6 +66,7 @@ import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.search.SearchAndSortManager
 import com.amvarpvtltd.swiftNote.search.SortOption
 import com.amvarpvtltd.swiftNote.utils.Constants
+import androidx.compose.foundation.layout.heightIn
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +102,7 @@ fun SearchBar(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .heightIn(min = 48.dp)
             .animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
         shape = RoundedCornerShape(NoteTheme.Radius.full.dp),
@@ -113,7 +114,8 @@ fun SearchBar(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .padding(horizontal = 12.dp, ),
             verticalAlignment = Alignment.CenterVertically
         ) {

@@ -33,6 +33,7 @@ import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.UIUtils
 import androidx.compose.ui.graphics.luminance
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 @Composable
 fun ActionButton(
@@ -45,6 +46,7 @@ fun ActionButton(
     containerColor: Color = NoteTheme.Primary,
     contentColor: Color = NoteTheme.OnPrimary
 ) {
+    val dims = rememberResponsiveDimensions()
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.9f else 1f,
@@ -60,19 +62,19 @@ fun ActionButton(
         modifier = modifier.scale(scale),
         containerColor = containerColor,
         contentColor = contentColor,
-        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+        shape = RoundedCornerShape(dims.cornerLarge)
     ) {
         if (isLoading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp),
+                modifier = Modifier.size(dims.iconMedium),
                 strokeWidth = 2.dp,
                 color = contentColor
             )
-            Spacer(modifier = Modifier.width(Constants.CORNER_RADIUS_SMALL.dp))
+            Spacer(modifier = Modifier.width(dims.cornerSmall))
             Text(loadingText, fontWeight = FontWeight.Bold)
         } else {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp))
-            Spacer(modifier = Modifier.width(Constants.CORNER_RADIUS_SMALL.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(dims.iconLarge))
+            Spacer(modifier = Modifier.width(dims.cornerSmall))
             Text(text, fontWeight = FontWeight.Bold)
         }
     }
@@ -110,6 +112,7 @@ fun IconActionButton(
     contentColor: Color,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     Card(
         modifier = modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
@@ -120,14 +123,14 @@ fun IconActionButton(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Box(
-            modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
+            modifier = Modifier.padding(dims.paddingSmall),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 icon,
                 contentDescription = contentDescription,
                 tint = contentColor,
-                modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
+                modifier = Modifier.size(dims.iconLarge)
             )
         }
     }

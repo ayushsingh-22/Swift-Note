@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 @Composable
 fun DeleteConfirmationDialog(
@@ -26,6 +27,7 @@ fun DeleteConfirmationDialog(
     title: String,
     message: String = "Are you sure you want to delete this item?"
 ) {
+    val dims = rememberResponsiveDimensions()
     val hapticFeedback = LocalHapticFeedback.current
 
     if (showDialog) {
@@ -75,14 +77,14 @@ fun DeleteConfirmationDialog(
                             colors = CardDefaults.cardColors(
                                 containerColor = NoteTheme.ErrorContainer.copy(alpha = 0.3f)
                             ),
-                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                            shape = RoundedCornerShape(dims.cornerSmall)
                         ) {
                             Text(
                                 text = "\"$title\"",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = NoteTheme.OnSurface,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(Constants.CORNER_RADIUS_SMALL.dp)
+                                modifier = Modifier.padding(dims.cornerSmall)
                             )
                         }
                     }
@@ -105,7 +107,7 @@ fun DeleteConfirmationDialog(
                         containerColor = NoteTheme.Error,
                         contentColor = NoteTheme.OnPrimary
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -118,7 +120,7 @@ fun DeleteConfirmationDialog(
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NoteTheme.OnSurfaceVariant
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Text("Cancel", fontWeight = FontWeight.Medium)
                 }

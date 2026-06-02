@@ -200,7 +200,7 @@ fun RichTextToolbar(
                 ToolbarIconBtn(Icons.Outlined.Code, "Code", isActive = isCode) {
                     state.toggleSpanStyle(SpanStyle(
                         fontFamily = FontFamily.Monospace,
-                        background = Color(0x2664748B)
+                        background = NoteTheme.OnSurfaceVariant.copy(alpha = 0.15f)
                     ))
                     state.toggleCodeSpan()
                 }
@@ -251,12 +251,12 @@ private fun ToolbarIconBtn(
     onClick: () -> Unit
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isActive) Color(0xFF6366F1).copy(alpha = 0.15f) else Color.Transparent,
+        targetValue = if (isActive) NoteTheme.Primary.copy(alpha = 0.15f) else Color.Transparent,
         animationSpec = tween(200),
         label = "toolbar_btn_bg"
     )
     val iconTint by animateColorAsState(
-        targetValue = if (isActive) Color(0xFF6366F1) else NoteTheme.OnSurfaceVariant,
+        targetValue = if (isActive) NoteTheme.Primary else NoteTheme.OnSurfaceVariant,
         animationSpec = tween(200),
         label = "toolbar_btn_tint"
     )

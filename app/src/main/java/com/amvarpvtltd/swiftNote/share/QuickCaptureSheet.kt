@@ -781,7 +781,7 @@ private fun ActionButtons(
             onClick = { onEdit(state.title, state.description, state.selectedCategory) },
             modifier = Modifier
                 .weight(1f)
-                .height(52.dp),
+                .heightIn(min = 52.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.primary),
             border = androidx.compose.foundation.BorderStroke(1.5.dp, colors.primary.copy(alpha = 0.4f))
@@ -807,7 +807,7 @@ private fun ActionButtons(
             },
             modifier = Modifier
                 .weight(2f)
-                .height(52.dp),
+                .heightIn(min = 52.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = colors.primary,

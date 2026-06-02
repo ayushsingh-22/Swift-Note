@@ -1,5 +1,6 @@
 package com.amvarpvtltd.swiftNote.design
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -7,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.dp
 
 object NoteTheme {
     // ─── Premium Palette: Light Theme ───────────────────────────────────
@@ -56,6 +58,17 @@ object NoteTheme {
     var Outline by mutableStateOf(Color(0xFFE2E8F0))
     var OutlineVariant by mutableStateOf(Color(0xFFCBD5E1))
 
+    // Accent — Orange (used for Groq branding / highlight CTAs)
+    var Accent by mutableStateOf(Color(0xFFF97316))
+    // AccentBlue — Google blue (used for Gemini branding)
+    var AccentBlue by mutableStateOf(Color(0xFF1A73E8))
+
+    // Tertiary — Violet (used by Restore / QR onboarding card)
+    var Tertiary by mutableStateOf(Color(0xFF8B5CF6))
+    var TertiaryContainer by mutableStateOf(Color(0xFFF3E8FF))
+    var OnTertiary by mutableStateOf(Color(0xFFFFFFFF))
+    var OnTertiaryContainer by mutableStateOf(Color(0xFF3B0764))
+
     // ─── Premium Palette: Dark Theme ────────────────────────────────────
     object Dark {
         var Primary by mutableStateOf(Color(0xFF818CF8))
@@ -93,6 +106,14 @@ object NoteTheme {
 
         var Outline by mutableStateOf(Color(0xFF30363D))
         var OutlineVariant by mutableStateOf(Color(0xFF3C4450))
+
+        // Accent / Tertiary — dark-mode variants
+        val Accent = Color(0xFFFB923C)              // lighter orange for dark surfaces
+        val AccentBlue = Color(0xFF4FC3F7)          // lighter blue for dark
+        val Tertiary = Color(0xFFC4B5FD)
+        val TertiaryContainer = Color(0xFF4C1D95)
+        val OnTertiary = Color(0xFF1E1B4B)
+        val OnTertiaryContainer = Color(0xFFEDE9FE)
     }
 
     // ─── Note Card Accent Rotation ──────────────────────────────────────
@@ -128,6 +149,20 @@ object NoteTheme {
         const val lg = 16
         const val xl = 24
         const val full = 100
+    }
+
+    // ─── Elevation Scale ────────────────────────────────────────────────
+    object Elevation {
+        val Card = 1.dp
+        val CardHovered = 4.dp
+        val Dialog = 6.dp
+        val Toolbar = 2.dp
+    }
+
+    // ─── Borders ────────────────────────────────────────────────────────
+    object Border {
+        @Composable fun card() = BorderStroke(1.dp, Outline.copy(alpha = 0.5f))
+        @Composable fun cardFocused() = BorderStroke(1.5.dp, Primary.copy(alpha = 0.5f))
     }
 
     // Update colors based on the current theme
@@ -170,6 +205,58 @@ object NoteTheme {
 
             Outline = Dark.Outline
             OutlineVariant = Dark.OutlineVariant
+
+            Accent = Dark.Accent
+            AccentBlue = Dark.AccentBlue
+            Tertiary = Dark.Tertiary
+            TertiaryContainer = Dark.TertiaryContainer
+            OnTertiary = Dark.OnTertiary
+            OnTertiaryContainer = Dark.OnTertiaryContainer
+        } else {
+            // Restore light-mode defaults (fixes prior bug where toggling
+            // dark → light left the dark values in place).
+            Primary = Color(0xFF6366F1)
+            OnPrimary = Color(0xFFFFFFFF)
+            PrimaryContainer = Color(0xFFEEF2FF)
+            OnPrimaryContainer = Color(0xFF1E1B4B)
+
+            Secondary = Color(0xFF64748B)
+            OnSecondary = Color(0xFFFFFFFF)
+            SecondaryContainer = Color(0xFFF1F5F9)
+            OnSecondaryContainer = Color(0xFF1E293B)
+
+            Surface = Color(0xFFFFFFFF)
+            OnSurface = Color(0xFF0F172A)
+            SurfaceVariant = Color(0xFFF8FAFC)
+            OnSurfaceVariant = Color(0xFF64748B)
+
+            Background = Color(0xFFF5F7FF)
+            OnBackground = Color(0xFF0F172A)
+
+            Error = Color(0xFFEF4444)
+            OnError = Color(0xFFFFFFFF)
+            ErrorContainer = Color(0xFFFEE2E2)
+            OnErrorContainer = Color(0xFF7F1D1D)
+
+            Warning = Color(0xFFF59E0B)
+            OnWarning = Color(0xFFFFFFFF)
+            WarningContainer = Color(0xFFFEF3C7)
+            OnWarningContainer = Color(0xFF78350F)
+
+            Success = Color(0xFF10B981)
+            OnSuccess = Color(0xFFFFFFFF)
+            SuccessContainer = Color(0xFFD1FAE5)
+            OnSuccessContainer = Color(0xFF064E3B)
+
+            Outline = Color(0xFFE2E8F0)
+            OutlineVariant = Color(0xFFCBD5E1)
+
+            Accent = Color(0xFFF97316)
+            AccentBlue = Color(0xFF1A73E8)
+            Tertiary = Color(0xFF8B5CF6)
+            TertiaryContainer = Color(0xFFF3E8FF)
+            OnTertiary = Color(0xFFFFFFFF)
+            OnTertiaryContainer = Color(0xFF3B0764)
         }
     }
 

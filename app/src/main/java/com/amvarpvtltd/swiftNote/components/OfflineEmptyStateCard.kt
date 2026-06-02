@@ -16,11 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.utils.Constants
 import kotlinx.coroutines.delay
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -31,6 +33,7 @@ fun OfflineEmptyStateCard(
     onSeedDemoClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     var showPulse by remember { mutableStateOf(true) }
 
     // Animated pulse effect for offline indicator
@@ -56,33 +59,47 @@ fun OfflineEmptyStateCard(
         }
     }
 
+    // Derived responsive sizes — keep card components visually consistent
+    // across width buckets (COMPACT / MEDIUM / EXPANDED) AND across phones of
+    // different physical heights within the same bucket. All hardcoded dp/sp
+    // values below were causing layout overflow on shorter screens (e.g.
+    // 384x854 vs 412x912 — both fall in MEDIUM so they used identical dims,
+    // but the fixed 120/48/56/32 values left no room for the status row).
+    val statusIndicatorSize = dims.iconLarge * 5       // 100 / 120 / 140
+    val statusIndicatorIcon = dims.iconLarge * 2       //  40 /  48 /  56
+    val primaryButtonHeight = dims.fabSize             //  56 /  64 /  72
+    val secondaryButtonHeight = dims.fabSize - 8.dp    //  48 /  56 /  64
+    val cardElevation = dims.paddingSmall              //   6 /   8 /  10
+    val cardInnerPadding = dims.paddingLarge           //  18 /  24 /  32 (was paddingXL — too generous on compact)
+    val sectionSpacing = dims.paddingMedium            //  12 /  15 /  20 (was paddingLarge — gave bottom row no room)
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(Constants.PADDING_LARGE.dp),
+            .padding(dims.paddingMedium),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Constants.PADDING_MEDIUM.dp),
+                .padding(dims.paddingSmall),
             colors = CardDefaults.cardColors(
                 containerColor = if (isOnline) NoteTheme.Surface else NoteTheme.Surface.copy(alpha = 0.95f)
             ),
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            shape = RoundedCornerShape(dims.cornerXL),
+            elevation = CardDefaults.cardElevation(defaultElevation = cardElevation)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(Constants.PADDING_XL.dp)
+                    .padding(cardInnerPadding)
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Constants.PADDING_LARGE.dp)
+                verticalArrangement = Arrangement.spacedBy(sectionSpacing)
             ) {
                 // Status indicator with icon
                 Box(
                     modifier = Modifier
-                        .size(120.dp)
+                        .size(statusIndicatorSize)
                         .background(
                             brush = Brush.radialGradient(
                                 colors = if (isOnline) {
@@ -113,14 +130,14 @@ fun OfflineEmptyStateCard(
                         } else {
                             NoteTheme.Warning
                         },
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(statusIndicatorIcon)
                     )
                 }
 
                 // Title and status message
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+                    verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                 ) {
                     Text(
                         text = if (isOnline) {
@@ -128,10 +145,14 @@ fun OfflineEmptyStateCard(
                         } else {
                             "You're Offline"
                         },
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = dims.scaledSp(24)
+                        ),
                         fontWeight = FontWeight.Bold,
                         color = NoteTheme.OnSurface,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     AnimatedContent(
@@ -147,10 +168,12 @@ fun OfflineEmptyStateCard(
                                 syncing -> "Your notes are being synchronized with the cloud"
                                 else -> "Create your first note to capture your thoughts and ideas"
                             },
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = dims.scaledSp(15)
+                            ),
                             color = NoteTheme.OnSurfaceVariant,
                             textAlign = TextAlign.Center,
-                            lineHeight = 24.sp
+                            lineHeight = dims.scaledSp(22)
                         )
                     }
                 }
@@ -158,31 +181,35 @@ fun OfflineEmptyStateCard(
                 // Action buttons
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp)
+                    verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                 ) {
                     // Primary action button
                     Button(
                         onClick = onCreateNoteClick,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .heightIn(min = primaryButtonHeight),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = NoteTheme.Primary,
                             contentColor = NoteTheme.OnPrimary
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
+                        shape = RoundedCornerShape(dims.cornerLarge),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Add,
                             contentDescription = null,
-                            modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
+                            modifier = Modifier.size(dims.iconLarge)
                         )
-                        Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                        Spacer(modifier = Modifier.width(dims.paddingSmall))
                         Text(
-                            text = if (isOnline) "Create Your First Note" else "Create Note Offline",
+                            text = if (isOnline) "Create First Note" else "Create Note Offline",
                             fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = dims.scaledSp(16)
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -192,7 +219,7 @@ fun OfflineEmptyStateCard(
                             onClick = onSeedDemoClick,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp),
+                                .heightIn(min = secondaryButtonHeight),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = NoteTheme.Primary
                             ),
@@ -200,45 +227,63 @@ fun OfflineEmptyStateCard(
                                 1.dp,
                                 NoteTheme.Primary.copy(alpha = 0.5f)
                             ),
-                            shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp)
+                            shape = RoundedCornerShape(dims.cornerLarge)
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.AutoAwesome,
                                 contentDescription = null,
-                                modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                                modifier = Modifier.size(dims.iconMedium)
                             )
-                            Spacer(modifier = Modifier.width(Constants.PADDING_SMALL.dp))
+                            Spacer(modifier = Modifier.width(dims.paddingSmall))
                             Text(
                                 text = "Load Demo Notes",
                                 fontWeight = FontWeight.Medium,
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize = dims.scaledSp(14)
+                                )
                             )
                         }
                     }
 
-                    // Status information
-                    if (!isOnline || hasPendingSync) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (isOnline) Icons.Outlined.Info else Icons.Outlined.WifiOff,
-                                contentDescription = null,
-                                tint = if (isOnline) NoteTheme.Primary else NoteTheme.Warning,
-                                modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
-                            )
-                            Text(
-                                text = if (isOnline) {
-                                    "Auto-sync is active"
-                                } else {
-                                    "Working offline"
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (isOnline) NoteTheme.Primary else NoteTheme.Warning,
-                                fontWeight = FontWeight.Medium
-                            )
+                    // Status information. Always shown on the empty state so
+                    // the card layout stays stable across sync states — only
+                    // the icon/colour/label vary. Avoids the jarring "shape
+                    // shift" between "Syncing Notes" and "No Notes Yet".
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val statusIcon = when {
+                            !isOnline -> Icons.Outlined.WifiOff
+                            hasPendingSync -> Icons.Outlined.CloudSync
+                            else -> Icons.Outlined.CloudDone
                         }
+                        val statusTint = when {
+                            !isOnline -> NoteTheme.Warning
+                            hasPendingSync -> NoteTheme.Primary
+                            else -> NoteTheme.Success
+                        }
+                        val statusLabel = when {
+                            !isOnline -> "Working offline"
+                            hasPendingSync -> "Syncing in background"
+                            else -> "Auto-sync is active"
+                        }
+                        Icon(
+                            imageVector = statusIcon,
+                            contentDescription = null,
+                            tint = statusTint,
+                            modifier = Modifier.size(dims.iconSmall)
+                        )
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = dims.scaledSp(12)
+                            ),
+                            color = statusTint,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
@@ -248,15 +293,17 @@ fun OfflineEmptyStateCard(
                         colors = CardDefaults.cardColors(
                             containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.5f)
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp)
+                        shape = RoundedCornerShape(dims.cornerMedium)
                     ) {
                         Column(
-                            modifier = Modifier.padding(Constants.PADDING_MEDIUM.dp),
-                            verticalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+                            modifier = Modifier.padding(dims.paddingMedium),
+                            verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                         ) {
                             Text(
                                 text = "Offline Features Available:",
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = dims.scaledSp(14)
+                                ),
                                 fontWeight = FontWeight.SemiBold,
                                 color = NoteTheme.OnSurface
                             )
@@ -269,17 +316,19 @@ fun OfflineEmptyStateCard(
                             ).forEach { feature ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.Check,
                                         contentDescription = null,
                                         tint = NoteTheme.Success,
-                                        modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                                        modifier = Modifier.size(dims.iconSmall)
                                     )
                                     Text(
                                         text = feature,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = dims.scaledSp(12)
+                                        ),
                                         color = NoteTheme.OnSurfaceVariant
                                     )
                                 }

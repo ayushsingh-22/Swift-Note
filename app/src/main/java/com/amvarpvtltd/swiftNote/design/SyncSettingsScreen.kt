@@ -787,7 +787,12 @@ private fun AnimatedDeviceInfoCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = NoteTheme.PrimaryContainer.copy(alpha = 0.3f)
+                        // Use full PrimaryContainer (not alpha-blended) so both
+                        // themes get equivalent contrast against the parent card:
+                        // pale indigo on white (light) and dark indigo on dark
+                        // surface — instead of the previous 0.3α which rendered
+                        // nearly invisible in light mode.
+                        containerColor = NoteTheme.PrimaryContainer
                     )
                 ) {
                     Row(
@@ -800,7 +805,7 @@ private fun AnimatedDeviceInfoCard(
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = NoteTheme.OnSurface
+                                color = NoteTheme.OnPrimaryContainer
                             )
                         }
 

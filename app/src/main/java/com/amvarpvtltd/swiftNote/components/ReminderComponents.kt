@@ -78,6 +78,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import androidx.compose.foundation.layout.heightIn
 
 @OptIn(
     ExperimentalMaterial3Api::class
@@ -91,6 +93,7 @@ fun ReminderBottomSheet(
     onDismiss: () -> Unit,
     onReminderSet: (ReminderRequest) -> Unit
 ) {
+    val dims = rememberResponsiveDimensions()
     val context =
         LocalContext.current
     var selectedPreset by remember {
@@ -129,8 +132,8 @@ fun ReminderBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = NoteTheme.Surface,
         shape = RoundedCornerShape(
-            topStart = Constants.CORNER_RADIUS_XL.dp,
-            topEnd = Constants.CORNER_RADIUS_XL.dp
+            topStart = dims.cornerXL,
+            topEnd = dims.cornerXL
         ),
         dragHandle = {
             Box(
@@ -158,10 +161,10 @@ fun ReminderBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = Constants.PADDING_LARGE.dp
+                    horizontal = dims.paddingLarge
                 )
                 .padding(
-                    bottom = Constants.PADDING_LARGE.dp
+                    bottom = dims.paddingLarge
                 )
         ) {
             // Header
@@ -170,7 +173,7 @@ fun ReminderBottomSheet(
                     .fillMaxWidth()
                     .clip(
                         RoundedCornerShape(
-                            Constants.CORNER_RADIUS_LARGE.dp
+                            dims.cornerLarge
                         )
                     )
                     .background(
@@ -186,7 +189,7 @@ fun ReminderBottomSheet(
                         )
                     )
                     .padding(
-                        Constants.PADDING_MEDIUM.dp
+                        dims.paddingMedium
                     )
             ) {
                 Row(
@@ -221,7 +224,7 @@ fun ReminderBottomSheet(
                         }
                         Spacer(
                             modifier = Modifier.width(
-                                Constants.PADDING_MEDIUM.dp
+                                dims.paddingMedium
                             )
                         )
                         Column {
@@ -264,7 +267,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_LARGE.dp
+                    dims.paddingLarge
                 )
             )
 
@@ -276,7 +279,7 @@ fun ReminderBottomSheet(
                     )
                 ),
                 shape = RoundedCornerShape(
-                    Constants.CORNER_RADIUS_LARGE.dp
+                    dims.cornerLarge
                 ),
                 border = BorderStroke(
                     1.dp,
@@ -287,7 +290,7 @@ fun ReminderBottomSheet(
             ) {
                 Column(
                     modifier = Modifier.padding(
-                        Constants.PADDING_LARGE.dp
+                        dims.paddingLarge
                     )
                 ) {
                     Row {
@@ -305,7 +308,7 @@ fun ReminderBottomSheet(
                         )
                         Spacer(
                             modifier = Modifier.width(
-                                Constants.PADDING_MEDIUM.dp
+                                dims.paddingMedium
                             )
                         )
                         Column(
@@ -350,7 +353,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_LARGE.dp
+                    dims.paddingLarge
                 )
             )
 
@@ -367,7 +370,7 @@ fun ReminderBottomSheet(
                 )
                 Spacer(
                     modifier = Modifier.width(
-                        Constants.PADDING_SMALL.dp
+                        dims.paddingSmall
                     )
                 )
                 // Use a full-width divider instead of weight to avoid internal API access
@@ -387,7 +390,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_LARGE.dp
+                    dims.paddingLarge
                 )
             )
 
@@ -406,7 +409,7 @@ fun ReminderBottomSheet(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(
-                            Constants.PADDING_MEDIUM.dp
+                            dims.paddingMedium
                         )
                     ) {
                         rowPresets.forEach { preset ->
@@ -435,7 +438,7 @@ fun ReminderBottomSheet(
                     }
                     Spacer(
                         modifier = Modifier.height(
-                            Constants.PADDING_MEDIUM.dp
+                            dims.paddingMedium
                         )
                     )
                 }
@@ -477,13 +480,13 @@ fun ReminderBottomSheet(
                     else NoteTheme.Outline
                 ),
                 shape = RoundedCornerShape(
-                    Constants.CORNER_RADIUS_LARGE.dp
+                    dims.cornerLarge
                 )
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(
-                        Constants.PADDING_MEDIUM.dp
+                        dims.paddingMedium
                     )
                 ) {
                     Box(
@@ -562,7 +565,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_XL.dp
+                    dims.paddingXL
                 )
             )
 
@@ -570,9 +573,9 @@ fun ReminderBottomSheet(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp)
+                shape = RoundedCornerShape(dims.cornerMedium)
             ) {
-                Column(modifier = Modifier.padding(Constants.PADDING_MEDIUM.dp)) {
+                Column(modifier = Modifier.padding(dims.paddingMedium)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -652,7 +655,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_MEDIUM.dp
+                    dims.paddingMedium
                 )
             )
 
@@ -765,20 +768,20 @@ fun ReminderBottomSheet(
                     containerColor = buttonColor
                 ),
                 shape = RoundedCornerShape(
-                    Constants.CORNER_RADIUS_LARGE.dp
+                    dims.cornerLarge
                 )
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(
-                        Constants.PADDING_MEDIUM.dp
+                        dims.paddingMedium
                     )
                 ) {
                     Icon(
                         Icons.Outlined.NotificationsActive,
                         contentDescription = null,
                         modifier = Modifier.size(
-                            Constants.ICON_SIZE_MEDIUM.dp
+                            dims.iconMedium
                         )
                     )
                     Text(
@@ -791,7 +794,7 @@ fun ReminderBottomSheet(
 
             Spacer(
                 modifier = Modifier.height(
-                    Constants.PADDING_MEDIUM.dp
+                    dims.paddingMedium
                 )
             )
         }
@@ -914,6 +917,7 @@ private fun PresetButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     val icon =
         when (preset) {
             ReminderPreset.TEN_MINUTES -> Icons.Outlined.Timer
@@ -944,7 +948,7 @@ private fun PresetButton(
             .scale(
                 buttonScale
             )
-            .height(84.dp),
+            .heightIn(min = 84.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = containerColor,
             contentColor = if (isSelected) NoteTheme.Primary else NoteTheme.OnSurface
@@ -960,7 +964,7 @@ private fun PresetButton(
                 6.dp
             ),
             modifier = Modifier.padding(
-                vertical = Constants.PADDING_SMALL.dp
+                vertical = dims.paddingSmall
             )
         ) {
             Box(

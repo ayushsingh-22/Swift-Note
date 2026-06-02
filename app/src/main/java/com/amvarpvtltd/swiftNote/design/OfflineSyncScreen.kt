@@ -38,6 +38,7 @@ import com.amvarpvtltd.swiftNote.utils.AutoSyncManager
 import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import kotlinx.coroutines.launch
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +46,7 @@ fun OfflineSyncScreen(
     navController: NavHostController,
     showBackButton: Boolean = true
 ) {
+    val dims = rememberResponsiveDimensions()
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -130,10 +132,10 @@ fun OfflineSyncScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(if (showBackButton) paddingValues else PaddingValues(top = 32.dp))
-                    .padding(Constants.PADDING_LARGE.dp)
+                    .padding(dims.paddingLarge)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Constants.PADDING_LARGE.dp)
+                verticalArrangement = Arrangement.spacedBy(dims.paddingLarge)
             ) {
                 // Connection Status Card
                 AnimatedVisibility(
@@ -148,15 +150,15 @@ fun OfflineSyncScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = NoteTheme.Surface
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
+                    shape = RoundedCornerShape(dims.cornerXL),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
-                            .padding(Constants.PADDING_XL.dp)
+                            .padding(dims.paddingXL)
                             .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp)
+                        verticalArrangement = Arrangement.spacedBy(dims.paddingMedium)
                     ) {
                         // Connection status icon
                         Box(
@@ -221,15 +223,15 @@ fun OfflineSyncScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = NoteTheme.Surface
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
+                    shape = RoundedCornerShape(dims.cornerXL),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
-                            .padding(Constants.PADDING_XL.dp)
+                            .padding(dims.paddingXL)
                             .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp)
+                        verticalArrangement = Arrangement.spacedBy(dims.paddingMedium)
                     ) {
                         // Sync status icon with animation
                         Box(
@@ -324,23 +326,23 @@ fun OfflineSyncScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = NoteTheme.Warning.copy(alpha = 0.1f)
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_LARGE.dp),
+                        shape = RoundedCornerShape(dims.cornerLarge),
                         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
                         Column(
                             modifier = Modifier
-                                .padding(Constants.PADDING_LARGE.dp)
+                                .padding(dims.paddingLarge)
                                 .fillMaxWidth()
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+                                horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Schedule,
                                     contentDescription = null,
                                     tint = NoteTheme.Warning,
-                                    modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                                    modifier = Modifier.size(dims.iconMedium)
                                 )
                                 Text(
                                     text = "Pending Sync",
@@ -350,7 +352,7 @@ fun OfflineSyncScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(Constants.PADDING_SMALL.dp))
+                            Spacer(modifier = Modifier.height(dims.paddingSmall))
 
                             Text(
                                 text = "${pendingNotes.size} note${if (pendingNotes.size != 1) "s" else ""} waiting to be synchronized with the cloud",
@@ -370,7 +372,7 @@ fun OfflineSyncScreen(
                     )
                 ) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp),
+                    verticalArrangement = Arrangement.spacedBy(dims.paddingMedium),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     // Manual sync button
@@ -383,14 +385,14 @@ fun OfflineSyncScreen(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = NoteTheme.Primary
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
+                        shape = RoundedCornerShape(dims.cornerMedium),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isSyncing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
-                                color = Color.White
+                                color = NoteTheme.OnPrimary
                             )
                         } else {
                             Icon(
@@ -417,7 +419,7 @@ fun OfflineSyncScreen(
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = NoteTheme.OnSurfaceVariant
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_MEDIUM.dp),
+                        shape = RoundedCornerShape(dims.cornerMedium),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(

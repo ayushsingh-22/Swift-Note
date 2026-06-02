@@ -1,4 +1,4 @@
-﻿package com.amvarpvtltd.swiftNote.design
+package com.amvarpvtltd.swiftNote.design
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -130,6 +130,8 @@ import com.amvarpvtltd.swiftNote.ai.AITitleGenerator
 import com.amvarpvtltd.swiftNote.theme.ProvideNoteTheme
 import com.amvarpvtltd.swiftNote.utils.AutoTitleGenerator
 import com.amvarpvtltd.swiftNote.utils.Constants
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
 import com.amvarpvtltd.swiftNote.utils.UIUtils
 import com.amvarpvtltd.swiftNote.utils.ValidationUtils
 import kotlinx.coroutines.Dispatchers
@@ -137,13 +139,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Top-level Regex constants — avoids recreating on every recomposition
+// Top-level Regex constants � avoids recreating on every recomposition
 private val DIGIT_REGEX = Regex("(\\d+)")
 private val HTML_TAG_REGEX = Regex("<[^>]+>")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddScreen(navController: NavHostController, noteId: String?) {
+    val dims = rememberResponsiveDimensions()
     var title by remember { mutableStateOf("") }
     // Phase 2: description migrated to RichTextState (compose-rich-editor library)
     val richTextState = rememberRichTextState()
@@ -264,7 +267,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // ── Edit-mode smart reminder trigger ──────────────────────────────────────
+    // -- Edit-mode smart reminder trigger --------------------------------------
     // When an existing note finishes loading, the text-change LaunchedEffect may
     // capture an empty richTextState snapshot (title sets before setHtml settles).
     // This dedicated effect fires once after loading completes and runs a fresh
@@ -300,7 +303,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // BUG-015 FIX: Clipboard HTML detection for title only — description is handled natively by RichTextEditor
+    // BUG-015 FIX: Clipboard HTML detection for title only � description is handled natively by RichTextEditor
     LaunchedEffect(Unit) {
         try {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -321,7 +324,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         }
     }
 
-    // Phase 3: Smart paste detection — auto-convert markdown to HTML when pasted
+    // Phase 3: Smart paste detection � auto-convert markdown to HTML when pasted
     // Monitors text length for sudden large increases (>20 chars = likely a paste event).
     // If pasted text contains markdown, converts to HTML for proper rich text display.
     var previousTextLength by remember { mutableStateOf(-1) }
@@ -361,7 +364,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         if (isChecklistMode) checklistItems.joinToString(". ") { it.text } else ""
     } }
 
-    // BUG-015 FIX: Debounced reminder analysis — only after user stops typing (800ms)
+    // BUG-015 FIX: Debounced reminder analysis � only after user stops typing (800ms)
     // BUG-006 FIX: All Toast calls wrapped in withContext(Dispatchers.Main)
     LaunchedEffect(title, richTextState.annotatedString.text, checklistTextForAI) {
         val descriptionForAnalysis = if (isChecklistMode) checklistTextForAI
@@ -371,7 +374,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
         // Fast exit: skip all processing for very short input
         if (combinedText.length < 3) return@LaunchedEffect
 
-        // Debounce ALL processing — wait 800ms after last keystroke
+        // Debounce ALL processing � wait 800ms after last keystroke
         delay(800)
 
         // Clear formatted previews if text diverged from clipboard paste
@@ -395,7 +398,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 if (result.isSuccess) {
                     val reminders = result.getOrNull() ?: emptyList()
                     if (reminders.isNotEmpty()) {
-                        // Show as suggestion chips — user confirms via UI (both new and editing notes)
+                        // Show as suggestion chips � user confirms via UI (both new and editing notes)
                         val highConfidenceReminders = reminders.filter { it.confidence >= 0.6f }
                         if (highConfidenceReminders.isNotEmpty()) {
                             pendingReminders = highConfidenceReminders
@@ -525,7 +528,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                 pendingReminderAction = { saveNote() }
                 missingPermissionType = missing
                 showPermissionRationale = true
-                return // pause save — resume after permission decision
+                return // pause save � resume after permission decision
             }
         }
 
@@ -540,20 +543,20 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     richTextState.toHtml()
                 }
 
-                // Phase 4: Auto-title — try LLM first, fall back to rule-based
+                // Phase 4: Auto-title � try LLM first, fall back to rule-based
                 val effectiveTitle = if (title.trim().length >= Constants.MIN_CONTENT_LENGTH) {
                     title
                 } else {
                     // Try AI-powered title generation (Gemini/Groq), falls back to rules
                     val aiTitleGen = AITitleGenerator.getInstance(context)
-                    Log.d("AddScreen", "🤖 Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}")
+                    Log.d("AddScreen", "?? Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}")
                     val aiTitle = try {
                         aiTitleGen.generate(descToSave)
                     } catch (e: Exception) {
-                        Log.e("AddScreen", "🤖 AI title generation threw exception", e)
+                        Log.e("AddScreen", "?? AI title generation threw exception", e)
                         ""
                     }
-                    Log.d("AddScreen", "🤖 AI title result: \"$aiTitle\"")
+                    Log.d("AddScreen", "?? AI title result: \"$aiTitle\"")
                     aiTitle.ifEmpty { AutoTitleGenerator.generate(descToSave) }.ifEmpty { title }
                 }
                 val titleToSave = titleHtml ?: effectiveTitle
@@ -566,14 +569,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     category = selectedCategory
                 )
 
-               // kotlin
-               // Add debug + safe navigation inside saveNote() success branch
                withContext(Dispatchers.Main) {
                    if (result.isSuccess) {
                        val savedNoteId = result.getOrNull()
                        val finalNoteId = savedNoteId ?: noteId
 
-                        // ── Final save-time reminder scan ──────────────────────────────
+                        // -- Final save-time reminder scan ------------------------------
                         // If the user saved quickly (before the 1500 ms typing debounce
                         // fired) or if the edit-load analysis hasn't finished yet, run a
                         // last-chance LLM check on the actual saved content so no reminder
@@ -606,8 +607,8 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                         // Create any pending smart reminders for newly saved notes.
                         // Includes both:
-                        //  • pendingReminders  — suggestions not yet explicitly confirmed
-                        //  • confirmedPendingReminders — suggestions the user tapped "Set" on
+                        //  � pendingReminders  � suggestions not yet explicitly confirmed
+                        //  � confirmedPendingReminders � suggestions the user tapped "Set" on
                         //    while the note wasn't saved yet (new note path, isEditing=false)
                         val hasNotificationPermission = com.amvarpvtltd.swiftNote.components.checkReminderPermissions(context) == null
                         val remindersToCreate = (pendingReminders + confirmedPendingReminders).distinctBy { it.id }
@@ -645,7 +646,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                    confirmedPendingReminders = emptyList()
                                    Toast.makeText(
                                        context,
-                                       "🤖 Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
+                                       "?? Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
                                        Toast.LENGTH_SHORT
                                    ).show()
                                }
@@ -660,10 +661,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                        if (isOnline) {
                            Toast.makeText(context, Constants.SAVE_SUCCESS_MESSAGE, Toast.LENGTH_SHORT).show()
                        } else {
-                           Toast.makeText(context, "📱 Note saved offline. Will sync when online.", Toast.LENGTH_SHORT).show()
+                           Toast.makeText(context, "?? Note saved offline. Will sync when online.", Toast.LENGTH_SHORT).show()
                        }
 
-                       Log.d("AddScreen", "Save successful — currentRoute=${navController.currentBackStackEntry?.destination?.route}")
+                       Log.d("AddScreen", "Save successful � currentRoute=${navController.currentBackStackEntry?.destination?.route}")
 
                        try {
                            navController.navigate("main") {
@@ -705,7 +706,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         val isOnline = networkManager.isConnected()
 
                         if (!isOnline) {
-                            Toast.makeText(context, "📱 Note deleted offline. Will sync when online.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "?? Note deleted offline. Will sync when online.", Toast.LENGTH_SHORT).show()
                         }
 
                         navController.navigate("main")
@@ -723,7 +724,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
     // Performance: remember the brush to avoid re-creating gradient objects on every recomposition
     // (kept for backward compat but NoteScreenBackground is now used as wrapper)
 
-    // Permission rationale sheet — shown before creating a reminder when notification permission is missing
+    // Permission rationale sheet � shown before creating a reminder when notification permission is missing
     if (showPermissionRationale && missingPermissionType != null) {
         com.amvarpvtltd.swiftNote.components.PermissionRationaleSheet(
             permissionType = missingPermissionType!!,
@@ -737,7 +738,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     isSaveReminderPending = false
                     pendingReminders = emptyList()
                     confirmedPendingReminders = emptyList()
-                    Toast.makeText(context, "📝 Saving note without reminder", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "?? Saving note without reminder", Toast.LENGTH_SHORT).show()
                     saveNote()
                 } else {
                     isSaveReminderPending = false
@@ -752,7 +753,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     missingPermissionType = nextMissing
                     showPermissionRationale = true
                 } else {
-                    // Permission granted — execute the pending reminder action
+                    // Permission granted � execute the pending reminder action
                     isSaveReminderPending = false
                     pendingReminderAction?.invoke()
                     pendingReminderAction = null
@@ -808,14 +809,14 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         colors = CardDefaults.cardColors(
                             containerColor = NoteTheme.ErrorContainer.copy(alpha = 0.3f)
                         ),
-                        shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                        shape = RoundedCornerShape(dims.cornerSmall)
                     ) {
                         Text(
                             text = "\"$title\"",
                             style = MaterialTheme.typography.bodyMedium,
                             color = NoteTheme.OnSurface,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(Constants.CORNER_RADIUS_SMALL.dp)
+                            modifier = Modifier.padding(dims.cornerSmall)
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -838,7 +839,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         containerColor = NoteTheme.Error,
                         contentColor = NoteTheme.OnPrimary
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Icon(
                         Icons.Outlined.Delete,
@@ -855,12 +856,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NoteTheme.OnSurfaceVariant
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Text("Cancel", fontWeight = FontWeight.Medium)
                 }
             },
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
+            shape = RoundedCornerShape(dims.cornerXL),
             containerColor = NoteTheme.Surface
         )
     }
@@ -918,7 +919,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         containerColor = NoteTheme.Warning,
                         contentColor = NoteTheme.OnPrimary
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Outlined.ExitToApp,
@@ -935,12 +936,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = NoteTheme.OnSurfaceVariant
                     ),
-                    shape = RoundedCornerShape(Constants.CORNER_RADIUS_SMALL.dp)
+                    shape = RoundedCornerShape(dims.cornerSmall)
                 ) {
                     Text("Keep Editing", fontWeight = FontWeight.Medium)
                 }
             },
-            shape = RoundedCornerShape(Constants.CORNER_RADIUS_XL.dp),
+            shape = RoundedCornerShape(dims.cornerXL),
             containerColor = NoteTheme.Surface
         )
     }
@@ -968,12 +969,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     if (isLoading) {
                                         Spacer(
                                             modifier = Modifier.width(
-                                                Constants.CORNER_RADIUS_SMALL.dp
+                                                dims.cornerSmall
                                             )
                                         )
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(
-                                                Constants.ICON_SIZE_MEDIUM.dp
+                                                dims.iconMedium
                                             ),
                                             strokeWidth = 2.dp,
                                             color = NoteTheme.Primary
@@ -1070,7 +1071,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                         if (isSaving) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(
-                                                    Constants.ICON_SIZE_MEDIUM.dp
+                                                    dims.iconMedium
                                                 ),
                                                 strokeWidth = 2.dp,
                                                 color = NoteTheme.Primary
@@ -1136,9 +1137,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 bottom = if (descriptionFocused && !isChecklistMode && !isPreviewMode)
                                     56.dp else 0.dp
                             )
-                            .padding(Constants.PADDING_MEDIUM.dp)
+                            .responsiveContentWidth(dims) // Phase 7: cap editor at 720dp on tablets/foldables, no-op on phones
+                            .padding(dims.paddingMedium)
                             .verticalScroll(scrollState),
-                        verticalArrangement = Arrangement.spacedBy(Constants.CORNER_RADIUS_LARGE.dp)
+                        verticalArrangement = Arrangement.spacedBy(dims.cornerLarge)
                     ) {
                         // Title Section
                         AnimatedVisibility(
@@ -1191,12 +1193,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 contentDescription = null,
                                                 tint = NoteTheme.Primary,
                                                 modifier = Modifier.size(
-                                                    Constants.ICON_SIZE_MEDIUM.dp
+                                                    dims.iconMedium
                                                 )
                                             )
                                             Spacer(
                                                 modifier = Modifier.width(
-                                                    Constants.PADDING_SMALL.dp
+                                                    dims.paddingSmall
                                                 )
                                             )
                                             Text(
@@ -1214,7 +1216,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(
-                                                        Constants.PROGRESS_INDICATOR_SIZE.dp
+                                                        dims.iconLarge
                                                     )
                                                     .background(
                                                         color = titleCountColor.copy(
@@ -1234,7 +1236,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                             Spacer(
                                                 modifier = Modifier.width(
-                                                    Constants.PADDING_SMALL.dp
+                                                    dims.paddingSmall
                                                 )
                                             )
 
@@ -1252,7 +1254,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                     Spacer(
                                         modifier = Modifier.height(
-                                            Constants.PADDING_MEDIUM.dp
+                                            dims.paddingMedium
                                         )
                                     )
 
@@ -1290,7 +1292,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             unfocusedTextColor = NoteTheme.OnSurface
                                         ),
                                         shape = RoundedCornerShape(
-                                            Constants.CORNER_RADIUS_SMALL.dp
+                                            dims.cornerSmall
                                         )
                                     )
 
@@ -1304,7 +1306,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(
-                                                top = Constants.PADDING_SMALL.dp
+                                                top = dims.paddingSmall
                                             ),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -1313,7 +1315,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 contentDescription = null,
                                                 tint = titleCountColor,
                                                 modifier = Modifier.size(
-                                                    Constants.ICON_SIZE_SMALL.dp
+                                                    dims.iconSmall
                                                 )
                                             )
                                             Spacer(
@@ -1362,22 +1364,22 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                             val aiGen = AITitleGenerator.getInstance(context)
                             if (!aiGen.isAvailable()) {
-                                Log.d("AddScreen", "🤖 AI title chip: AI not available (no API key)")
+                                Log.d("AddScreen", "?? AI title chip: AI not available (no API key)")
                                 return@LaunchedEffect
                             }
 
                             isAiTitleLoading = true
-                            Log.d("AddScreen", "🤖 AI title chip: triggering AI generation...")
+                            Log.d("AddScreen", "?? AI title chip: triggering AI generation...")
                             try {
                                 val result = withContext(Dispatchers.IO) {
                                     aiGen.generate(descForAI)
                                 }
                                 if (result.isNotBlank() && result != ruleBasedTitle) {
                                     aiSuggestedTitle = result
-                                    Log.d("AddScreen", "🤖 AI title chip: got result \"$result\"")
+                                    Log.d("AddScreen", "?? AI title chip: got result \"$result\"")
                                 }
                             } catch (e: Exception) {
-                                Log.e("AddScreen", "🤖 AI title chip: failed", e)
+                                Log.e("AddScreen", "?? AI title chip: failed", e)
                             } finally {
                                 isAiTitleLoading = false
                             }
@@ -1395,7 +1397,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(
-                                        start = Constants.PADDING_SMALL.dp,
+                                        start = dims.paddingSmall,
                                         top = 4.dp,
                                         bottom = 4.dp
                                     )
@@ -1423,9 +1425,9 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                 Spacer(Modifier.width(4.dp))
                                 Text(
                                     text = if (isAiTitleLoading && suggestedTitle.isBlank()) {
-                                        "✨ Generating AI title..."
+                                        "? Generating AI title..."
                                     } else if (aiSuggestedTitle.isNotBlank()) {
-                                        "✨ \"$suggestedTitle\""
+                                        "? \"$suggestedTitle\""
                                     } else {
                                         "Use \"$suggestedTitle\""
                                     },
@@ -1765,14 +1767,14 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 )
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(
-                                            Constants.PADDING_SMALL.dp
+                                            dims.paddingSmall
                                         ),
                                     horizontalArrangement = Arrangement.Center,
                                     verticalAlignment = Alignment.CenterVertically
@@ -1788,7 +1790,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 indication = null
                                             ) {
                                                 if (isChecklistMode) {
-                                                    // Convert checklist → text
+                                                    // Convert checklist ? text
                                                     richTextState.setHtml(
                                                         ChecklistParser.checklistToText(
                                                             checklistItems
@@ -1799,7 +1801,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 }
                                             },
                                         shape = RoundedCornerShape(
-                                            Constants.CORNER_RADIUS_SMALL.dp
+                                            dims.cornerSmall
                                         ),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (!isChecklistMode) NoteTheme.Primary.copy(
@@ -1859,7 +1861,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 indication = null
                                             ) {
                                                 if (!isChecklistMode) {
-                                                    // Convert text → checklist
+                                                    // Convert text ? checklist
                                                     checklistItems =
                                                         if (richTextState.annotatedString.text.isNotBlank()) {
                                                             ChecklistParser.textToChecklist(
@@ -1877,7 +1879,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 }
                                             },
                                         shape = RoundedCornerShape(
-                                            Constants.CORNER_RADIUS_SMALL.dp
+                                            dims.cornerSmall
                                         ),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (isChecklistMode) NoteTheme.Primary.copy(
@@ -1928,13 +1930,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 200.dp)
+                                    .heightIn(min = dims.editorMinHeight)
                                     .animateContentSize(),
                                 colors = CardDefaults.cardColors(
                                     containerColor = NoteTheme.Surface
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_LARGE.dp
+                                    dims.cornerLarge
                                 ),
                                 elevation = CardDefaults.cardElevation(
                                     defaultElevation = 1.dp
@@ -1948,7 +1950,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             ) {
                                 Column(
                                     modifier = Modifier.padding(
-                                        Constants.CORNER_RADIUS_LARGE.dp
+                                        dims.cornerLarge
                                     )
                                 ) {
                                     Row(
@@ -1962,12 +1964,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 contentDescription = null,
                                                 tint = NoteTheme.Primary,
                                                 modifier = Modifier.size(
-                                                    Constants.ICON_SIZE_MEDIUM.dp
+                                                    dims.iconMedium
                                                 )
                                             )
                                             Spacer(
                                                 modifier = Modifier.width(
-                                                    Constants.PADDING_SMALL.dp
+                                                    dims.paddingSmall
                                                 )
                                             )
                                             Text(
@@ -1995,7 +1997,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                     Spacer(
                                         modifier = Modifier.height(
-                                            Constants.PADDING_MEDIUM.dp
+                                            dims.paddingMedium
                                         )
                                     )
 
@@ -2167,7 +2169,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 200.dp) // Set minimum height instead of weight
+                                    .heightIn(min = dims.editorMinHeight) // Set minimum height instead of weight
                                     .animateContentSize(),
                                 colors = CardDefaults.cardColors(
                                     containerColor = NoteTheme.Surface
@@ -2204,12 +2206,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 contentDescription = null,
                                                 tint = NoteTheme.Secondary,
                                                 modifier = Modifier.size(
-                                                    Constants.ICON_SIZE_MEDIUM.dp
+                                                    dims.iconMedium
                                                 )
                                             )
                                             Spacer(
                                                 modifier = Modifier.width(
-                                                    Constants.PADDING_SMALL.dp
+                                                    dims.paddingSmall
                                                 )
                                             )
 
@@ -2228,7 +2230,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(
-                                                        Constants.PROGRESS_INDICATOR_SIZE.dp
+                                                        dims.iconLarge
                                                     )
                                                     .background(
                                                         color = descCountColor.copy(
@@ -2248,7 +2250,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                             Spacer(
                                                 modifier = Modifier.width(
-                                                    Constants.PADDING_SMALL.dp
+                                                    dims.paddingSmall
                                                 )
                                             )
 
@@ -2266,11 +2268,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                     Spacer(
                                         modifier = Modifier.height(
-                                            Constants.PADDING_MEDIUM.dp
+                                            dims.paddingMedium
                                         )
                                     )
 
-                                    // ── Phase 2: WYSIWYG editor (no preview/edit toggle needed) ───
+                                    // -- Phase 2: WYSIWYG editor (no preview/edit toggle needed) ---
                                     if (isPreviewMode) {
                                         androidx.compose.material3.Card(
                                             modifier = Modifier
@@ -2284,7 +2286,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 )
                                             ),
                                             shape = RoundedCornerShape(
-                                                Constants.CORNER_RADIUS_SMALL.dp
+                                                dims.cornerSmall
                                             )
                                         ) {
                                             RichTextDisplay(
@@ -2335,7 +2337,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                 cursorColor = NoteTheme.Secondary
                                             ),
                                             shape = RoundedCornerShape(
-                                                Constants.CORNER_RADIUS_SMALL.dp
+                                                dims.cornerSmall
                                             )
                                         )
                                     } // end preview/edit toggle
@@ -2356,7 +2358,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 ),
                                 border = BorderStroke(
                                     1.dp,
@@ -2367,7 +2369,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             ) {
                                 Row(
                                     modifier = Modifier.padding(
-                                        Constants.PADDING_MEDIUM.dp
+                                        dims.paddingMedium
                                     ),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -2376,12 +2378,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                         contentDescription = null,
                                         tint = NoteTheme.Warning,
                                         modifier = Modifier.size(
-                                            Constants.ICON_SIZE_MEDIUM.dp
+                                            dims.iconMedium
                                         )
                                     )
                                     Spacer(
                                         modifier = Modifier.width(
-                                            Constants.CORNER_RADIUS_SMALL.dp
+                                            dims.cornerSmall
                                         )
                                     )
                                     Text(
@@ -2403,12 +2405,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 )
                             ) {
                                 Row(
                                     modifier = Modifier.padding(
-                                        Constants.PADDING_MEDIUM.dp
+                                        dims.paddingMedium
                                     ),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -2421,11 +2423,11 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                     Spacer(
                                         modifier = Modifier.width(
-                                            Constants.PADDING_SMALL.dp
+                                            dims.paddingSmall
                                         )
                                     )
                                     Text(
-                                        text = "🧠 Analyzing for smart reminders...",
+                                        text = "?? Analyzing for smart reminders...",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NoteTheme.Primary,
                                         fontWeight = FontWeight.Medium
@@ -2434,7 +2436,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             }
                         }
 
-                        // Phase 1: Smart Reminder Suggestion Chips — interactive chips instead of auto-fire
+                        // Phase 1: Smart Reminder Suggestion Chips � interactive chips instead of auto-fire
                         if (detectedReminders.isNotEmpty() && pendingReminders.isNotEmpty()) {
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -2443,7 +2445,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 ),
                                 border = BorderStroke(
                                     1.dp,
@@ -2454,7 +2456,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             ) {
                                 Column(
                                     modifier = Modifier.padding(
-                                        Constants.PADDING_MEDIUM.dp
+                                        dims.paddingMedium
                                     )
                                 ) {
                                     Row(
@@ -2470,7 +2472,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                         )
                                         Spacer(
                                             modifier = Modifier.width(
-                                                Constants.PADDING_SMALL.dp
+                                                dims.paddingSmall
                                             )
                                         )
                                         Text(
@@ -2483,7 +2485,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
 
                                     Spacer(
                                         modifier = Modifier.height(
-                                            Constants.PADDING_SMALL.dp
+                                            dims.paddingSmall
                                         )
                                     )
 
@@ -2515,7 +2517,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                         alpha = 0.08f
                                                     ),
                                                     RoundedCornerShape(
-                                                        Constants.CORNER_RADIUS_SMALL.dp
+                                                        dims.cornerSmall
                                                     )
                                                 )
                                                 .padding(
@@ -2539,7 +2541,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = "⏰ $timeText",
+                                                    text = "? $timeText",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = NoteTheme.OnSurfaceVariant
                                                 )
@@ -2593,7 +2595,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                                                             }
                                                                                         Toast.makeText(
                                                                                             context,
-                                                                                            if (isEditing) "⏰ Reminder set!" else "⏰ Reminder will be set when you save",
+                                                                                            if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
                                                                                             Toast.LENGTH_SHORT
                                                                                         )
                                                                                             .show()
@@ -2611,7 +2613,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                                         showPermissionRationale =
                                                                             true
                                                                      } else {
-                                                                        // Permission already granted — create the reminder
+                                                                        // Permission already granted � create the reminder
                                                                         scope.launch {
                                                                             try {
                                                                                 if (isEditing) {
@@ -2644,7 +2646,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                                                 ) {
                                                                                     Toast.makeText(
                                                                                         context,
-                                                                                        if (isEditing) "⏰ Reminder set!" else "⏰ Reminder will be set when you save",
+                                                                                        if (isEditing) "? Reminder set!" else "? Reminder will be set when you save",
                                                                                         Toast.LENGTH_SHORT
                                                                                     )
                                                                                         .show()
@@ -2660,7 +2662,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                                     }
                                                 },
                                                 shape = RoundedCornerShape(
-                                                    Constants.CORNER_RADIUS_SMALL.dp
+                                                    dims.cornerSmall
                                                 ),
                                                 colors = CardDefaults.cardColors(
                                                     containerColor = NoteTheme.Primary.copy(
@@ -2704,7 +2706,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                                     }
                                                 },
                                                 shape = RoundedCornerShape(
-                                                    Constants.CORNER_RADIUS_SMALL.dp
+                                                    dims.cornerSmall
                                                 ),
                                                 colors = CardDefaults.cardColors(
                                                     containerColor = NoteTheme.OnSurfaceVariant.copy(
@@ -2733,7 +2735,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                             }
                         }
 
-                        // Confirmed Reminders Status — shows after user taps "Set"
+                        // Confirmed Reminders Status � shows after user taps "Set"
                         if (detectedReminders.any { it.isConfirmed }) {
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -2742,12 +2744,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 )
                             ) {
                                 Row(
                                     modifier = Modifier.padding(
-                                        Constants.PADDING_MEDIUM.dp
+                                        dims.paddingMedium
                                     ),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -2761,13 +2763,13 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                     Spacer(
                                         modifier = Modifier.width(
-                                            Constants.PADDING_SMALL.dp
+                                            dims.paddingSmall
                                         )
                                     )
                                     val confirmedCount =
                                         detectedReminders.count { it.isConfirmed }
                                     Text(
-                                        text = "✅ $confirmedCount reminder${if (confirmedCount > 1) "s" else ""} set",
+                                        text = "? $confirmedCount reminder${if (confirmedCount > 1) "s" else ""} set",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NoteTheme.Success,
                                         fontWeight = FontWeight.Medium
@@ -2785,12 +2787,12 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                     )
                                 ),
                                 shape = RoundedCornerShape(
-                                    Constants.CORNER_RADIUS_MEDIUM.dp
+                                    dims.cornerMedium
                                 )
                             ) {
                                 Column(
                                     modifier = Modifier.padding(
-                                        Constants.PADDING_MEDIUM.dp
+                                        dims.paddingMedium
                                     )
                                 ) {
                                     if (titleFormatted != null) {
@@ -2813,7 +2815,7 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                                         )
                                         Spacer(
                                             modifier = Modifier.height(
-                                                Constants.PADDING_SMALL.dp
+                                                dims.paddingSmall
                                             )
                                         )
                                     }
@@ -2841,10 +2843,10 @@ fun AddScreen(navController: NavHostController, noteId: String?) {
                         }
 
                         // Bottom spacer so content clears the FAB + toolbar
-                        Spacer(modifier = Modifier.height(100.dp))
+                        Spacer(modifier = Modifier.height(dims.paddingXL * 2))
                     } // end scrollable Column
 
-                    // ── Sticky rich-text toolbar overlay (above keyboard) ──────────
+                    // -- Sticky rich-text toolbar overlay (above keyboard) ----------
                     androidx.compose.animation.AnimatedVisibility(
                         visible = descriptionFocused && !isChecklistMode && !isPreviewMode,
                         modifier = Modifier.align(Alignment.BottomCenter),

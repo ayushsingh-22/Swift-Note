@@ -1,6 +1,5 @@
 package com.amvarpvtltd.swiftNote.components
 
-import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -29,7 +28,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +39,7 @@ import com.amvarpvtltd.swiftNote.design.NoteTheme
 import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.utils.Constants
 import kotlinx.coroutines.delay
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 // View Mode enum
 enum class ViewMode {
@@ -101,6 +100,7 @@ fun ViewModeToggleButton(
     onViewModeChange: (ViewMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     val hapticFeedback = LocalHapticFeedback.current
     val context = LocalContext.current
 
@@ -128,14 +128,14 @@ fun ViewModeToggleButton(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Box(
-            modifier = Modifier.padding(Constants.PADDING_SMALL.dp),
+            modifier = Modifier.padding(dims.paddingSmall),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = ViewModeManager.getViewModeIcon(currentViewMode),
                 contentDescription = ViewModeManager.getViewModeLabel(currentViewMode),
                 tint = NoteTheme.OnSurface,
-                modifier = Modifier.size(Constants.ICON_SIZE_LARGE.dp)
+                modifier = Modifier.size(dims.iconLarge)
             )
         }
     }
@@ -206,15 +206,16 @@ private fun NotesCardView(
     onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(
-            start = Constants.PADDING_MEDIUM.dp,
-            top = Constants.PADDING_SMALL.dp,
-            end = Constants.PADDING_MEDIUM.dp,
+            start = dims.paddingMedium,
+            top = dims.paddingSmall,
+            end = dims.paddingMedium,
             bottom = 100.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(Constants.PADDING_MEDIUM.dp)
+        verticalArrangement = Arrangement.spacedBy(dims.paddingMedium)
     ) {
         itemsIndexed(
             items = notes,
@@ -295,15 +296,16 @@ private fun NotesListView(
     onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dims = rememberResponsiveDimensions()
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(
-            start = Constants.PADDING_MEDIUM.dp,
-            top = Constants.PADDING_SMALL.dp,
-            end = Constants.PADDING_MEDIUM.dp,
+            start = dims.paddingMedium,
+            top = dims.paddingSmall,
+            end = dims.paddingMedium,
             bottom = 100.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+        verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
     ) {
         itemsIndexed(
             items = notes,
@@ -380,21 +382,24 @@ private fun NotesGridView(
     onArchive: (dataclass) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val columns = if (isLandscape) Constants.GRID_COLUMNS_LANDSCAPE else Constants.GRID_COLUMNS_PORTRAIT
-
+    val dims = rememberResponsiveDimensions()
+    // Adaptive columns: fits as many ~150dp-wide cards as possible.
+    // - 320dp compact phone → 2 columns (still readable, no cramped 1-col)
+    // - 360-410dp normal phone → 2 columns
+    // - 600dp+ foldable/tablet portrait → 3-4 columns
+    // - landscape → automatically more columns based on width
+    // Replaces orientation branching with width-based adaptation.
     LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
+        columns = GridCells.Adaptive(minSize = 150.dp),
         modifier = modifier,
         contentPadding = PaddingValues(
-            start = Constants.PADDING_MEDIUM.dp,
-            top = Constants.PADDING_SMALL.dp,
-            end = Constants.PADDING_MEDIUM.dp,
+            start = dims.paddingMedium,
+            top = dims.paddingSmall,
+            end = dims.paddingMedium,
             bottom = 100.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp),
-        horizontalArrangement = Arrangement.spacedBy(Constants.PADDING_SMALL.dp)
+        verticalArrangement = Arrangement.spacedBy(dims.paddingSmall),
+        horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall)
     ) {
         itemsIndexed(
             items = notes,
@@ -439,7 +444,8 @@ private fun NoteCardItem(
         label = "card_scale"
     )
 
-    val cardColorPair = noteCardColors[index % noteCardColors.size]
+    val cardColors = noteCardColors()
+    val cardColorPair = cardColors[index % cardColors.size]
     // Use category color if available, otherwise default accent
     val accentColor = if (note.category.isNotBlank()) {
         com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(context, note.category)
@@ -683,6 +689,7 @@ private fun NoteListItem(
     onShare: (dataclass) -> Unit,
     onReminder: (dataclass) -> Unit, // Added reminder action
 ) {
+    val dims = rememberResponsiveDimensions()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isPressed by remember { mutableStateOf(false) }
     val hapticFeedback = LocalHapticFeedback.current
@@ -722,7 +729,7 @@ private fun NoteListItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(Constants.PADDING_MEDIUM.dp),
+                    .padding(dims.paddingMedium),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Content section
@@ -805,7 +812,7 @@ private fun NoteListItem(
                             Icons.Outlined.Share,
                             contentDescription = "Share",
                             tint = NoteTheme.Primary,
-                            modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                            modifier = Modifier.size(dims.iconMedium)
                         )
                     }
 
@@ -820,7 +827,7 @@ private fun NoteListItem(
                             Icons.Outlined.Edit,
                             contentDescription = "Edit",
                             tint = NoteTheme.Secondary,
-                            modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                            modifier = Modifier.size(dims.iconMedium)
                         )
                     }
 
@@ -835,7 +842,7 @@ private fun NoteListItem(
                             Icons.Outlined.Delete,
                             contentDescription = "Delete",
                             tint = NoteTheme.Error,
-                            modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                            modifier = Modifier.size(dims.iconMedium)
                         )
                     }
 
@@ -851,7 +858,7 @@ private fun NoteListItem(
                             Icons.Outlined.Alarm,
                             contentDescription = "Set Reminder",
                             tint = NoteTheme.Secondary,
-                            modifier = Modifier.size(Constants.ICON_SIZE_MEDIUM.dp)
+                            modifier = Modifier.size(dims.iconMedium)
                         )
                     }
                 }
@@ -890,6 +897,7 @@ private fun NoteGridItem(
     onReminder: (dataclass) -> Unit, // Added reminder action
     onCopy: ((dataclass) -> Unit)? = null
 ) {
+    val dims = rememberResponsiveDimensions()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isPressed by remember { mutableStateOf(false) }
     val hapticFeedback = LocalHapticFeedback.current
@@ -900,7 +908,8 @@ private fun NoteGridItem(
         label = "grid_scale"
     )
 
-    val cardColorPair = noteCardColors[index % noteCardColors.size]
+    val cardColors = noteCardColors()
+    val cardColorPair = cardColors[index % cardColors.size]
     // backgroundColor removed - using NoteTheme.Surface for premium white cards
     val accentColor = cardColorPair.second
 
@@ -914,7 +923,7 @@ private fun NoteGridItem(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(Constants.GRID_ITEM_MIN_HEIGHT.dp)
+                .height(dims.cardMinHeight)
                 .scale(scale)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -943,7 +952,7 @@ private fun NoteGridItem(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(Constants.PADDING_SMALL.dp),
+                        .padding(dims.paddingSmall),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Content section
@@ -1029,7 +1038,7 @@ private fun NoteGridItem(
                                 Icons.Outlined.Share,
                                 contentDescription = "Share",
                                 tint = accentColor,
-                                modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                                modifier = Modifier.size(dims.iconSmall)
                             )
                         }
 
@@ -1044,7 +1053,7 @@ private fun NoteGridItem(
                                 Icons.Outlined.Edit,
                                 contentDescription = "Edit",
                                 tint = accentColor,
-                                modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                                modifier = Modifier.size(dims.iconSmall)
                             )
                         }
 
@@ -1059,7 +1068,7 @@ private fun NoteGridItem(
                                 Icons.Outlined.Delete,
                                 contentDescription = "Delete",
                                 tint = NoteTheme.Error,
-                                modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                                modifier = Modifier.size(dims.iconSmall)
                             )
                         }
 
@@ -1075,7 +1084,7 @@ private fun NoteGridItem(
                                 Icons.Outlined.Alarm,
                                 contentDescription = "Set Reminder",
                                 tint = accentColor,
-                                modifier = Modifier.size(Constants.ICON_SIZE_SMALL.dp)
+                                modifier = Modifier.size(dims.iconSmall)
                             )
                         }
                     }
@@ -1103,14 +1112,17 @@ private fun NoteGridItem(
     }
 }
 
-// Premium note card accent palette — white surface + colored left accent stripe
-val noteCardColors = listOf(
-    Color(0xFFFFFFFF) to Color(0xFF0D9488), // Surface + Teal
-    Color(0xFFFFFFFF) to Color(0xFFD97706), // Surface + Amber
-    Color(0xFFFFFFFF) to Color(0xFFE11D48), // Surface + Rose
-    Color(0xFFFFFFFF) to Color(0xFF4F46E5), // Surface + Indigo
-    Color(0xFFFFFFFF) to Color(0xFF059669), // Surface + Emerald
-    Color(0xFFFFFFFF) to Color(0xFF0284C7), // Surface + Sky
+// Premium note card accent palette — theme surface + colored left accent stripe.
+// Must be a @Composable so NoteTheme.Surface (mutableStateOf) is read reactively;
+// a top-level `val` would snapshot the light value at class-init and never update.
+@Composable
+fun noteCardColors(): List<Pair<Color, Color>> = listOf(
+    NoteTheme.Surface to Color(0xFF0D9488), // Surface + Teal
+    NoteTheme.Surface to Color(0xFFD97706), // Surface + Amber
+    NoteTheme.Surface to Color(0xFFE11D48), // Surface + Rose
+    NoteTheme.Surface to Color(0xFF4F46E5), // Surface + Indigo
+    NoteTheme.Surface to Color(0xFF059669), // Surface + Emerald
+    NoteTheme.Surface to Color(0xFF0284C7), // Surface + Sky
 )
 
 // Pinned note visual identity — uses NoteTheme.Warning (amber) which adapts to dark/light mode

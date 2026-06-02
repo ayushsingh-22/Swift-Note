@@ -143,7 +143,8 @@ fun QRScannerDialog(
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.95f)
-                    .fillMaxHeight(0.8f),
+                    .fillMaxHeight(0.8f)
+                    .heightIn(max = 480.dp),
                 shape = RoundedCornerShape(16.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface)

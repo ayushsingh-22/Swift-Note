@@ -106,6 +106,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 
 /**
  * Dynamic greeting based on time of day with varied messages
@@ -178,6 +179,7 @@ private fun getGreeting(): String {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NotesScreen(navController: NavHostController) {
+    val dims = rememberResponsiveDimensions()
     // ViewModel handles business logic (fetch, delete, sync)
     val viewModel: NotesViewModel = viewModel()
 
@@ -501,7 +503,7 @@ fun NotesScreen(navController: NavHostController) {
                             searchAndSortManager.clearSearch()
                             isSearchActive = false
                         },
-                        modifier = Modifier.padding(horizontal = Constants.PADDING_MEDIUM.dp)
+                        modifier = Modifier.padding(horizontal = dims.paddingMedium)
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -510,7 +512,7 @@ fun NotesScreen(navController: NavHostController) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = Constants.PADDING_MEDIUM.dp),
+                            .padding(horizontal = dims.paddingMedium),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -598,7 +600,7 @@ fun NotesScreen(navController: NavHostController) {
                         LazyRow(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = Constants.PADDING_MEDIUM.dp),
+                                .padding(horizontal = dims.paddingMedium),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             item {

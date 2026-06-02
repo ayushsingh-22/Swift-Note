@@ -392,7 +392,7 @@ private fun AIToggleCard(isEnabled: Boolean, onToggle: (Boolean) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card)
     ) {
         Row(
             modifier = Modifier
@@ -466,7 +466,7 @@ private fun APIKeysSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             // Header
@@ -667,8 +667,8 @@ private fun AnimatedApiKeyItem(
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = if (key.llmProvider == LlmProvider.GEMINI)
-                                Color(0xFF1A73E8).copy(alpha = 0.1f)
-                            else Color(0xFFF97316).copy(alpha = 0.1f)
+                                NoteTheme.AccentBlue.copy(alpha = 0.1f)
+                            else NoteTheme.Accent.copy(alpha = 0.1f)
                         ) {
                             Text(
                                 key.llmProvider.displayName,
@@ -676,7 +676,7 @@ private fun AnimatedApiKeyItem(
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium,
                                 color = if (key.llmProvider == LlmProvider.GEMINI)
-                                    Color(0xFF1A73E8) else Color(0xFFF97316),
+                                    NoteTheme.AccentBlue else NoteTheme.Accent,
                                 fontSize = 9.sp
                             )
                         }
@@ -743,7 +743,7 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -823,13 +823,13 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(20.dp)
-                            .background(Color(0xFFF97316).copy(alpha = 0.1f), CircleShape)
+                            .background(NoteTheme.Accent.copy(alpha = 0.1f), CircleShape)
                     ) {
                         Text(
                             "${index + 1}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFF97316),
+                            color = NoteTheme.Accent,
                             fontSize = 9.sp
                         )
                     }
@@ -884,7 +884,7 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
                 Surface(
                     onClick = onOpenGroqLink,
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFF97316).copy(alpha = 0.1f),
+                    color = NoteTheme.Accent.copy(alpha = 0.1f),
                     modifier = Modifier.weight(1f)
                 ) {
                     Row(
@@ -895,14 +895,14 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
                         Icon(
                             Icons.AutoMirrored.Filled.OpenInNew, null,
                             modifier = Modifier.size(14.dp),
-                            tint = Color(0xFFF97316)
+                            tint = NoteTheme.Accent
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             "Groq",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFF97316)
+                            color = NoteTheme.Accent
                         )
                     }
                 }
