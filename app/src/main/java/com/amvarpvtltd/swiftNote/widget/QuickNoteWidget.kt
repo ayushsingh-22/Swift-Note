@@ -194,14 +194,14 @@ class QuickNoteWidget : GlanceAppWidget() {
     @Composable
     private fun Header(totalNotes: Int, tier: SizeTier) {
         val iconSize = when (tier) {
-            SizeTier.COMPACT -> 28.dp
-            SizeTier.MEDIUM -> 32.dp
-            SizeTier.LARGE -> 36.dp
+            SizeTier.COMPACT -> 36.dp
+            SizeTier.MEDIUM -> 42.dp
+            SizeTier.LARGE -> 48.dp
         }
         val logoSize = when (tier) {
-            SizeTier.COMPACT -> 18.dp
-            SizeTier.MEDIUM -> 20.dp
-            SizeTier.LARGE -> 22.dp
+            SizeTier.COMPACT -> 28.dp
+            SizeTier.MEDIUM -> 32.dp
+            SizeTier.LARGE -> 38.dp
         }
         val titleSize = when (tier) {
             SizeTier.COMPACT -> 13.sp
@@ -226,7 +226,7 @@ class QuickNoteWidget : GlanceAppWidget() {
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    provider = ImageProvider(R.drawable.logo2),
+                    provider = ImageProvider(R.drawable.logo),
                     contentDescription = "SwiftNote",
                     modifier = GlanceModifier.size(logoSize)
                 )

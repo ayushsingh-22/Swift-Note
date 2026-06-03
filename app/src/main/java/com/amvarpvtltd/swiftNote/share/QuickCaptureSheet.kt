@@ -341,15 +341,15 @@ private fun SheetHeader(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(Brush.linearGradient(listOf(colors.primary, colors.primaryLight))),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.logo2),
+                    painter = painterResource(id = R.drawable.logo),
                     contentDescription = "SwiftNote",
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(42.dp)
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))

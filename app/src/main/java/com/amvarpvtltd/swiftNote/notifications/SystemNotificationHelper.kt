@@ -140,7 +140,7 @@ class SystemNotificationHelper(private val context: Context) {
         // App logo as large icon for rich notification appearance
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             // Small monochrome icon (shown in status bar)
-            .setSmallIcon(R.drawable.logo2)
+            .setSmallIcon(R.drawable.logo)
             // Round app logo as the large icon in the notification drawer.
             // Uses getAppIconBitmap() which correctly handles adaptive icon XML on API 26+.
             .setLargeIcon(getAppIconBitmap())
@@ -203,13 +203,13 @@ class SystemNotificationHelper(private val context: Context) {
      * Problem: On Android 8+ (API 26+) R.mipmap.ic_launcher_round is an AdaptiveIconDrawable (XML),
      * not a raw PNG, so BitmapFactory.decodeResource() returns null on those devices.
      * This helper uses ContextCompat.getDrawable() + Canvas to rasterize ANY drawable type.
-     * Falls back to R.drawable.logo2 (plain PNG) if the launcher icon can't be decoded.
+     * Falls back to R.drawable.logo (plain PNG) if the launcher icon can't be decoded.
      */
     private fun getAppIconBitmap(): Bitmap? {
         return try {
             val size = 192
             val drawable = ContextCompat.getDrawable(context, R.mipmap.ic_launcher_round)
-                ?: ContextCompat.getDrawable(context, R.drawable.logo2)
+                ?: ContextCompat.getDrawable(context, R.drawable.logo)
                 ?: return null
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
@@ -219,7 +219,7 @@ class SystemNotificationHelper(private val context: Context) {
         } catch (e: Exception) {
             android.util.Log.w("SystemNotificationHelper", "Failed to render app icon, using fallback", e)
             try {
-                android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo2)
+                android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo)
             } catch (_: Exception) {
                 null
             }

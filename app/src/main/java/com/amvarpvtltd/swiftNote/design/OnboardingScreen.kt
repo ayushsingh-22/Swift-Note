@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -193,9 +194,8 @@ fun OnboardingScreen(navController: NavController) {
     // sheet has been replaced with one of these so a 384x854 phone, a 412x912
     // phone, and a 720dp tablet all render consistent proportions. Compact-width
     // devices (<360 dp) get the same scaling treatment as the empty-state card.
-    val heroLogoOuter = dims.iconLarge * 4              // 80 /  96 / 112
-    val heroLogoInner = dims.iconLarge * 3              // 60 /  72 /  84
-    val heroLogoImage = dims.iconLarge * 1.8f           // 36 /  43 /  50
+    val heroLogoOuter = dims.iconLarge * 5.5f            // 110 / 132 / 154
+    val heroLogoInner = dims.iconLarge * 4.5f            //  90 / 108 / 126
     val heroHorizontalPadding = dims.paddingXL          // 24 /  32 /  40
     val heroTopPadding = dims.paddingXL * 2             // 48 /  64 /  80
     val heroBottomPadding = dims.paddingXL              // 24 /  32 /  40
@@ -271,13 +271,17 @@ fun OnboardingScreen(navController: NavController) {
                         Box(
                             modifier = Modifier
                                 .size(heroLogoInner)
+                                .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.9f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
-                                painter = painterResource(id = com.amvarpvtltd.swiftNote.R.drawable.logo2),
+                                painter = painterResource(id = com.amvarpvtltd.swiftNote.R.drawable.logo),
                                 contentDescription = "SwiftNote Logo",
-                                modifier = Modifier.size(heroLogoImage)
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(4.dp)
                             )
                         }
                     }

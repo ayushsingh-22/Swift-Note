@@ -44,8 +44,8 @@ private fun renderAppIconBitmap(context: Context): Bitmap? {
         val size = 192
         val drawable = androidx.core.content
             .ContextCompat.getDrawable(context,
-                R.drawable.logo2)
-            ?: androidx.core.content.ContextCompat.getDrawable(context, R.drawable.logo2)
+                R.drawable.logo)
+            ?: androidx.core.content.ContextCompat.getDrawable(context, R.drawable.logo)
             ?: return null
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -54,7 +54,7 @@ private fun renderAppIconBitmap(context: Context): Bitmap? {
         bitmap
     } catch (e: Exception) {
         Log.w("ReminderManager", "Failed to render app icon bitmap, using fallback", e)
-        try { android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo2) }
+        try { android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.logo) }
         catch (e2: Exception) { null }
     }
 }
@@ -431,7 +431,7 @@ class ReminderManager private constructor(private val context: Context) {
 
             val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
                 // Monochrome small icon for the status bar
-                .setSmallIcon(R.drawable.logo2)
+                .setSmallIcon(R.drawable.logo)
                 // App launcher icon as large icon — rendered via Canvas to handle adaptive icons on API 26+
                 .setLargeIcon(renderAppIconBitmap(context))
                 .setContentTitle("🔔 $title")
