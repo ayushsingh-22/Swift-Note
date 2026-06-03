@@ -221,7 +221,7 @@ object SyncManager {
                     }
                 }
 
-                // Process reminders
+                // Process reminders (nested: reminders/{deviceId}/{reminderId}; falls back to legacy flat reminders/{reminderId})
                 if (remindersSnapshot.exists()) {
                     val reminderKeyCandidates = listOfNotNull(
                         currentPassphrase,
@@ -229,23 +229,32 @@ object SyncManager {
                         myGlobalMobileDeviceId
                     ).filter { it.isNotEmpty() }.distinct()
 
-                    for (reminderChild in remindersSnapshot.children) {
+                    suspend fun processRemoteReminder(raw: ReminderEntity?, keyForLog: String?) {
+                        if (raw == null) return
                         try {
-                            val reminderData = reminderChild.getValue(ReminderEntity::class.java)
-                            if (reminderData != null) {
-                                val decryptedReminder = ReminderEntity.fromEncryptedData(
-                                    reminderData,
-                                    reminderKeyCandidates
-                                )
-                                if (decryptedReminder.isDecryptFailed()) {
-                                    Log.w(TAG, "Skipping reminder ${reminderData.id} — decryption failed for all keys")
-                                } else {
-                                    reminderDao.insertReminder(decryptedReminder)
-                                    Log.d(TAG, "Synced reminder: ${decryptedReminder.noteTitle}")
-                                }
+                            val decryptedReminder = ReminderEntity.fromEncryptedData(raw, reminderKeyCandidates)
+                            if (decryptedReminder.isDecryptFailed()) {
+                                Log.w(TAG, "Skipping reminder ${raw.id} — decryption failed for all keys")
+                            } else {
+                                reminderDao.insertReminder(decryptedReminder)
+                                Log.d(TAG, "Synced reminder ${decryptedReminder.id}")
                             }
                         } catch (e: Exception) {
-                            Log.w(TAG, "Failed to sync reminder: ${reminderChild.key}", e)
+                            Log.w(TAG, "Failed to sync reminder: $keyForLog", e)
+                        }
+                    }
+
+                    for (firstLevel in remindersSnapshot.children) {
+                        // Detect legacy flat layout: leaf has reminder fields directly.
+                        val asReminder = try { firstLevel.getValue(ReminderEntity::class.java) } catch (_: Exception) { null }
+                        if (asReminder != null && asReminder.id.isNotEmpty()) {
+                            processRemoteReminder(asReminder, firstLevel.key)
+                            continue
+                        }
+                        // Otherwise nested: iterate reminder children under this deviceId.
+                        for (reminderChild in firstLevel.children) {
+                            val r = try { reminderChild.getValue(ReminderEntity::class.java) } catch (_: Exception) { null }
+                            processRemoteReminder(r, reminderChild.key)
                         }
                     }
                 }
@@ -337,6 +346,7 @@ object SyncManager {
                 }
 
                 val remindersRef = userRef.child("reminders")
+                val uploadDeviceId = com.amvarpvtltd.swiftNote.auth.DeviceManager.getOrCreateDeviceId(context)
                 for (reminder in localReminders) {
                     val encryptedReminder = try {
                         reminder.toEncryptedData(passphrase)
@@ -347,7 +357,8 @@ object SyncManager {
                         Log.w(TAG, "Failed to encrypt reminder ${reminder.id}, skipping upload", e)
                         continue
                     }
-                    remindersRef.child(reminder.id).setValue(encryptedReminder).await()
+                    // Mirror notes layout: users/{accountId}/reminders/{deviceId}/{reminderId}
+                    remindersRef.child(uploadDeviceId).child(reminder.id).setValue(encryptedReminder).await()
                 }
 
                 userRef.child("lastSyncAt").setValue(System.currentTimeMillis()).await()

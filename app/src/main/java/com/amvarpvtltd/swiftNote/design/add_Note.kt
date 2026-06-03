@@ -876,7 +876,7 @@ fun AddScreen(
                             )
                         Log.d(
                             "AddScreen",
-                            "?? Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}"
+                            "Auto-title: title is blank/short, trying AI generator. AI available: ${aiTitleGen.isAvailable()}"
                         )
                         val aiTitle = try {
                             aiTitleGen.generate(
@@ -885,14 +885,14 @@ fun AddScreen(
                         } catch (e: Exception) {
                             Log.e(
                                 "AddScreen",
-                                "?? AI title generation threw exception",
+                                "AI title generation threw exception",
                                 e
                             )
                             ""
                         }
                         Log.d(
                             "AddScreen",
-                            "?? AI title result: \"$aiTitle\""
+                            "AI title result: \"$aiTitle\""
                         )
                         aiTitle.ifEmpty {
                             AutoTitleGenerator.generate(
@@ -1051,7 +1051,7 @@ fun AddScreen(
                                         emptyList()
                                     Toast.makeText(
                                         context,
-                                        "?? Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
+                                        "Auto-created $createdCount smart reminder${if (createdCount > 1) "s" else ""}",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -1080,7 +1080,7 @@ fun AddScreen(
                         } else {
                             Toast.makeText(
                                 context,
-                                "?? Note saved offline. Will sync when online.",
+                                "Note saved offline. Will sync when online.",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -1166,7 +1166,7 @@ fun AddScreen(
                         if (!isOnline) {
                             Toast.makeText(
                                 context,
-                                "?? Note deleted offline. Will sync when online.",
+                                "Note deleted offline. Will sync when online.",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -1211,7 +1211,7 @@ fun AddScreen(
                         emptyList()
                     Toast.makeText(
                         context,
-                        "?? Saving note without reminder",
+                        "Saving note without reminder",
                         Toast.LENGTH_SHORT
                     ).show()
                     saveNote()
@@ -1958,7 +1958,7 @@ fun AddScreen(
                                 if (!aiGen.isAvailable()) {
                                     Log.d(
                                         "AddScreen",
-                                        "?? AI title chip: AI not available (no API key)"
+                                        "AI title chip: AI not available (no API key)"
                                     )
                                     return@LaunchedEffect
                                 }
@@ -1967,7 +1967,7 @@ fun AddScreen(
                                     true
                                 Log.d(
                                     "AddScreen",
-                                    "?? AI title chip: triggering AI generation..."
+                                    "AI title chip: triggering AI generation..."
                                 )
                                 try {
                                     val result =
@@ -1983,13 +1983,13 @@ fun AddScreen(
                                             result
                                         Log.d(
                                             "AddScreen",
-                                            "?? AI title chip: got result \"$result\""
+                                            "AI title chip: got result \"$result\""
                                         )
                                     }
                                 } catch (e: Exception) {
                                     Log.e(
                                         "AddScreen",
-                                        "?? AI title chip: failed",
+                                        "AI title chip: failed",
                                         e
                                     )
                                 } finally {
@@ -3062,7 +3062,7 @@ fun AddScreen(
                                             )
                                         )
                                         Text(
-                                            text = "?? Analyzing for smart reminders...",
+                                            text = "Analyzing for smart reminders...",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = NoteTheme.Primary,
                                             fontWeight = FontWeight.Medium
