@@ -185,19 +185,21 @@ Swift-Note/
 
 <table>
   <tr>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 1" src="https://github.com/user-attachments/assets/f9b4800a-81d3-46fa-bc6d-2a4a97f2ec13" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 2" src="https://github.com/user-attachments/assets/449e5270-8e63-4933-a4d5-dcdac85aeaf9" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 3" src="https://github.com/user-attachments/assets/a773dedb-8159-4731-a1c4-973fa0e3ee82" /></td>
+    <td><img src="https://github.com/user-attachments/assets/aca607b8-e958-4324-b69f-2c103b942492" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/cfae46a2-04e0-48e9-b8e0-5fc586bc0668" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/4bf91855-b630-4a07-afac-d4b86266bf4f" width="250"/></td>
   </tr>
+
   <tr>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 4" src="https://github.com/user-attachments/assets/9027efac-7541-4fec-bbc1-8bf634122703" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 5" src="https://github.com/user-attachments/assets/e9db5c02-b1ea-4bea-a69a-d523cc1bdfc5" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot" src="https://github.com/user-attachments/assets/bb4ebcd7-a476-4d15-889e-8637331864b6" /></td>
+    <td><img src="https://github.com/user-attachments/assets/3c6cadfb-97d8-4ad0-a975-2005e13a5d9a" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/0c40fdf3-9dc1-4c36-b326-1c56b22072f9" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/442f9b87-5e39-4972-a224-52cd930626a8" width="250"/></td>
   </tr>
+
   <tr>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 7" src="https://github.com/user-attachments/assets/7cbf1a6a-8f77-414b-a8a4-0933e4fb93e7" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 8" src="https://github.com/user-attachments/assets/41f2e952-3ba1-4f6d-9c99-125ad13a2472" /></td>
-    <td><img width="230" height="510" alt="SwiftNote screenshot 9" src="https://github.com/user-attachments/assets/9e940054-0089-4ba7-9fbb-4970b150585f" /></td>
+    <td><img src="https://github.com/user-attachments/assets/297c1543-c937-4ff8-a754-0f45746cd376" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/d59ac3c9-f709-4a53-bdf7-276994dc85d6" width="250"/></td>
+    <td><img src="https://github.com/user-attachments/assets/9d40ca8c-96b6-48fd-ab62-254fa51e62c3" width="250"/></td>
   </tr>
 </table>
 
