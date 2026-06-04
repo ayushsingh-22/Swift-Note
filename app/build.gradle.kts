@@ -24,10 +24,19 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(localProps.getProperty("RELEASE_STORE_FILE", "debug.keystore"))
-            storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD") ?: ""
-            keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS") ?: ""
-            keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD") ?: ""
+            val storeFilePath = localProps.getProperty("RELEASE_STORE_FILE")
+                ?: System.getenv("RELEASE_STORE_FILE")
+                ?: error("RELEASE_STORE_FILE not set in local.properties or environment")
+            storeFile = file(storeFilePath)
+            storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
+                ?: System.getenv("RELEASE_STORE_PASSWORD")
+                ?: error("RELEASE_STORE_PASSWORD not set")
+            keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
+                ?: System.getenv("RELEASE_KEY_ALIAS")
+                ?: error("RELEASE_KEY_ALIAS not set")
+            keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
+                ?: error("RELEASE_KEY_PASSWORD not set")
         }
     }
 
@@ -35,8 +44,8 @@ android {
         applicationId = "com.amvarpvtltd.selfnote"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10
-        versionName = "2.0.1"
+        versionCode = 13
+        versionName = "2.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

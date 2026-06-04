@@ -35,17 +35,20 @@ fun RichTextDisplay(
 ) {
     val state = rememberRichTextState()
 
-    // Determine the actual HTML to render: convert markdown if needed
+    // Determine the actual HTML to render: convert markdown if needed,
+    // then preserve leading whitespace (indentation) that HTML would otherwise collapse.
     val resolvedHtml = remember(html) {
-        when {
+        val base = when {
             html.isBlank() -> ""
             RichTextBridge.containsHtml(html) -> html // Already HTML
             MarkdownToHtmlConverter.containsMarkdown(html) -> {
                 // Contains markdown — convert to HTML for proper rendering
                 MarkdownToHtmlConverter.convert(html) ?: html
             }
-            else -> html // Plain text — library handles it
+            else -> html // Plain text
         }
+        // Preserve leading spaces/tabs so they survive HTML rendering
+        if (base.isBlank()) base else RichTextBridge.preserveLeadingWhitespace(base)
     }
 
     LaunchedEffect(resolvedHtml) {

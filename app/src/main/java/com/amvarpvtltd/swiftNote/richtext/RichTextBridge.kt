@@ -236,6 +236,54 @@ object RichTextBridge {
     }
 
     /**
+     * Pre-process HTML (or plain text) so that leading whitespace (spaces/tabs
+     * used for indentation) is preserved when rendered by an HTML engine.
+     *
+     * HTML renderers collapse consecutive whitespace to a single space by
+     * default, so "    word" inside a <p> loses its indentation.  This
+     * function converts those leading spaces/tabs to non-breaking-space
+     * entities (&nbsp;) so the visual indentation survives rendering.
+     *
+     * - Plain text (no '<'): converts to HTML, turning '\n' into <br> and
+     *   leading spaces/tabs on each line into &nbsp; sequences.
+     * - HTML content: replaces space/tab runs that appear immediately after
+     *   a '>' boundary (i.e. at the start of a text node) with &nbsp;.
+     */
+    fun preserveLeadingWhitespace(html: String): String {
+        if (html.isBlank()) return html
+
+        if ('<' !in html) {
+            // Pure plain text — convert to displayable HTML preserving indentation
+            return html
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .split("\n")
+                .joinToString("<br>") { line ->
+                    val leading = line.length - line.trimStart(' ', '\t').length
+                    if (leading > 0) {
+                        line.substring(0, leading)
+                            .replace(" ", "&nbsp;")
+                            .replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;") +
+                                line.substring(leading)
+                    } else {
+                        line
+                    }
+                }
+        }
+
+        // HTML content — replace space/tab runs that directly follow a '>'
+        // (i.e. at the start of a text node inside a block element).
+        return html
+            .replace(Regex("(?<=>)([ ]+)")) { match ->
+                "&nbsp;".repeat(match.value.length)
+            }
+            .replace(Regex("(?<=>)(\\t+)")) { match ->
+                "&nbsp;&nbsp;&nbsp;&nbsp;".repeat(match.value.length)
+            }
+    }
+
+    /**
      * Returns true if the string contains any HTML we recognise.
      * Used in save/load paths to decide rendering mode.
      *
