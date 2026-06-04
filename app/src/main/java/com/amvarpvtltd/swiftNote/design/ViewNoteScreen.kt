@@ -33,7 +33,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -45,7 +44,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -155,12 +153,6 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
         val idx = (note?.id?.hashCode() ?: 0).absoluteValue
         NoteTheme.getNoteAccentColor(idx)
     }
-
-    // Stats derived from note content
-    val wordCount = remember(note?.description) {
-        note?.description?.trim()?.split("\\s+".toRegex())?.filter { it.isNotBlank() }?.size ?: 0
-    }
-    val readingMinutes = remember(wordCount) { max(1, wordCount / 200) }
 
     // Staggered visibility states
     var heroVisible by remember { mutableStateOf(false) }
@@ -522,20 +514,20 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                         )
                                         Column(
                                             modifier = Modifier.padding(
-                                                start = 22.dp, end = 16.dp,
-                                                top = 20.dp, bottom = 18.dp
+                                                start = 18.dp, end = 14.dp,
+                                                top = 14.dp, bottom = 12.dp
                                             )
                                         ) {
                                             Text(
                                                 text = note?.title ?: "",
-                                                fontSize = 26.sp,
+                                                fontSize = 21.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 color = NoteTheme.OnSurface,
-                                                lineHeight = 34.sp,
+                                                lineHeight = 27.sp,
                                                 letterSpacing = (-0.5).sp
                                             )
 
-                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Spacer(modifier = Modifier.height(8.dp))
 
                                             // ── Metadata chips row ────────────────────────────
                                             Row(
@@ -556,7 +548,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                                     CategoryManager.getColor(context, it)
                                                 }
                                                 val catColor = if (catColorHex != null) Color(catColorHex) else NoteTheme.OnSurfaceVariant
-                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Spacer(modifier = Modifier.height(4.dp))
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -573,25 +565,6 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                                         fontWeight = FontWeight.Medium,
                                                         color = catColor,
                                                         letterSpacing = 0.3.sp
-                                                    )
-                                                }
-                                            }
-
-                                            if (!isValidChecklist && wordCount > 0) {
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    // Word count chip
-                                                    MetaChip(
-                                                        icon = { Icon(Icons.Outlined.TextFields, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
-                                                        label = "$wordCount words"
-                                                    )
-                                                    // Reading time chip
-                                                    MetaChip(
-                                                        icon = { Icon(Icons.Outlined.AccessTime, contentDescription = null, modifier = Modifier.size(11.dp), tint = NoteTheme.OnSurfaceVariant) },
-                                                        label = "$readingMinutes min read"
                                                     )
                                                 }
                                             }

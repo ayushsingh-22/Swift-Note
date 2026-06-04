@@ -84,14 +84,14 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 ├── cleanup/DataCleanupManager.kt   # Complete app data cleanup
 ├── widget/                         # QuickNoteWidget, QuickNoteWidgetReceiver, WidgetUpdateWorker (Glance)
 ├── utils/                          # ValidationUtils, UIUtils, ShareUtils, QRUtils, PreferenceManager, NetworkManager, AutoSyncManager, AppContext, Constants, AutoTitleGenerator (rule-based 8-strategy title pipeline)
+│   └── WindowSize.kt               # Responsive/adaptive layout system: WidthBucket (COMPACT/MEDIUM/EXPANDED), ResponsiveDimensions, rememberResponsiveDimensions(), responsiveDimensionsFor(), Modifier.responsiveContentWidth()
 ├── ui/
 │   ├── theme/                      # Theme.kt, Colors.kt, Type.kt
 │   └── base/BaseFullScreenActivity.kt  # Edge-to-edge + immersive sticky base activity
 ├── theme/ThemeManager.kt           # ThemeManager (SharedPrefs r/w) + AppThemeState (global StateFlow<ThemeMode> singleton; LIGHT/DARK/SYSTEM)
-├── test/SmartChipsTestDataSeeder.kt # Seeds test notes for Smart Action Chips dev/QA
 ├── Application.kt                  # Custom Application class
 ├── dataclass.kt                    # Note model with encryption methods
-├── fetchUniqueDeveiceId.kt         # Device ID fetching utility
+├── DeviceIdHelper.kt               # Device ID utility — provides generateUniqueDeviceId(context)
 ├── navbar.kt                       # NavHost + app initialization logic
 └── MainActivity.kt                 # Entry point, permissions, TextClassifier init
 ```
@@ -100,16 +100,17 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 
 ```powershell
 ./gradlew assembleDebug        # Debug APK
-./gradlew assembleRelease      # Release APK (uses debug.keystore in app/)
+./gradlew assembleRelease      # Release APK (requires signing credentials in local.properties or env vars)
 ./gradlew test                 # Unit tests
 ./gradlew connectedCheck       # Instrumented tests
 ```
 
 - **compileSdk = 36**, **minSdk = 31**, **targetSdk = 36**
 - Uses Kotlin 2.2.10 with Compose compiler plugin (not the old kotlinCompilerExtensionVersion approach). AGP 9.2.1.
-- Room 2.7.1 uses `kapt` (not KSP). Schema output: `app/schemas/`. Current DB version: **8**.
+- Room 2.7.1 uses `kapt` (not KSP). `@Database(exportSchema = false)` — schemas are **not** exported (the `room.schemaLocation` kapt arg in `build.gradle.kts` is present but inert). Current DB version: **8**.
 - Version catalog: `gradle/libs.versions.toml`
-- App version: `versionCode = 9`, `versionName = "2.0.1"`
+- App version: `versionCode = 13`, `versionName = "2.1.1"`
+- Release build signing reads `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` from `local.properties` or environment variables — **not** from `debug.keystore`.
 - Unit test stack: `kotlinx-coroutines-test`, `mockito-core` + `mockito-kotlin`, `turbine` (Flow testing), `robolectric`
 
 ## Conventions
@@ -126,6 +127,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - **In-app notifications**: Use `NotificationHelper.showSuccess/showWarning/showInfo()` (from `components/NotificationComponent.kt`) for transient UI feedback; do not show system notifications for in-app state.
 - **Passphrase hashing**: Use `HashUtils.hashPassphrase()` / `HashUtils.verifyPassphrase()` (PBKDF2-HMAC-SHA256, 120k iterations). Plain `HashUtils.sha256()` is only for non-security uses.
 - **Sync modes**: `SyncMode` enum (`LOCAL_ONLY`, `CONTINUOUS`, `ONE_TIME_IMPORTED`) tracks how device identity was established. Read/write via `PassphraseManager.getSyncMode()` / `setSyncMode()`.
+- **Responsive layout**: Use `rememberResponsiveDimensions()` (from `utils/WindowSize.kt`) in composables to get screen-width-aware spacing, typography, and grid columns. Three buckets: `COMPACT` (<360 dp), `MEDIUM` (360–600 dp), `EXPANDED` (>600 dp). On EXPANDED screens apply `Modifier.responsiveContentWidth(dims)` on long-form content (editors, settings forms) to cap width at 720 dp.
 
 ## Critical Patterns
 
@@ -153,5 +155,6 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - **AndroidX Security Crypto**: `security-crypto:1.1.0-alpha06` for `EncryptedSharedPreferences` (Gemini key storage)
 - **compose-rich-editor**: `richeditor-compose:1.0.0-rc14` (MohamedRejeb) for rich text editing/display
 - **Jsoup**: `1.18.1` for HTML parsing/stripping in `RichTextBridge` and `RichTextSanitizer`
+- **lifecycle-runtime-compose**: `2.8.7` — added directly in `app/build.gradle.kts` (not in version catalog) for `collectAsStateWithLifecycle` and `lifecycleOwner` helpers in Compose
 
 

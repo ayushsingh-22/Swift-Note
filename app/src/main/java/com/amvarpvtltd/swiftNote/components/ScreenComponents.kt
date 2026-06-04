@@ -291,7 +291,7 @@ fun FloatingToolbar(
             FloatingToolbarItem(
                 icon = Icons.Outlined.Archive,
                 label = "Archive",
-                tint = NoteTheme.Secondary,
+                tint = NoteTheme.Primary,
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     onArchive()

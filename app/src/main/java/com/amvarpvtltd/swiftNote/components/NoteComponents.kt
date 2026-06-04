@@ -1,6 +1,7 @@
 package com.amvarpvtltd.swiftNote.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -10,9 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -113,25 +113,22 @@ fun IconActionButton(
     modifier: Modifier = Modifier
 ) {
     val dims = rememberResponsiveDimensions()
-    Card(
-        modifier = modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null
-        ) { onClick() },
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(containerColor)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClick() }
+            .padding(dims.paddingSmall),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.padding(dims.paddingSmall),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = contentDescription,
-                tint = contentColor,
-                modifier = Modifier.size(dims.iconLarge)
-            )
-        }
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = contentColor,
+            modifier = Modifier.size(dims.iconLarge)
+        )
     }
 }

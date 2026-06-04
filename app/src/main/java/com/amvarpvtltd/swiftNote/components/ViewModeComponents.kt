@@ -107,37 +107,33 @@ fun ViewModeToggleButton(
     // Compute adaptive colors based on current background and secondary accent
     val (containerColor, contentColor) = adaptiveIconColors(NoteTheme.Background, NoteTheme.Secondary)
 
-    Card(
+    Box(
         modifier = modifier
-            .clickable {
+            .clip(CircleShape)
+            .background(containerColor)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                 val nextMode = when (currentViewMode) {
                     ViewMode.CARD -> ViewMode.LIST
                     ViewMode.LIST -> ViewMode.GRID
                     ViewMode.GRID -> ViewMode.CARD
                 }
-
                 val toastMessage = "📱 ${ViewModeManager.getViewModeLabel(nextMode)} activated"
                 Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
                 onViewModeChange(nextMode)
-            },
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = containerColor
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            }
+            .padding(dims.paddingSmall),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.padding(dims.paddingSmall),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = ViewModeManager.getViewModeIcon(currentViewMode),
-                contentDescription = ViewModeManager.getViewModeLabel(currentViewMode),
-                tint = NoteTheme.OnSurface,
-                modifier = Modifier.size(dims.iconLarge)
-            )
-        }
+        Icon(
+            imageVector = ViewModeManager.getViewModeIcon(currentViewMode),
+            contentDescription = ViewModeManager.getViewModeLabel(currentViewMode),
+            tint = contentColor,
+            modifier = Modifier.size(dims.iconLarge)
+        )
     }
 }
 

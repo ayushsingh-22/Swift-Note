@@ -757,8 +757,12 @@ fun AddScreen(
                                 } else {
                                     descCandidate
                                 }
+                            // preserveLeadingWhitespace converts any leading regular spaces inside
+                            // HTML block elements to &nbsp; entities so they survive HTML
+                            // whitespace-collapsing when setHtml() re-parses the content.
+                            // This fixes formatting loss when editing a previously-saved note.
                             richTextState.setHtml(
-                                htmlToLoad
+                                RichTextBridge.preserveLeadingWhitespace(htmlToLoad)
                             )
                         } // end else (non-checklist)
                     }
@@ -808,7 +812,7 @@ fun AddScreen(
                     } else {
                         sharedDescription
                     }
-                richTextState.setHtml(htmlToLoad)
+                richTextState.setHtml(RichTextBridge.preserveLeadingWhitespace(htmlToLoad))
             }
             if (asChecklist) {
                 isChecklistMode = true
@@ -855,13 +859,15 @@ fun AddScreen(
             try {
                 // ALWAYS save to Room database first (offline-first)
                 // If we have HTML saved from a paste, persist the HTML so formatting is preserved.
+                // preserveLeadingWhitespace converts leading spaces to &nbsp; so HTML whitespace
+                // collapsing doesn't strip user-intended indentation on the next load.
                 val descToSave =
                     if (isChecklistMode) {
                         ChecklistParser.serializeItems(
                             checklistItems
                         )
                     } else {
-                        richTextState.toHtml()
+                        RichTextBridge.preserveLeadingWhitespace(richTextState.toHtml())
                     }
 
                 // Phase 4: Auto-title � try LLM first, fall back to rule-based

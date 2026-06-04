@@ -21,6 +21,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -276,71 +278,122 @@ private fun AIHeroCard(pulseScale: Float, glowAlpha: Float, isEnabled: Boolean) 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(NoteTheme.Radius.xl.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, NoteTheme.Primary.copy(alpha = 0.22f))
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(IntrinsicSize.Min)
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            NoteTheme.Primary.copy(alpha = 0.15f),
-                            NoteTheme.PrimaryContainer.copy(alpha = 0.6f),
-                            NoteTheme.Primary.copy(alpha = 0.08f)
+                    brush = Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0.00f to NoteTheme.Primary.copy(alpha = 0.18f),
+                            0.45f to NoteTheme.Primary.copy(alpha = 0.07f),
+                            1.00f to Color.Transparent
                         )
-                    ),
-                    shape = RoundedCornerShape(NoteTheme.Radius.xl.dp)
+                    )
                 )
-                .padding(24.dp)
         ) {
+            // Left accent stripe
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.CenterStart)
+                    .clip(RoundedCornerShape(topStart = NoteTheme.Radius.xl.dp, bottomStart = NoteTheme.Radius.xl.dp))
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                NoteTheme.Primary,
+                                NoteTheme.Primary.copy(alpha = 0.5f)
+                            )
+                        )
+                    )
+            )
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
             ) {
                 // Pulsing AI orb
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(64.dp)
+                    modifier = Modifier.size(52.dp)
                 ) {
-                    // Outer glow
+                    // Outer glow pulse
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(52.dp)
                             .scale(pulseScale)
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        NoteTheme.Primary.copy(alpha = glowAlpha * 0.4f),
+                                        NoteTheme.Primary.copy(alpha = glowAlpha * 0.35f),
                                         Color.Transparent
                                     )
                                 ),
-                                shape = CircleShape
+                                shape = RoundedCornerShape(16.dp)
                             )
                     )
-                    // Inner icon circle
+                    // Icon container — rounded square
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(44.dp)
                             .background(
-                                color = NoteTheme.Primary.copy(alpha = 0.15f),
-                                shape = CircleShape
+                                color = NoteTheme.Primary.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(14.dp)
                             )
                     ) {
-                        Text("✨", fontSize = 24.sp)
+                        Text("✨", fontSize = 22.sp)
                     }
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Smart AI",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = NoteTheme.OnSurface
-                    )
+                    // Title + status pill on same row
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Smart AI",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = NoteTheme.OnSurface
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isEnabled) NoteTheme.Success.copy(alpha = 0.15f)
+                            else NoteTheme.OnSurfaceVariant.copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .background(
+                                            if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant,
+                                            CircleShape
+                                        )
+                                )
+                                Text(
+                                    if (isEnabled) "Active" else "Inactive",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "Gemini & Groq — understands Hindi, Hinglish & complex reminders",
@@ -348,34 +401,6 @@ private fun AIHeroCard(pulseScale: Float, glowAlpha: Float, isEnabled: Boolean) 
                         color = NoteTheme.OnSurfaceVariant,
                         lineHeight = 16.sp
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    // Status pill
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isEnabled) NoteTheme.Success.copy(alpha = 0.15f)
-                        else NoteTheme.OnSurfaceVariant.copy(alpha = 0.1f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(
-                                        if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant,
-                                        CircleShape
-                                    )
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                if (isEnabled) "Active" else "Inactive",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant
-                            )
-                        }
-                    }
                 }
             }
         }

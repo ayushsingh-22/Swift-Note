@@ -8,13 +8,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,23 +26,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Sort
-import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.SearchOff
-
-import androidx.compose.material.icons.outlined.Today
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -53,14 +48,11 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +61,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -77,7 +70,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import com.amvarpvtltd.swiftNote.components.AnimatedFloatingActionButton
 import com.amvarpvtltd.swiftNote.components.FloatingToolbar
 import com.amvarpvtltd.swiftNote.components.EmptyStateCard
 import com.amvarpvtltd.swiftNote.components.IconActionButton
@@ -250,9 +242,6 @@ fun NotesScreen(navController: NavHostController) {
     var missingPermissionType by remember { mutableStateOf<com.amvarpvtltd.swiftNote.components.PermissionType?>(null) }
     val reminderRepository = remember { com.amvarpvtltd.swiftNote.reminders.ReminderRepository(context) }
 
-    // Quick stats (derived state — no extra recomposition)
-    val pinnedCount by remember { derivedStateOf { notes.count { it.isPinned } } }
-
     // Pull-to-refresh state
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -355,10 +344,15 @@ fun NotesScreen(navController: NavHostController) {
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 Column(
-                    modifier = Modifier.animateContentSize(
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
-                    )
+                    modifier = Modifier
+                        .animateContentSize(
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy)
+                        )
+                        .background(NoteTheme.Background)
                 ) {
+                    // ─── Status bar spacer ────────────────────────────────────
+                    Spacer(modifier = Modifier.statusBarsPadding())
+
                     // Offline banner at the top
                     OfflineBanner(
                         isVisible = showOfflineBanner && !isOnline,
@@ -366,73 +360,48 @@ fun NotesScreen(navController: NavHostController) {
                         onDismiss = { showOfflineBanner = false }
                     )
 
-                    // ─── Premium Top Bar ─────────────────────────────────────
-                    TopAppBar(
-                        title = {
-                            Column {
-                                // Greeting text
-                                Text(
-                                    text = getGreeting(),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = NoteTheme.OnSurfaceVariant,
-                                    fontWeight = FontWeight.Medium,
-                                    letterSpacing = 0.3.sp
+                    // ─── Greeting row + compact actions ──────────────────────
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = dims.paddingMedium)
+                            .padding(top = 6.dp, bottom = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Greeting text
+                        Text(
+                            text = getGreeting(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NoteTheme.OnSurfaceVariant,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        )
+
+                        // ── Compact action group ──────────────────────────────
+                        // All icons share a single subtle pill background, reducing
+                        // visual fragmentation vs. individually-framed circular buttons.
+                        val (syncSettingsContainer, syncSettingsContent) =
+                            when (syncMode) {
+                                SyncMode.CONTINUOUS -> Pair(
+                                    NoteTheme.SuccessContainer.copy(alpha = 0.8f),
+                                    NoteTheme.OnSuccessContainer
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                // Title with note count
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "My Notes",
-                                        fontWeight = FontWeight.Black,
-                                        color = NoteTheme.OnSurface,
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        fontSize = 28.sp,
-                                        letterSpacing = (-0.8).sp
-                                    )
-
-                                    if (notes.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        // Animated note count badge
-                                        Box(
-                                            modifier = Modifier
-                                                .background(
-                                                    color = NoteTheme.Primary.copy(alpha = 0.1f),
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
-                                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            AnimatedContent(
-                                                targetState = notes.size,
-                                                transitionSpec = {
-                                                    (slideInVertically { -it } + fadeIn()).togetherWith(
-                                                        slideOutVertically { it } + fadeOut()
-                                                    )
-                                                },
-                                                label = "note_count"
-                                            ) { count ->
-                                                Text(
-                                                    text = "$count",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = NoteTheme.Primary,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    if (isRefreshingState) {
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp,
-                                            color = NoteTheme.Primary
-                                        )
-                                    }
-                                }
+                                SyncMode.ONE_TIME_IMPORTED -> Pair(
+                                    NoteTheme.PrimaryContainer.copy(alpha = 0.8f),
+                                    NoteTheme.OnPrimaryContainer
+                                )
+                                SyncMode.LOCAL_ONLY -> Pair(
+                                    adaptiveIconContainer,
+                                    adaptiveIconContent
+                                )
                             }
-                        },
-                        actions = {
-                            // Sync status
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Sync status (only appears during syncing / offline)
                             SyncStatusIndicator(
                                 isOnline = isOnline,
                                 hasPendingSync = hasPendingSync,
@@ -440,25 +409,7 @@ fun NotesScreen(navController: NavHostController) {
                                 onSyncClick = { syncNotes() }
                             )
 
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // Sync settings — always show the profile icon; only the
-                            // container/content colours reflect the active SyncMode.
-                            val (syncSettingsContainer, syncSettingsContent) =
-                                when (syncMode) {
-                                    SyncMode.CONTINUOUS -> Pair(
-                                        NoteTheme.SuccessContainer.copy(alpha = 0.8f),
-                                        NoteTheme.OnSuccessContainer
-                                    )
-                                    SyncMode.ONE_TIME_IMPORTED -> Pair(
-                                        NoteTheme.PrimaryContainer.copy(alpha = 0.8f),
-                                        NoteTheme.OnPrimaryContainer
-                                    )
-                                    SyncMode.LOCAL_ONLY -> Pair(
-                                        adaptiveIconContainer,
-                                        adaptiveIconContent
-                                    )
-                                }
+                            // Profile / sync settings
                             IconActionButton(
                                 onClick = { navController.navigate("syncSettings") },
                                 icon = Icons.Outlined.Person,
@@ -467,9 +418,7 @@ fun NotesScreen(navController: NavHostController) {
                                 contentColor = syncSettingsContent
                             )
 
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // AI Settings
+                            // AI settings
                             IconActionButton(
                                 onClick = { navController.navigate("aiSettings") },
                                 icon = Icons.Outlined.AutoAwesome,
@@ -478,8 +427,6 @@ fun NotesScreen(navController: NavHostController) {
                                 contentColor = adaptiveIconContent
                             )
 
-                            Spacer(modifier = Modifier.width(6.dp))
-
                             // Theme toggle
                             ThemeToggleButton(
                                 currentTheme = currentTheme,
@@ -487,110 +434,142 @@ fun NotesScreen(navController: NavHostController) {
                                     com.amvarpvtltd.swiftNote.theme.AppThemeState.setTheme(context, newTheme)
                                 }
                             )
+                        }
+                    }
 
-                            Spacer(modifier = Modifier.width(4.dp))
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                    )
+                    // ─── Title row ────────────────────────────────────────────
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = dims.paddingMedium)
+                            .padding(top = 6.dp, bottom = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "My Notes",
+                            fontWeight = FontWeight.Black,
+                            color = NoteTheme.OnSurface,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontSize = 28.sp,
+                            letterSpacing = (-0.8).sp
+                        )
 
-                    // ─── Search bar ──────────────────────────────────────────
-                    SearchBar(
-                        searchQuery = searchAndSortState.searchQuery,
-                        onSearchQueryChange = { localSearchQuery = it },
-                        isSearchActive = isSearchActive,
-                        onSearchActiveChange = { isSearchActive = it },
-                        onClearSearch = {
-                            searchAndSortManager.clearSearch()
-                            isSearchActive = false
-                        },
-                        modifier = Modifier.padding(horizontal = dims.paddingMedium)
-                    )
+                        if (notes.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = NoteTheme.Primary.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                AnimatedContent(
+                                    targetState = notes.size,
+                                    transitionSpec = {
+                                        (slideInVertically { -it } + fadeIn()).togetherWith(
+                                            slideOutVertically { it } + fadeOut()
+                                        )
+                                    },
+                                    label = "note_count"
+                                ) { count ->
+                                    Text(
+                                        text = "$count",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = NoteTheme.Primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                        if (isRefreshingState) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = NoteTheme.Primary
+                            )
+                        }
+                    }
 
-                    // ─── Quick Stats + Action Row ─────────────────────────────
+                    // ─── Search bar + inline view/sort controls ──────────────
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = dims.paddingMedium),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Left: Pinned count + search results
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Pinned count indicator (only show when pinned notes exist)
-                            AnimatedVisibility(
-                                visible = pinnedCount > 0,
-                                enter = scaleIn() + fadeIn(),
-                                exit = scaleOut() + fadeOut()
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .background(
-                                            color = NoteTheme.Primary.copy(alpha = 0.08f),
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.PushPin,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp),
-                                        tint = NoteTheme.Primary
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        "$pinnedCount",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = NoteTheme.Primary
-                                    )
-                                }
-                            }
+                        SearchBar(
+                            searchQuery = searchAndSortState.searchQuery,
+                            onSearchQueryChange = { localSearchQuery = it },
+                            isSearchActive = isSearchActive,
+                            onSearchActiveChange = { isSearchActive = it },
+                            onClearSearch = {
+                                searchAndSortManager.clearSearch()
+                                isSearchActive = false
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
 
-                            // Search results count
-                            AnimatedVisibility(
-                                visible = searchAndSortState.isSearchActive,
-                                enter = slideInVertically { -it } + fadeIn(),
-                                exit = slideOutVertically { -it } + fadeOut()
-                            ) {
-                                Text(
-                                    text = "${searchAndSortState.filteredNotes.size} result${if (searchAndSortState.filteredNotes.size != 1) "s" else ""}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = NoteTheme.Primary,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 6.dp)
+                        ViewModeToggleButton(
+                            currentViewMode = currentViewMode,
+                            onViewModeChange = { newViewMode ->
+                                currentViewMode = newViewMode
+                            }
+                        )
+
+                        // Sort / Filter pill button — icon + label, rounded rect
+                        val isSortActive = searchAndSortState.sortOption !=
+                            com.amvarpvtltd.swiftNote.search.SortOption.DATE_CREATED_DESC
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isSortActive) NoteTheme.Primary.copy(alpha = 0.14f)
+                                    else adaptiveIconContainer
                                 )
-                            }
-                        }
-
-                        // Right: View mode + Sort
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            ViewModeToggleButton(
-                                currentViewMode = currentViewMode,
-                                onViewModeChange = { newViewMode ->
-                                    currentViewMode = newViewMode
-                                }
-                            )
-
-                            IconActionButton(
-                                onClick = {
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     showSortSheet = true
-                                },
-                                icon = Icons.AutoMirrored.Outlined.Sort,
-                                contentDescription = "Sort",
-                                containerColor = adaptiveIconContainer,
-                                contentColor = adaptiveIconContent
-                            )
+                                }
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Tune,
+                                    contentDescription = "Sort & Filter",
+                                    tint = if (isSortActive) NoteTheme.Primary else adaptiveIconContent,
+                                    modifier = Modifier.size(17.dp)
+                                )
+
+                            }
                         }
+                    }
+
+                    // Search results count — only shown while searching
+                    AnimatedVisibility(
+                        visible = searchAndSortState.isSearchActive,
+                        enter = slideInVertically { -it } + fadeIn(),
+                        exit = slideOutVertically { -it } + fadeOut()
+                    ) {
+                        Text(
+                            text = "${searchAndSortState.filteredNotes.size} result${if (searchAndSortState.filteredNotes.size != 1) "s" else ""}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NoteTheme.OnSurfaceVariant,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .padding(horizontal = dims.paddingMedium)
+                                .padding(top = 6.dp)
+                        )
                     }
 
                     // ─── Category filter chips ────────────────────────────────
@@ -598,10 +577,9 @@ fun NotesScreen(navController: NavHostController) {
                     if (availableCategories.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
                         LazyRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = dims.paddingMedium),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = dims.paddingMedium)
                         ) {
                             item {
                                 FilterChip(
@@ -633,7 +611,7 @@ fun NotesScreen(navController: NavHostController) {
                                     leadingIcon = {
                                         Box(
                                             modifier = Modifier
-                                                .size(10.dp)
+                                                .size(8.dp)
                                                 .background(
                                                     catColor ?: NoteTheme.Primary,
                                                     CircleShape
@@ -660,7 +638,8 @@ fun NotesScreen(navController: NavHostController) {
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
             },
             bottomBar = {
