@@ -2,7 +2,7 @@
 
 [![Get it on Google Play](https://img.shields.io/badge/Get%20it%20on-Google%20Play-green?logo=google-play)](https://play.google.com/store/apps/details?id=com.amvarpvtltd.selfnote)
 
-**SwiftNote** is an offline-first Android note-taking app built with **Kotlin**, **Jetpack Compose**, **Room**, and **Firebase Realtime Database**. It combines private multi-device sync, encrypted note storage, AI-assisted reminder detection, rich text editing, recurring reminders, and fast local-first performance.
+**SwiftNote** is an offline-first Android note-taking app built with **Kotlin**, **Jetpack Compose**, **Room**, and **Firebase Realtime Database**. It combines private multi-device sync, encrypted note storage, AI-assisted reminder detection, rich text editing, recurring reminders, reactive theme switching, and fast local-first performance.
 
 
 ---
@@ -16,6 +16,8 @@
 - Checklist-friendly note flows and quick note creation.
 - Categories and note color tagging.
 - “Today” / Daily Review screen for reminders and recent activity.
+- Light, dark, and system theme support through a reactive app-wide theme state.
+- Responsive/adaptive layout helpers for compact, medium, and expanded screens.
 - Share text into SwiftNote from other apps using `ShareReceiverActivity`.
 - Home screen quick-capture widget built with Glance.
 
@@ -23,10 +25,12 @@
 
 - **AI reminder detection** while writing notes.
 - **Tiered reminder pipeline**:
-  1. User-provided **Gemini** or **Groq** key via `LlmService`
-  2. On-device **ML Kit Entity Extraction**
-  3. Regex fallback for English and Hinglish-style date/time phrases
-- **Reminder intent pre-filtering** to avoid unnecessary LLM calls.
+  1. `ReminderIntentAnalyzer` pre-filters reminder intent in English and Hinglish before cloud calls
+  2. User-provided **Gemini** or **Groq** key via unified `LlmService` routing
+  3. On-device **ML Kit Entity Extraction**
+  4. Regex fallback for English and Hinglish-style date/time phrases
+- `LlmService` automatically routes to the active provider configured in encrypted key storage.
+- Provider-aware app limits: Gemini is capped at `5/min` and `80/day`, while Groq is capped at `30/min` and `250/day` through `LlmService`.
 - **AI title generation** with offline fallback when no AI key is configured.
 - **Smart Action Chips** for detected entities like links, phone numbers, email addresses, dates, addresses, and amounts.
 
@@ -63,6 +67,8 @@ SwiftNote follows an **MVVM + Repository** approach:
 - **Persistence:** Room (`AppDatabase`, DB version `8`)
 - **Sync:** Firebase Realtime Database with offline-first sync behavior
 - **Encryption:** note content is encrypted/decrypted through the `Note` model and mapper layer
+- **Theme:** reactive `AppThemeState` singleton with `LIGHT`, `DARK`, and `SYSTEM` modes
+- **Responsive UI:** screen-width-aware layout buckets via `WindowSize.kt` (`COMPACT`, `MEDIUM`, `EXPANDED`)
 - **Dependency management:** manual instantiation / singletons; **no Hilt/Dagger in the current codebase**
 
 Core data flow:
@@ -82,11 +88,12 @@ SwiftNote’s reminder stack is more advanced than a single NLP call:
 3. If configured, `LlmService` routes requests to the active AI provider:
    - **Gemini**
    - **Groq**
+   Routing is based on the active key’s provider metadata stored on-device.
 4. If cloud AI is unavailable, the app falls back to **ML Kit** and then regex-based extraction.
 5. Accepted reminders are persisted in Room and scheduled through AlarmManager.
 6. Recurring reminders compute the next occurrence and re-schedule themselves.
 
-AI keys are **user-supplied** and stored securely in `EncryptedSharedPreferences`. No Gemini or Groq key is bundled with the app.
+AI keys are **user-supplied** and stored securely in `EncryptedSharedPreferences`. No Gemini or Groq key is bundled with the app. Groq runs through a custom OpenAI-compatible REST client, while Gemini uses the Google AI SDK.
 
 ---
 
@@ -120,15 +127,18 @@ The app uses a single-activity Compose navigation graph defined in `navbar.kt`.
 | Local database | Room `2.7.1` |
 | Cloud sync | Firebase Realtime Database |
 | Auth model | Firebase Anonymous Auth + passphrase identity |
-| AI providers | Gemini (`0.9.0`) and Groq via custom REST client |
+| AI providers | Gemini (`0.9.0`) and Groq via unified `LlmService` routing |
 | On-device NLP | ML Kit Entity Extraction `16.0.0-beta6` |
 | Background work | WorkManager `2.10.0` |
 | QR scanning | CameraX + ML Kit Barcode |
+| Browser integration | AndroidX Browser `1.8.0` (Custom Tabs) |
+| PDF support | AndroidX PDF Viewer `1.0.0-alpha10` |
 | QR generation | ZXing |
 | Secure storage | AndroidX Security Crypto |
 | Widget | Glance `1.1.1` |
 | Rich text | `richeditor-compose 1.0.0-rc14` |
 | HTML processing | Jsoup `1.18.1` |
+| Compose lifecycle helpers | `lifecycle-runtime-compose 2.8.7` |
 
 ---
 
@@ -158,6 +168,8 @@ Swift-Note/
 │       │       ├── security/           # Encryption, key storage, hashing
 │       │       ├── share/              # Share-to-app capture flow
 │       │       ├── sync/               # Cross-device sync logic
+│       │       ├── theme/              # ThemeManager + AppThemeState
+│       │       ├── utils/              # Utilities including responsive window sizing
 │       │       ├── viewmodel/          # MVVM view models
 │       │       └── widget/             # Glance app widget
 │       ├── test/                       # Unit tests
@@ -196,7 +208,7 @@ Swift-Note/
 ### Requirements
 
 - Android Studio with recent Compose/AGP support
-- JDK `11`
+- JDK 11
 - Android SDK `36`
 - **minSdk:** `31`
 - **targetSdk:** `36`
