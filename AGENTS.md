@@ -10,6 +10,7 @@ SwiftNote is an offline-first Android note-taking app (package: `com.amvarpvtltd
 - **ViewModels**: Dedicated `viewmodel/` directory with `AddNoteViewModel`, `NotesViewModel`, `ViewNoteViewModel` (extend `AndroidViewModel`, use `StateFlow` + `SharedFlow` for UI events).
 - **Offline-first**: All writes go to Room first (`synced=false`), then background-sync to Firebase. See `repository/NoteRepository.kt` and `offline/OfflineNoteManager.kt`.
 - **Encryption**: Notes are encrypted/decrypted using device ID and passphrase keys. Core logic lives in `dataclass.kt` (`Note.getEncryptedTitle()`, `Note.fromEncryptedData()`).
+- **DeviceIdentity**: `DeviceIdentity` (object in `dataclass.kt`) is the single thread-safe (`AtomicReference`) holder for the current device/account identity string used in encryption. Read via `DeviceIdentity.id`. **Only three call-sites should call `DeviceIdentity.set()`**: `Application.onCreate` (bootstrap), NavHost init (passphrase/device lookup in `navbar.kt`), and `SyncSettingsScreen` (when identity was empty). Use `DeviceIdentity.setIfEmpty()` for safe fallback writes. `myGlobalMobileDeviceId` is a legacy read-only accessor for backwards-compatible reads — do not write through it.
 - **Singletons**: `SmartReminderAI`, `ReminderManager`, `SyncManager` use object/singleton patterns.
 - **Navigation**: Single-Activity architecture with Compose NavHost defined in `navbar.kt`. Routes: `onboarding`, `main`, `addscreen`, `addscreen/{noteId}`, `viewnote/{noteId}`, `syncSettings`, `offlineSyncScreen`, `aiSettings`, `archive`, `today`. All routes use slide+fade enter/exit transitions defined in `NavigationComponent`.
 - **Theme**: `AppThemeState` (object in `theme/ThemeManager.kt`) is the global `StateFlow<ThemeMode>` for reactive theming. Initialize with `AppThemeState.initialize(context)` in `MyApp`; update with `AppThemeState.setTheme(context, mode)` from any screen. `ThemeMode` values: `LIGHT`, `DARK`, `SYSTEM`.
@@ -90,7 +91,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 │   └── base/BaseFullScreenActivity.kt  # Edge-to-edge + immersive sticky base activity
 ├── theme/ThemeManager.kt           # ThemeManager (SharedPrefs r/w) + AppThemeState (global StateFlow<ThemeMode> singleton; LIGHT/DARK/SYSTEM)
 ├── Application.kt                  # Custom Application class
-├── dataclass.kt                    # Note model with encryption methods
+├── dataclass.kt                    # Note model with encryption methods; also contains `DeviceIdentity` (thread-safe `AtomicReference` singleton for device/account identity) and `myGlobalMobileDeviceId` legacy read-only accessor
 ├── DeviceIdHelper.kt               # Device ID utility — provides generateUniqueDeviceId(context)
 ├── navbar.kt                       # NavHost + app initialization logic
 └── MainActivity.kt                 # Entry point, permissions, TextClassifier init
@@ -109,7 +110,7 @@ app/src/main/java/com/amvarpvtltd/swiftNote/
 - Uses Kotlin 2.2.10 with Compose compiler plugin (not the old kotlinCompilerExtensionVersion approach). AGP 9.2.1.
 - Room 2.7.1 uses `kapt` (not KSP). `@Database(exportSchema = false)` — schemas are **not** exported (the `room.schemaLocation` kapt arg in `build.gradle.kts` is present but inert). Current DB version: **8**.
 - Version catalog: `gradle/libs.versions.toml`
-- App version: `versionCode = 13`, `versionName = "2.1.1"`
+- App version: `versionCode = 14`, `versionName = "2.1.2"`
 - Release build signing reads `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD` from `local.properties` or environment variables — **not** from `debug.keystore`.
 - Unit test stack: `kotlinx-coroutines-test`, `mockito-core` + `mockito-kotlin`, `turbine` (Flow testing), `robolectric`
 

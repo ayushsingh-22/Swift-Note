@@ -560,7 +560,9 @@ fun AddScreen(
                 if (convertedHtml != null) {
                     skipNextConversion = true
                     richTextState.setHtml(
-                        convertedHtml
+                        // Normalize so each list item gets its own <ol>/<ul> wrapper;
+                        // prevents multi-<li> blocks from collapsing to one line in edit mode.
+                        RichTextBridge.normalizeHtmlForEditor(convertedHtml)
                     )
                 }
             }
@@ -757,12 +759,26 @@ fun AddScreen(
                                 } else {
                                     descCandidate
                                 }
-                            // preserveLeadingWhitespace converts any leading regular spaces inside
-                            // HTML block elements to &nbsp; entities so they survive HTML
-                            // whitespace-collapsing when setHtml() re-parses the content.
-                            // This fixes formatting loss when editing a previously-saved note.
+                            // Block paste-detection from re-converting the content we are about
+                            // to load. The paste-detection LaunchedEffect observes
+                            // richTextState.annotatedString.text and fires AFTER isLoading is
+                            // already false (timing gap). Without this guard it would see the
+                            // freshly-loaded text, detect markdown-like patterns (e.g. list
+                            // numbers), convert it back to a single-<ol> block, call setHtml()
+                            // again, and collapse all list items onto one line — corrupting
+                            // the note on the next save.
+                            skipNextConversion = true
+                            // normalizeHtmlForEditor splits any <ol>/<ul> with multiple <li>
+                            // items into per-item wrappers so compose-rich-editor can restore
+                            // one paragraph per list item via setHtml(). It also strips stray
+                            // &nbsp; entities left between tags by old saves.
+                            // preserveLeadingWhitespace then converts genuine leading spaces
+                            // (indentation) inside block elements to &nbsp; so they survive
+                            // HTML whitespace-collapsing.
                             richTextState.setHtml(
-                                RichTextBridge.preserveLeadingWhitespace(htmlToLoad)
+                                RichTextBridge.preserveLeadingWhitespace(
+                                    RichTextBridge.normalizeHtmlForEditor(htmlToLoad)
+                                )
                             )
                         } // end else (non-checklist)
                     }

@@ -273,14 +273,93 @@ object RichTextBridge {
         }
 
         // HTML content — replace space/tab runs that directly follow a '>'
-        // (i.e. at the start of a text node inside a block element).
+        // ONLY when the spaces lead into actual text content (not into another tag).
+        // Replacing spaces between tags (e.g. <ol>\n  <li>) breaks list/heading structure
+        // in compose-rich-editor because &nbsp; inside <li>/<ul>/<ol> prevents the
+        // library from recognising the list hierarchy and it collapses items to a single line.
         return html
-            .replace(Regex("(?<=>)([ ]+)")) { match ->
+            .replace(Regex("(?<=>)([ ]+)(?!<)")) { match ->
                 "&nbsp;".repeat(match.value.length)
             }
-            .replace(Regex("(?<=>)(\\t+)")) { match ->
+            .replace(Regex("(?<=>)(\\t+)(?!<)")) { match ->
                 "&nbsp;&nbsp;&nbsp;&nbsp;".repeat(match.value.length)
             }
+    }
+
+    /**
+     * Normalize HTML for use with compose-rich-editor's [RichTextState.setHtml] in
+     * **editor** mode (RichTextEditor).
+     *
+     * ### Problem
+     * compose-rich-editor rc14 represents each list item as a separate paragraph
+     * internally and writes one `<ol>/<ul>` wrapper per item in [toHtml]:
+     *   `<ol><li>a</li></ol><ol><li>b</li></ol>`
+     *
+     * When HTML arrives from other sources — e.g. [MarkdownToHtmlConverter] or older
+     * code — multiple `<li>` items may be grouped in a single wrapper:
+     *   `<ol><li>a</li><li>b</li></ol>`
+     *
+     * `setHtml()` cannot reconstruct separate paragraphs from this format; instead it
+     * collapses all items onto a single line in the editor.
+     *
+     * ### Fix
+     * 1. Strip any `&nbsp;`-only text nodes that were incorrectly injected between
+     *    structural tags by old builds of [preserveLeadingWhitespace].
+     * 2. Split every `<ol>/<ul>` that contains more than one `<li>` into individual
+     *    single-item wrappers, matching the format [toHtml] produces.
+     *
+     * Calling this on already-normalized HTML is a no-op.
+     */
+    fun normalizeHtmlForEditor(html: String): String {
+        if (html.isBlank() || '<' !in html) return html
+        return try {
+            val doc = Jsoup.parseBodyFragment(html)
+            doc.outputSettings().prettyPrint(false) // no extra whitespace injected
+            val body = doc.body()
+
+            // Step 1: Remove text nodes that consist ONLY of &nbsp; (U+00A0) characters
+            // possibly mixed with ordinary whitespace. These were introduced by the old
+            // preserveLeadingWhitespace regex that replaced every space after '>' — including
+            // spaces between adjacent structural tags like <ol> … <li>.
+            body.allElements.forEach { el ->
+                el.childNodes().toList().forEach { child ->
+                    if (child is TextNode) {
+                        val raw = child.wholeText
+                        if (raw.isNotEmpty() &&
+                            raw.all { c -> c == '\u00a0' || c.isWhitespace() } &&
+                            '\u00a0' in raw
+                        ) {
+                            child.remove()
+                        }
+                    }
+                }
+            }
+
+            // Step 2: Split any <ol>/<ul> that groups more than one <li> into
+            // individual single-item wrappers. Each wrapper becomes a separate
+            // ordered-/unordered-list paragraph when setHtml() parses them.
+            body.select("ol, ul").toList().forEach { list ->
+                val tag = list.tagName()
+                val liItems = list.children()
+                    .filter { it.tagName().lowercase() == "li" }
+                if (liItems.size > 1) {
+                    // Insert individual wrappers right after the original list element,
+                    // then remove the original.
+                    var anchor: Element = list
+                    for (item in liItems) {
+                        val wrapper = doc.createElement(tag)
+                        wrapper.appendChild(item.clone())
+                        anchor.after(wrapper)
+                        anchor = wrapper
+                    }
+                    list.remove()
+                }
+            }
+
+            body.html()
+        } catch (e: Exception) {
+            html // return original on any Jsoup failure
+        }
     }
 
     /**
