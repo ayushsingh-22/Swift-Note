@@ -7,7 +7,7 @@ package com.amvarpvtltd.swiftNote.ai
 enum class LlmProvider(val displayName: String, val keyHint: String, val keyGetUrl: String) {
     GEMINI(
         displayName = "Gemini",
-        keyHint = "AIzaSy...",
+        keyHint = "AQ.Ab... or AIzaSy...",
         keyGetUrl = "https://aistudio.google.com/apikey"
     ),
     GROQ(
@@ -38,11 +38,14 @@ object LlmModels {
         "gemini-1.5-pro",
     )
 
+    // Static fallback used only when the live model list can't be fetched (offline, etc).
+    // Kept intentionally short-lived — GroqClient.fetchAvailableModels() is the source of truth,
+    // since Groq retires models frequently (e.g. mixtral-8x7b-32768, gemma2-9b-it are gone as of 2025).
     val GROQ_MODELS = listOf(
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "gemma2-9b-it",
-        "mixtral-8x7b-32768",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
     )
 
     fun modelsFor(provider: LlmProvider): List<String> = when (provider) {

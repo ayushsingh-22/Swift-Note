@@ -34,6 +34,9 @@ class LlmService private constructor(private val context: Context) {
         private const val KEY_LAST_GOOD_PROVIDER = "last_working_provider"
         private const val KEY_DAY = "daily_call_date"
         private const val KEY_DAY_COUNT = "daily_call_count"
+        private const val KEY_GROQ_MODELS_CACHE = "groq_models_cache"
+        private const val KEY_GROQ_MODELS_CACHE_TIME = "groq_models_cache_time"
+        private const val GROQ_MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000L // refresh daily
 
         // Gemini free-tier limits
         private const val GEMINI_MAX_PER_MINUTE = 5
@@ -60,6 +63,9 @@ class LlmService private constructor(private val context: Context) {
         fun invalidate() {
             INSTANCE?.geminiModelCache?.clear()
             INSTANCE?.currentApiKey = null
+            INSTANCE?.prefs?.edit {
+                remove(KEY_GROQ_MODELS_CACHE_TIME) // force a fresh /models fetch next call
+            }
         }
     }
 
@@ -203,11 +209,16 @@ class LlmService private constructor(private val context: Context) {
 
     private suspend fun validateGeminiKey(apiKey: String): KeyValidationResult =
         withContext(Dispatchers.IO) {
-            // Quick format sanity check — real Gemini keys start with "AIza" and are ~39 chars.
+            // Quick format sanity check. Google is migrating Gemini keys from the legacy
+            // "AIza..." Standard format to the new "AQ.Ab..." Auth format — AIza keys are
+            // being phased out (unrestricted ones rejected since 2026-06-19, all of them
+            // from September 2026), so both prefixes must be accepted during the transition.
             val trimmed = apiKey.trim()
-            if (trimmed.length < 30 || !trimmed.startsWith("AIza")) {
+            val looksValid = trimmed.length >= 20 &&
+                (trimmed.startsWith("AIza") || trimmed.startsWith("AQ."))
+            if (!looksValid) {
                 return@withContext KeyValidationResult.Failed(
-                    "Invalid API key format. Gemini keys start with \"AIza\" and are ~39 characters long."
+                    "Invalid API key format. Gemini keys start with \"AIza\" or \"AQ.\" and are at least 20 characters long."
                 )
             }
 
@@ -290,6 +301,38 @@ class LlmService private constructor(private val context: Context) {
 
     // ────────────────────────── GROQ ──────────────────────────────────────────
 
+    /**
+     * Get the list of Groq models to try, preferring Groq's live /models endpoint
+     * (cached for [GROQ_MODELS_CACHE_TTL_MS]) since Groq retires models often and a
+     * hardcoded list otherwise silently starts erroring out (404 model_not_found).
+     * Falls back to the static [LlmModels.GROQ_MODELS] list if the fetch fails.
+     */
+    private suspend fun getGroqModels(apiKey: String): List<String> {
+        val cachedAt = prefs.getLong(KEY_GROQ_MODELS_CACHE_TIME, 0L)
+        val isFresh = System.currentTimeMillis() - cachedAt < GROQ_MODELS_CACHE_TTL_MS
+        if (isFresh) {
+            val cached = prefs.getString(KEY_GROQ_MODELS_CACHE, null)
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+            if (!cached.isNullOrEmpty()) return cached
+        }
+
+        val fetched = GroqClient.fetchAvailableModels(apiKey)
+        if (!fetched.isNullOrEmpty()) {
+            prefs.edit {
+                putString(KEY_GROQ_MODELS_CACHE, fetched.joinToString(","))
+                putLong(KEY_GROQ_MODELS_CACHE_TIME, System.currentTimeMillis())
+            }
+            return fetched
+        }
+
+        // Live fetch failed (offline, etc) — reuse a stale cache before falling back to static list.
+        val stale = prefs.getString(KEY_GROQ_MODELS_CACHE, null)
+            ?.split(",")
+            ?.filter { it.isNotBlank() }
+        return if (!stale.isNullOrEmpty()) stale else LlmModels.GROQ_MODELS
+    }
+
     private suspend fun tryGroqModels(
         apiKey: String,
         prompt: String,
@@ -297,11 +340,12 @@ class LlmService private constructor(private val context: Context) {
         temperature: Float,
         maxTokens: Int
     ): String? {
+        val availableModels = getGroqModels(apiKey)
         val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)
-            ?.takeIf { it in LlmModels.GROQ_MODELS }
+            ?.takeIf { it in availableModels }
         val orderedModels = if (lastGood != null) {
-            listOf(lastGood) + LlmModels.GROQ_MODELS.filter { it != lastGood }
-        } else LlmModels.GROQ_MODELS
+            listOf(lastGood) + availableModels.filter { it != lastGood }
+        } else availableModels
 
         for (modelName in orderedModels) {
             try {

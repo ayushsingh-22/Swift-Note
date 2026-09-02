@@ -22,7 +22,57 @@ object GroqClient {
 
     private const val TAG = "GroqClient"
     private const val BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+    private const val MODELS_URL = "https://api.groq.com/openai/v1/models"
     private const val TIMEOUT_MS = 12_000
+
+    // Model IDs that show up in /v1/models but aren't chat-completion models
+    // (audio transcription, moderation/guard, TTS) — never useful for generateContent().
+    private val NON_CHAT_MODEL_MARKERS = listOf(
+        "whisper", "tts", "guard", "moderation", "prompt-guard"
+    )
+
+    /**
+     * Fetch the list of currently active chat-capable models directly from Groq.
+     * This is the source of truth for "what model IDs actually work right now" —
+     * Groq deprecates/removes models frequently, so a hardcoded list goes stale.
+     * Returns null on any failure (network, auth, parse) so callers can fall back.
+     */
+    suspend fun fetchAvailableModels(apiKey: String): List<String>? = withContext(Dispatchers.IO) {
+        val url = URL(MODELS_URL)
+        val connection = url.openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                Log.w(TAG, "⚠️ /models fetch failed: HTTP $responseCode")
+                return@withContext null
+            }
+
+            val responseBody = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+            val json = JSONObject(responseBody)
+            val data = json.getJSONArray("data")
+
+            val models = mutableListOf<String>()
+            for (i in 0 until data.length()) {
+                val entry = data.getJSONObject(i)
+                val id = entry.optString("id", "")
+                val active = entry.optBoolean("active", true)
+                if (id.isBlank() || !active) continue
+                if (NON_CHAT_MODEL_MARKERS.any { id.contains(it, ignoreCase = true) }) continue
+                models.add(id)
+            }
+            if (models.isEmpty()) null else models
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ /models fetch error: ${e.message}")
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     /**
      * Generate text from Groq with a given model, system prompt, and user message.
@@ -103,7 +153,8 @@ object GroqClient {
      * Returns a [ValidationResult] indicating success, quota error, auth error, etc.
      */
     suspend fun validateKey(apiKey: String): ValidationResult = withContext(Dispatchers.IO) {
-        for (model in LlmModels.GROQ_MODELS) {
+        val modelsToTry = fetchAvailableModels(apiKey)?.takeIf { it.isNotEmpty() } ?: LlmModels.GROQ_MODELS
+        for (model in modelsToTry) {
             try {
                 val response = generateContent(
                     apiKey = apiKey,
