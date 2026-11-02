@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -80,7 +82,7 @@ fun SyncSettingsScreen(navController: NavController) {
 
     // Animation states for enhanced UX
     var statsVisible by remember { mutableStateOf(false) }
-    var cardsVisible by remember { mutableStateOf(false) }
+    var showSyncHelp by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     // Performance: remember brush to avoid recreating gradient on every recomposition
     // NoteScreenBackground is now the primary wrapper; backgroundBrush kept for reference only
@@ -100,44 +102,20 @@ fun SyncSettingsScreen(navController: NavController) {
                 val statsResult = SyncManager.getSyncStats(currentPassphrase)
                 if (statsResult.isSuccess) {
                     syncStats = statsResult.getOrNull()
-                    delay(300) // Small delay for smooth animation
                     statsVisible = true
                 }
             }
         }
-        // Animate cards appearance
-        delay(100)
-        cardsVisible = true
     }
 
     NoteScreenBackground {
     Scaffold(
         topBar = {
             Column {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Sync Settings",
-                        color = NoteTheme.OnSurface,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                navigationIcon = {
-                    IconActionButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            navController.navigateUp()
-                        },
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        containerColor = NoteTheme.Primary.copy(alpha = 0.1f),
-                        contentColor = NoteTheme.Primary,
-                        modifier = Modifier.padding(start = 12.dp)
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent
-                )
+            com.amvarpvtltd.swiftNote.components.SwiftNoteTopBar(
+                title = "Your devices",
+                subtitle = "Synchronization and restoration",
+                onBack = { navController.navigateUp() }
             )
             Spacer(modifier = Modifier.height(3.dp))
             }
@@ -151,20 +129,22 @@ fun SyncSettingsScreen(navController: NavController) {
                 .padding(paddingValues)
         ) {
             // Enhanced animated layout with improved visual hierarchy
-            AnimatedVisibility(
-                visible = cardsVisible,
-                enter = slideInVertically(
-                    initialOffsetY = { it / 2 },
-                    animationSpec = tween(600, easing = EaseOutCubic)
-                ) + fadeIn(animationSpec = tween(600))
-            ) {
+            Box {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .responsiveContentWidth(rememberResponsiveDimensions())
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    com.amvarpvtltd.swiftNote.components.SwiftNoteFeatureHeader(
+                        icon = Icons.Default.Devices,
+                        label = "CONNECTED ON YOUR TERMS",
+                        title = "Sync on your terms",
+                        compact = true,
+                        description = "Keep this device local or connect your notes using the existing QR and passphrase options."
+                    )
                     // Enhanced Device Info Card
                     AnimatedDeviceInfoCard(
                         currentPassphrase = currentPassphrase,
@@ -216,8 +196,11 @@ fun SyncSettingsScreen(navController: NavController) {
                         )
                     }
 
-                    // Enhanced Info Card
-                    AnimatedInfoCard()
+                    TextButton(onClick = { showSyncHelp = !showSyncHelp }) {
+                        Text(if (showSyncHelp) "Hide synchronization guide" else "About synchronization")
+                        Icon(if (showSyncHelp) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                    }
+                    if (showSyncHelp) AnimatedInfoCard()
                 }
             }
 
@@ -506,17 +489,8 @@ private fun ContinuousSyncActiveCard(
 ) {
     val preview = if (passphrase.length > 14) passphrase.take(14) + "…" else passphrase
 
-    // ── Pulsing glow for the LIVE badge ──────────────────────────────────
-    val infiniteTransition = rememberInfiniteTransition(label = "sync_live")
-    val liveAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(950, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "live_alpha"
-    )
+    // A steady status badge avoids recomposing this card continuously.
+    val liveAlpha = 1f
 
     // ── Press animation for disconnect button ─────────────────────────────
     var disconnectPressed by remember { mutableStateOf(false) }
@@ -538,7 +512,7 @@ private fun ContinuousSyncActiveCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // ── Header — mirrors EnhancedSectionHeader ────────────────────
@@ -758,13 +732,13 @@ private fun AnimatedDeviceInfoCard(
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-//        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
+//        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = NoteTheme.Surface,
             contentColor = NoteTheme.OnSurface
         )
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             EnhancedSectionHeader(
                 icon = Icons.Default.Smartphone,
                 title = "This Device",
@@ -850,10 +824,7 @@ private fun AnimatedDeviceInfoCard(
                 // Enhanced animated stats section
                 AnimatedVisibility(
                     visible = statsVisible && syncStats != null,
-                    enter = slideInVertically(
-                        initialOffsetY = { it / 3 },
-                        animationSpec = tween(500, delayMillis = 200)
-                    ) + fadeIn(animationSpec = tween(500, delayMillis = 200))
+                    enter = fadeIn(animationSpec = tween(150))
                 ) {
                     syncStats?.let { stats ->
                         Column {
@@ -940,14 +911,14 @@ private fun AnimatedActionsCard(
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = NoteTheme.Surface,
             contentColor = NoteTheme.OnSurface
         )
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             EnhancedActionSection(
@@ -1091,7 +1062,7 @@ private fun AnimatedInfoCard() {
 //        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1307,7 +1278,7 @@ fun EnhancedQRCodeDialog(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "QR Code for Sync",
+                    text = "Pair your devices",
                     fontWeight = FontWeight.Bold,
                     color = NoteTheme.OnSurface
                 )
@@ -1318,16 +1289,16 @@ fun EnhancedQRCodeDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = com.amvarpvtltd.swiftNote.ui.theme.SwiftNoteLightColors.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NoteTheme.Outline)
                 ) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "QR Code",
-                        modifier = Modifier
-                            .size(220.dp)
-                            .padding(16.dp)
+                        contentDescription = "QR code for pairing this device",
+                        modifier = Modifier.widthIn(max = 260.dp).fillMaxWidth()
+                            .aspectRatio(1f).padding(14.dp)
                     )
                 }
 

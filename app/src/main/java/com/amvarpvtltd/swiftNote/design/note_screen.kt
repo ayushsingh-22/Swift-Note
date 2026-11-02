@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
@@ -356,7 +357,7 @@ fun NotesScreen(navController: NavHostController) {
                     // Offline banner at the top
                     OfflineBanner(
                         isVisible = showOfflineBanner && !isOnline,
-                        message = "You're offline. Notes are cached locally and will sync when connected.",
+                        message = "Your notes stay available offline. Background sync resumes when configured.",
                         onDismiss = { showOfflineBanner = false }
                     )
 
@@ -446,8 +447,8 @@ fun NotesScreen(navController: NavHostController) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "My Notes",
-                            fontWeight = FontWeight.Black,
+                            text = "My notes",
+                            fontWeight = FontWeight.Bold,
                             color = NoteTheme.OnSurface,
                             style = MaterialTheme.typography.headlineMedium,
                             fontSize = 28.sp,
@@ -646,10 +647,11 @@ fun NotesScreen(navController: NavHostController) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 35.dp),
+                        .navigationBarsPadding().padding(bottom = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     FloatingToolbar(
+                        onSettings = { navController.navigate("settings") },
                         onNewNote = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             navController.navigate("addscreen")
@@ -711,6 +713,7 @@ fun NotesScreen(navController: NavHostController) {
                     else -> {
                         // Notes display with different view modes
                         NotesDisplay(
+                            showSections = true,
                             notes = searchAndSortState.filteredNotes,
                             viewMode = currentViewMode,
                             onView = { note ->

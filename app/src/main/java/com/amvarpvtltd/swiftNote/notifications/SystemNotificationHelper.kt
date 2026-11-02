@@ -30,6 +30,21 @@ class SystemNotificationHelper(private val context: Context) {
         const val CHANNEL_NAME = "Note Reminders"
         const val CHANNEL_DESCRIPTION = "Notifications for note reminders"
         const val NOTIFICATION_ID_BASE = 1000
+
+        internal fun createNoteContentPendingIntent(context: Context, noteId: String): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_NOTE_ID, noteId)
+                // Extras do not distinguish PendingIntents. A unique data URI
+                // prevents different notes (even hash collisions) sharing a target.
+                data = android.net.Uri.Builder().scheme("swiftnote")
+                    .authority("notification").appendPath("note").appendPath(noteId).build()
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            return PendingIntent.getActivity(
+                context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
     }
 
     init {
@@ -85,18 +100,7 @@ class SystemNotificationHelper(private val context: Context) {
             rawDescription.ifEmpty { "Tap to open your note" }
         }
 
-        // Create an intent that will open the specific note when clicked
-        val intent = Intent(context, MainActivity::class.java).apply {
-            putExtra("noteId", noteId)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            noteId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pendingIntent = createNoteContentPendingIntent(context, noteId)
 
         // Action: Mark as Done
         val markDoneIntent = Intent(context, NotificationActionReceiver::class.java).apply {

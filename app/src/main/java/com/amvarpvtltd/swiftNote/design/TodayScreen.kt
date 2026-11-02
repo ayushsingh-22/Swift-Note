@@ -19,6 +19,11 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
+import com.amvarpvtltd.swiftNote.richtext.NotePreviewFormatter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -34,11 +39,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.reminders.ReminderEntity
-import com.amvarpvtltd.swiftNote.richtext.RichTextBridge
 import com.amvarpvtltd.swiftNote.room.AppDatabase
 import com.amvarpvtltd.swiftNote.room.NoteEntityMapper
 import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -106,19 +109,30 @@ fun TodayScreen(navController: NavHostController) {
     val todayEnd = remember(todayStart) { todayStart + 24 * 60 * 60 * 1000 }
 
     // Reactive data from Room
-    val activeReminders by db.reminderDao().getAllActiveReminders()
-        .collectAsState(initial = emptyList())
-    val allReminders by db.reminderDao().observeAllReminders()
-        .collectAsState(initial = emptyList())
-    val pinnedEntities by db.noteDao().observePinnedNotes()
-        .collectAsState(initial = emptyList())
+    val activeFlow = remember(db) { db.reminderDao().getAllActiveReminders() }
+    val allFlow = remember(db) { db.reminderDao().observeAllReminders() }
+    val activeReminders by activeFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val previewFlow = remember(allFlow) {
+        allFlow.map { reminders ->
+            reminders to reminders.associate {
+                it.id to NotePreviewFormatter.create(it.noteDescription).plainText.take(100)
+            }
+        }.flowOn(Dispatchers.Default)
+    }
+    val reminderSnapshot by previewFlow.collectAsStateWithLifecycle(
+        initialValue = emptyList<ReminderEntity>() to emptyMap<String, String>()
+    )
+    val allReminders = reminderSnapshot.first
+    val snippets = reminderSnapshot.second
+    val scope = rememberCoroutineScope()
+    var showPinned by rememberSaveable { mutableStateOf(false) }
 
 
     // Filter state
-    var selectedFilter by remember { mutableStateOf(ReminderFilter.TODAY) }
+    var selectedFilter by rememberSaveable { mutableStateOf(ReminderFilter.TODAY) }
 
     // Compute filtered reminders
-    val filteredReminders = remember(activeReminders, allReminders, selectedFilter, now, todayStart, todayEnd) {
+    val filteredReminders = remember(activeReminders, allReminders, snippets, selectedFilter, now, todayStart, todayEnd) {
         when (selectedFilter) {
             ReminderFilter.TODAY -> allReminders.filter {
                 it.reminderTime in todayStart..todayEnd
@@ -135,7 +149,7 @@ fun TodayScreen(navController: NavHostController) {
                 ReminderDisplayItem(
                     reminder = reminder,
                     noteTitle = reminder.noteTitle.ifBlank { "Untitled" },
-                    noteSnippet = RichTextBridge.stripHtmlToPlainText(reminder.noteDescription).take(100),
+                    noteSnippet = snippets[reminder.id].orEmpty(),
                     isOverdue = reminder.reminderTime < now
                 )
             }
@@ -152,66 +166,31 @@ fun TodayScreen(navController: NavHostController) {
         )
     }
 
-    // Pinned notes
-    val pinnedNotes = remember(pinnedEntities) {
-        pinnedEntities.take(8).map { entity ->
-            val domain = NoteEntityMapper.toDomain(entity)
-            PinnedNoteItem(
-                id = domain.id,
-                title = domain.title.ifBlank { "Untitled" },
-                snippet = RichTextBridge.stripHtmlToPlainText(domain.description).take(100),
-                category = domain.category,
-                colorKey = domain.colorKey
-            )
-        }
+    // Decrypt and project pinned previews off the UI thread, once per Room emission.
+    val pinnedFlow = remember(db) {
+        db.noteDao().observePinnedNotes().map { entities ->
+            entities.take(8).map { entity ->
+                val domain = NoteEntityMapper.toDomain(entity)
+                PinnedNoteItem(
+                    id = domain.id,
+                    title = domain.title.ifBlank { "Untitled" },
+                    snippet = NotePreviewFormatter.create(domain.description).plainText.take(100),
+                    category = domain.category,
+                    colorKey = domain.colorKey
+                )
+            }
+        }.flowOn(Dispatchers.IO)
     }
+    val pinnedNotes by pinnedFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     NoteScreenBackground {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = "Today",
-                                fontWeight = FontWeight.ExtraBold,
-                                color = NoteTheme.OnSurface,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontSize = 26.sp,
-                                letterSpacing = (-0.5).sp
-                            )
-                            Text(
-                                text = getFormattedDate(),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = NoteTheme.OnSurfaceVariant,
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = { navController.popBackStack() },
-                            modifier = Modifier.padding(start = 4.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(NoteTheme.Primary.copy(alpha = 0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = NoteTheme.Primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    },
-                    actions = {},
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                com.amvarpvtltd.swiftNote.components.SwiftNoteTopBar(
+                    title = "Reminders",
+                    subtitle = getFormattedDate(),
+                    onBack = { navController.popBackStack() }
                 )
             }
         ) { paddingValues ->
@@ -222,16 +201,6 @@ fun TodayScreen(navController: NavHostController) {
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // ─── Greeting Banner ─────────────────────────────────────────
-                item {
-                    GreetingBanner(
-                        todayCount = reminderCounts[ReminderFilter.TODAY] ?: 0,
-                        overdueCount = allReminders.count {
-                            it.reminderTime < now && it.isActive && it.reminderTime in todayStart..todayEnd
-                        }
-                    )
-                }
-
                 // ─── Filter Tabs ─────────────────────────────────────────────
                 item {
                     FilterTabRow(
@@ -247,7 +216,7 @@ fun TodayScreen(navController: NavHostController) {
                         EmptyReminderState(filter = selectedFilter)
                     }
                 } else {
-                    items(filteredReminders, key = { it.reminder.id }) { item ->
+                    items(filteredReminders, key = { it.reminder.id }, contentType = { "reminder" }) { item ->
                         ReminderRow(
                             item = item,
                             selectedFilter = selectedFilter,
@@ -255,7 +224,7 @@ fun TodayScreen(navController: NavHostController) {
                                 navController.navigate("viewnote/${item.reminder.noteId}")
                             },
                             onMarkDone = {
-                                CoroutineScope(Dispatchers.IO).launch {
+                                scope.launch(Dispatchers.IO) {
                                     db.reminderDao().deactivateReminder(item.reminder.id)
                                 }
                             }
@@ -265,31 +234,16 @@ fun TodayScreen(navController: NavHostController) {
 
                 // ─── Pinned Notes ────────────────────────────────────────────
                 if (pinnedNotes.isNotEmpty()) {
-                    item { Spacer(modifier = Modifier.height(4.dp)) }
-
-                    item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.PushPin,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = NoteTheme.Secondary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Pinned",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = NoteTheme.OnSurface,
-                                letterSpacing = (-0.2).sp
-                            )
+                    item(key = "pinned-toggle") {
+                        TextButton(onClick = { showPinned = !showPinned }) {
+                            Icon(Icons.Outlined.PushPin, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (showPinned) "Hide pinned notes" else "Pinned notes")
+                            Icon(if (showPinned) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
                         }
                     }
 
-                    item {
+                    if (showPinned) item(key = "pinned-notes") {
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(horizontal = 2.dp)
@@ -313,82 +267,6 @@ fun TodayScreen(navController: NavHostController) {
 
 // ─── Greeting Banner ───────────────────────────────────────────────────────────
 
-@Composable
-private fun GreetingBanner(todayCount: Int, overdueCount: Int) {
-    val greeting = remember { getScreenGreeting() }
-
-    // In dark mode PrimaryContainer is very dark — use higher alpha for visibility
-    val isDark = NoteTheme.Background.luminance() < 0.2f
-    val bannerBackground = if (isDark)
-        NoteTheme.Primary.copy(alpha = 0.12f)
-    else
-        NoteTheme.PrimaryContainer.copy(alpha = 0.4f)
-    val bannerBorder = if (isDark)
-        NoteTheme.Primary.copy(alpha = 0.25f)
-    else
-        Color.Transparent
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(bannerBackground)
-            .then(
-                if (isDark) Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Transparent)
-                    .padding(0.dp) // placeholder for border below
-                else Modifier
-            )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = greeting,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isDark) NoteTheme.Primary else NoteTheme.OnPrimaryContainer,
-                letterSpacing = (-0.2).sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = when {
-                    overdueCount > 0 -> "$overdueCount overdue · $todayCount today"
-                    todayCount > 0 -> "$todayCount reminder${if (todayCount > 1) "s" else ""} today"
-                    else -> "You're all caught up ✓"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isDark)
-                    NoteTheme.OnSurface.copy(alpha = 0.7f)
-                else
-                    NoteTheme.OnPrimaryContainer.copy(alpha = 0.7f)
-            )
-        }
-
-        // Summary count pill
-        if (todayCount > 0) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isDark) NoteTheme.Primary.copy(alpha = 0.2f)
-                        else NoteTheme.Primary.copy(alpha = 0.15f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "$todayCount",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = NoteTheme.Primary
-                )
-            }
-        }
-    }
-}
-
 // ─── Filter Tab Row ────────────────────────────────────────────────────────────
 
 @Composable
@@ -397,7 +275,7 @@ private fun FilterTabRow(
     onFilterChange: (ReminderFilter) -> Unit,
     counts: Map<ReminderFilter, Int>
 ) {
-    val isDark = NoteTheme.Background.luminance() < 0.2f
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.2f
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -412,47 +290,28 @@ private fun FilterTabRow(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 color = when {
-                    isSelected -> NoteTheme.Primary
-                    isDark -> NoteTheme.SurfaceVariant
-                    else -> NoteTheme.Surface
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    isDark -> MaterialTheme.colorScheme.surfaceVariant
+                    else -> MaterialTheme.colorScheme.surface
                 },
                 shadowElevation = 0.dp,
                 // Stronger border — visible in both light and dark mode
                 border = when {
                     isSelected -> null
-                    isDark -> BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.2f))
-                    else -> BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.15f))
+                    isDark -> BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                    else -> BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
                 }
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 6.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = filter.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (isSelected) NoteTheme.OnPrimary else NoteTheme.OnSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = filter.label,
-                        style = MaterialTheme.typography.labelSmall,
+                        text = if (count > 0) "${filter.label} $count" else filter.label,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) NoteTheme.OnPrimary else NoteTheme.OnSurface,
-                        letterSpacing = 0.sp
-                    )
-                    // Always reserve the count row height so all tabs are equal size.
-                    // Render the number when > 0, otherwise an invisible placeholder.
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (count > 0) "$count" else " ",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (!isSelected && count == 0) Color.Transparent
-                               else if (isSelected) NoteTheme.OnPrimary.copy(alpha = 0.8f)
-                               else NoteTheme.Primary,
-                        fontSize = 11.sp
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -473,31 +332,31 @@ private fun ReminderRow(
     val dateFormat = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
 
     val accentColor = when {
-        item.isOverdue && selectedFilter == ReminderFilter.TODAY -> NoteTheme.Error
-        selectedFilter == ReminderFilter.PAST -> NoteTheme.OnSurfaceVariant
-        else -> NoteTheme.Primary
+        item.isOverdue && selectedFilter == ReminderFilter.TODAY -> MaterialTheme.colorScheme.error
+        selectedFilter == ReminderFilter.PAST -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.primary
     }
 
-    val isDark = NoteTheme.Background.luminance() < 0.2f
-    val rowBackground = if (isDark) NoteTheme.SurfaceVariant else NoteTheme.Surface
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.2f
+    val rowBackground = MaterialTheme.colorScheme.surface
 
     // Border is more visible in light mode; dark mode uses a slightly brighter stroke
     val rowBorderColor = if (isDark)
-        NoteTheme.OnSurface.copy(alpha = 0.15f)
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
     else
-        NoteTheme.OnSurface.copy(alpha = 0.12f)
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, rowBorderColor, RoundedCornerShape(14.dp))
-            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .7f), RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(rowBackground)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = true)
             ) { onClick() }
-            .padding(14.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Left accent indicator
@@ -518,8 +377,8 @@ private fun ReminderRow(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = if (selectedFilter == ReminderFilter.PAST)
-                    NoteTheme.OnSurface.copy(alpha = 0.7f)
-                else NoteTheme.OnSurface,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 letterSpacing = (-0.2).sp
@@ -530,7 +389,7 @@ private fun ReminderRow(
                 Text(
                     text = item.noteSnippet,
                     style = MaterialTheme.typography.bodySmall,
-                    color = NoteTheme.OnSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 16.sp
@@ -569,7 +428,7 @@ private fun ReminderRow(
                         Icons.Outlined.EventRepeat,
                         contentDescription = "Recurring",
                         modifier = Modifier.size(12.dp),
-                        tint = NoteTheme.OnSurfaceVariant.copy(alpha = 0.6f)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
 
@@ -578,7 +437,7 @@ private fun ReminderRow(
                     Text(
                         text = "Overdue",
                         style = MaterialTheme.typography.labelSmall,
-                        color = NoteTheme.Error,
+                        color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 10.sp
                     )
@@ -591,13 +450,13 @@ private fun ReminderRow(
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(
                 onClick = onMarkDone,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     Icons.Outlined.CheckCircleOutline,
                     contentDescription = "Mark done",
                     modifier = Modifier.size(20.dp),
-                    tint = NoteTheme.Success
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         } else if (selectedFilter == ReminderFilter.PAST) {
@@ -608,7 +467,7 @@ private fun ReminderRow(
                 modifier = Modifier
                     .size(18.dp)
                     .alpha(0.4f),
-                tint = NoteTheme.OnSurfaceVariant
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -631,9 +490,9 @@ private fun PinnedNoteChip(
         onClick = onClick,
         modifier = Modifier.width(chipWidth),
         shape = RoundedCornerShape(12.dp),
-        color = NoteTheme.Surface,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, NoteTheme.OnSurface.copy(alpha = 0.12f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
     ) {
         Column(
             modifier = Modifier.padding(12.dp)
@@ -644,7 +503,7 @@ private fun PinnedNoteChip(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(NoteTheme.Primary.copy(alpha = 0.6f))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -653,7 +512,7 @@ private fun PinnedNoteChip(
                 text = note.title,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
-                color = NoteTheme.OnSurface,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 16.sp,
@@ -665,7 +524,7 @@ private fun PinnedNoteChip(
             Text(
                 text = note.snippet,
                 style = MaterialTheme.typography.bodySmall,
-                color = NoteTheme.OnSurfaceVariant.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 14.sp,
@@ -707,14 +566,14 @@ private fun EmptyReminderState(filter: ReminderFilter) {
             modifier = Modifier
                 .size(52.dp)
                 .clip(CircleShape)
-                .background(NoteTheme.SurfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = NoteTheme.OnSurfaceVariant.copy(alpha = 0.6f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
         }
         Spacer(modifier = Modifier.height(14.dp))
@@ -722,14 +581,35 @@ private fun EmptyReminderState(filter: ReminderFilter) {
             text = message,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = NoteTheme.OnSurface.copy(alpha = 0.7f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = NoteTheme.OnSurfaceVariant.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Reminders empty light", widthDp = 360, heightDp = 640)
+@androidx.compose.ui.tooling.preview.Preview(name = "Reminders empty dark", widthDp = 320, heightDp = 640,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES, fontScale = 1.3f)
+@Composable
+private fun ReminderEmptyPreview() {
+    com.amvarpvtltd.swiftNote.ui.theme.SelfNoteTheme(
+        darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    ) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize()) {
+                com.amvarpvtltd.swiftNote.components.SwiftNoteTopBar(
+                    title = "Reminders", subtitle = "Tuesday, Nov 3", onBack = {})
+                Column(Modifier.padding(16.dp)) {
+                    FilterTabRow(ReminderFilter.TODAY, {}, emptyMap())
+                    EmptyReminderState(ReminderFilter.TODAY)
+                }
+            }
+        }
     }
 }
 
@@ -747,16 +627,6 @@ private fun getRelativeTimeString(timestamp: Long): String {
         days < 7 -> "${days}d ago"
         days < 30 -> "${days / 7}w ago"
         else -> "${days / 30}mo ago"
-    }
-}
-
-private fun getScreenGreeting(): String {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    return when {
-        hour < 12 -> "Good morning ☀️"
-        hour < 17 -> "Good afternoon 👋"
-        hour < 21 -> "Good evening 🌆"
-        else -> "Good night 🌙"
     }
 }
 

@@ -45,6 +45,7 @@ class ShareReceiverActivity : ComponentActivity() {
             sharedText
         }
 
+        com.amvarpvtltd.swiftNote.theme.AppThemeState.initialize(this)
         setContent {
             SelfNoteTheme {
                 QuickCaptureSheet(

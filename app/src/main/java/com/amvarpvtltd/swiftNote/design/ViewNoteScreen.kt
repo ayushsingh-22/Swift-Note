@@ -149,10 +149,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
     )
 
     // Note accent color derived from note ID for visual identity
-    val accentColor = remember(note?.id) {
-        val idx = (note?.id?.hashCode() ?: 0).absoluteValue
-        NoteTheme.getNoteAccentColor(idx)
-    }
+    val accentColor = NoteTheme.Primary
 
     // Staggered visibility states
     var heroVisible by remember { mutableStateOf(false) }
@@ -471,47 +468,13 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 Card(
                                     // SurfaceVariant gives a solid tinted base in both modes:
                                     // Light → #F1F5F9 (cool blue-gray), Dark → #2A2F3E (deep navy)
-                                    colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant),
+                                    colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
                                     shape = RoundedCornerShape(24.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                                    border = BorderStroke(1.5.dp, accentColor.copy(alpha = 0.40f)),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                    border = BorderStroke(1.dp, NoteTheme.Outline.copy(alpha = .6f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    // IntrinsicSize.Min lets the stripe Box use fillMaxHeight()
-                                    // matching the Column's intrinsic height without hardcoding dp
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(IntrinsicSize.Min)
-                                            // Layer 1 (already from card): SurfaceVariant solid base
-                                            // Layer 2: Strong horizontal accent wash — left vivid, right fades
-                                            .background(
-                                                Brush.horizontalGradient(
-                                                    colorStops = arrayOf(
-                                                        0.00f to accentColor.copy(alpha = 0.52f),
-                                                        0.38f to accentColor.copy(alpha = 0.20f),
-                                                        0.75f to accentColor.copy(alpha = 0.06f),
-                                                        1.00f to Color.Transparent
-                                                    )
-                                                )
-                                            )
-                                    ) {
-                                        // Full-height accent stripe — bold left edge
-                                        Box(
-                                            modifier = Modifier
-                                                .width(6.dp)
-                                                .fillMaxHeight()
-                                                .align(Alignment.CenterStart)
-                                                .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
-                                                .background(
-                                                    Brush.verticalGradient(
-                                                        colors = listOf(
-                                                            accentColor,
-                                                            accentColor.copy(alpha = 0.55f)
-                                                        )
-                                                    )
-                                                )
-                                        )
+                                    Box(modifier = Modifier.fillMaxWidth()) {
                                         Column(
                                             modifier = Modifier.padding(
                                                 start = 18.dp, end = 14.dp,
@@ -520,10 +483,10 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                         ) {
                                             Text(
                                                 text = note?.title ?: "",
-                                                fontSize = 21.sp,
-                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 28.sp,
+                                                fontWeight = FontWeight.Bold,
                                                 color = NoteTheme.OnSurface,
-                                                lineHeight = 27.sp,
+                                                lineHeight = 35.sp,
                                                 letterSpacing = (-0.5).sp
                                             )
 
@@ -782,7 +745,7 @@ fun ViewNoteScreen(navController: NavHostController, noteId: String?) {
                                 Card(
                                     shape = RoundedCornerShape(22.dp),
                                     colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(

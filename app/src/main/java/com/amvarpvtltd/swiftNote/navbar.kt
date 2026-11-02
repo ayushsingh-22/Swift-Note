@@ -1,6 +1,10 @@
 package com.amvarpvtltd.swiftNote
 
 import android.util.Log
+import android.net.Uri
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.amvarpvtltd.swiftNote.viewmodel.NotificationNavigationViewModel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,7 +65,7 @@ import androidx.core.content.edit
 private const val TAG = "SwiftNoteNav"
 
 @Composable
-fun MyApp(modifier: Modifier = Modifier) {
+fun MyApp(notificationNavigation: NotificationNavigationViewModel, modifier: Modifier = Modifier) {
     val navController = rememberNavController()
 
     // Capture context once in composable scope
@@ -85,38 +89,7 @@ fun MyApp(modifier: Modifier = Modifier) {
     // Top-level SnackbarHostState — used for quick-save undo notifications from share
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Observe the noteId from notification to navigate directly to a specific note
-    // Use a state variable to track the noteId from notification
-    val noteIdToOpen = remember { mutableStateOf<String?>(null) }
-
-    // Effect to observe the LiveData and update our local state
-    DisposableEffect(Unit) {
-        val observer = androidx.lifecycle.Observer<String?> { newNoteId ->
-            noteIdToOpen.value = newNoteId
-        }
-
-        MainActivity.noteIdToOpen.observeForever(observer)
-
-        onDispose {
-            MainActivity.noteIdToOpen.removeObserver(observer)
-        }
-    }
-
-    // Navigate to the specific note when noteId changes
-    LaunchedEffect(noteIdToOpen.value) {
-        val noteId = noteIdToOpen.value
-        if (!noteId.isNullOrEmpty() && !isInitializing) {
-            Log.d(TAG, "🧭 Navigating to note from notification: $noteId")
-            // Navigate to the ViewNoteScreen with the specified noteId
-            navController.navigate("viewnote/$noteId") {
-                // Pop up to main screen to avoid stack build-up
-                popUpTo("main") { inclusive = false }
-            }
-            // Reset the noteId after navigation
-            noteIdToOpen.value = null
-            MainActivity.noteIdToOpen.value = null
-        }
-    }
+    NotificationNoteNavigation(navController, notificationNavigation, isInitializing)
 
     // Phase 5: Handle pending actions from share/widget
     val pendingAction = remember { mutableStateOf<MainActivity.QuickAction?>(null) }
@@ -315,6 +288,33 @@ fun MyApp(modifier: Modifier = Modifier) {
 }
 
 @Composable
+internal fun NotificationNoteNavigation(
+    navController: NavHostController,
+    notificationNavigation: NotificationNavigationViewModel,
+    isInitializing: Boolean
+) {
+    val noteIdToOpen by notificationNavigation.pendingNoteId.collectAsStateWithLifecycle()
+    val currentEntry by navController.currentBackStackEntryAsState()
+
+    // Retry when startup finishes AND NavHost has installed its graph. Keep the
+    // request pending through authentication, rather than bypassing onboarding.
+    LaunchedEffect(noteIdToOpen, isInitializing, currentEntry) {
+        val noteId = noteIdToOpen
+        if (noteId.isNullOrBlank() || isInitializing || currentEntry == null) return@LaunchedEffect
+        val hasMainScreen = runCatching { navController.getBackStackEntry("main") }.isSuccess
+        if (!hasMainScreen) return@LaunchedEffect
+
+        navController.navigate("viewnote/${Uri.encode(noteId)}") {
+            popUpTo("main") { inclusive = false }
+            launchSingleTop = true
+        }
+        notificationNavigation.markOpened(noteId)
+    }
+
+
+}
+
+@Composable
 fun LoadingScreen() {
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -392,6 +392,13 @@ fun NavigationComponent(navController: NavHostController, startDestination: Stri
         composable("viewnote/{noteId}") { backStackEntry ->
             val noteId = backStackEntry.arguments?.getString("noteId")
             ViewNoteScreen(navController = navController, noteId = noteId)
+        }
+
+        composable("settings") {
+            com.amvarpvtltd.swiftNote.settings.SettingsScreen(navController)
+        }
+        composable("dataManagement") {
+            com.amvarpvtltd.swiftNote.settings.DataManagementScreen(navController)
         }
 
         // Sync & Settings

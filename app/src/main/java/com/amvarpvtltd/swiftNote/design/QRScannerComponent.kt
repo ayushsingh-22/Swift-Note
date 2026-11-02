@@ -132,21 +132,21 @@ fun QRScannerDialog(
         )
     ) {
         // Performance: remember brush to avoid recreating gradient on every recomposition
-        val backgroundBrush = remember { BackgroundProvider.getBrush() }
+        val backgroundBrush = remember(NoteTheme.Background) { BackgroundProvider.getBrush() }
         // Use the shared background so dialog feels part of the app
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(brush = backgroundBrush),
+                .background(brush = backgroundBrush).safeDrawingPadding().padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth(0.95f)
-                    .fillMaxHeight(0.8f)
-                    .heightIn(max = 480.dp),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    .widthIn(max = 520.dp).fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .heightIn(max = 560.dp),
+                shape = RoundedCornerShape(24.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface)
             ) {
                 Column(
@@ -161,7 +161,7 @@ fun QRScannerDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Scan QR Code",
+                            text = "Scan to connect",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = NoteTheme.OnSurface

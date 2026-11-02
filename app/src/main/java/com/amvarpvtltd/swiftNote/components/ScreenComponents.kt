@@ -39,6 +39,8 @@ import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -200,16 +202,8 @@ fun AnimatedFloatingActionButton(
     )
 
     // Perpetual float micro-animation (translateY ±2dp, 3s infinite)
-    val infiniteTransition = rememberInfiniteTransition(label = "fab_float")
-    val floatOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = -4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "fab_float_offset"
-    )
+    // Keep primary actions stationary; press feedback is enough for a focused notes workspace.
+    val floatOffset = 0f
 
     FloatingActionButton(
         onClick = {
@@ -254,7 +248,8 @@ fun FloatingToolbar(
     onNewNote: () -> Unit,
     onArchive: () -> Unit,
     onToday: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSettings: (() -> Unit)? = null
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -262,26 +257,27 @@ fun FloatingToolbar(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
         color = NoteTheme.Surface,
-        shadowElevation = 8.dp,
-        tonalElevation = 2.dp
+        shadowElevation = 2.dp,
+        tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NoteTheme.Outline.copy(alpha = .6f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FloatingToolbarItem(
-                icon = Icons.Outlined.EditNote,
-                label = "New",
-                tint = NoteTheme.Primary,
-                onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onNewNote()
-                }
-            )
+            FloatingActionButton(
+                onClick = onNewNote,
+                shape = RoundedCornerShape(18.dp),
+                containerColor = NoteTheme.Primary,
+                contentColor = NoteTheme.OnPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = "Add note")
+            }
             FloatingToolbarItem(
                 icon = Icons.Outlined.Today,
-                label = "Today",
+                label = "Reminder",
                 tint = NoteTheme.Primary,
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -291,12 +287,20 @@ fun FloatingToolbar(
             FloatingToolbarItem(
                 icon = Icons.Outlined.Archive,
                 label = "Archive",
-                tint = NoteTheme.Primary,
+                tint = NoteTheme.OnSurfaceVariant,
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     onArchive()
                 }
             )
+            onSettings?.let {
+                FloatingToolbarItem(
+                    icon = androidx.compose.material.icons.Icons.Outlined.Tune,
+                    label = "Settings",
+                    tint = NoteTheme.OnSurfaceVariant,
+                    onClick = it
+                )
+            }
         }
     }
 }
@@ -311,6 +315,7 @@ private fun FloatingToolbarItem(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -371,7 +376,7 @@ fun IconActionButton(
             onClick()
         },
         modifier = modifier
-            .size(44.dp)
+            .size(48.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

@@ -124,12 +124,12 @@ private class QuickCaptureState(
 
 @Stable
 private data class CaptureColors(
-    val primary: Color = Color(0xFF6366F1),
-    val primaryLight: Color = Color(0xFF818CF8),
-    val primaryContainer: Color = Color(0xFFEEF2FF),
-    val onPrimary: Color = Color(0xFFFFFFFF),
-    val successColor: Color = Color(0xFF10B981),
-    val warningColor: Color = Color(0xFFF59E0B),
+    val primary: Color,
+    val primaryLight: Color,
+    val primaryContainer: Color,
+    val onPrimary: Color,
+    val successColor: Color,
+    val warningColor: Color,
     val surfaceColor: Color,
     val bgVariant: Color,
     val onSurface: Color,
@@ -140,6 +140,12 @@ private data class CaptureColors(
 @Composable
 private fun rememberCaptureColors(): CaptureColors {
     return CaptureColors(
+        primary = MaterialTheme.colorScheme.primary,
+        primaryLight = MaterialTheme.colorScheme.primary,
+        primaryContainer = MaterialTheme.colorScheme.primaryContainer,
+        onPrimary = MaterialTheme.colorScheme.onPrimary,
+        successColor = com.amvarpvtltd.swiftNote.design.NoteTheme.Success,
+        warningColor = com.amvarpvtltd.swiftNote.design.NoteTheme.Warning,
         surfaceColor = MaterialTheme.colorScheme.surface,
         bgVariant = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         onSurface = MaterialTheme.colorScheme.onSurface,
