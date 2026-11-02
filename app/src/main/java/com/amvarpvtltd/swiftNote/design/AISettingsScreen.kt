@@ -1,7 +1,10 @@
 package com.amvarpvtltd.swiftNote.design
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -36,12 +39,18 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.view.ViewTreeObserver
+import androidx.compose.ui.platform.LocalView
 import androidx.navigation.NavHostController
+import com.amvarpvtltd.swiftNote.ai.AiMode
+import com.amvarpvtltd.swiftNote.ai.AiModePreferences
 import com.amvarpvtltd.swiftNote.ai.GeminiReminderParser
 import com.amvarpvtltd.swiftNote.ai.KeyValidationResult
 import com.amvarpvtltd.swiftNote.ai.LlmProvider
 import com.amvarpvtltd.swiftNote.ai.LlmService
 import com.amvarpvtltd.swiftNote.components.IconActionButton
+import com.amvarpvtltd.swiftNote.components.InAppNotificationBanner
+import com.amvarpvtltd.swiftNote.components.NotificationHelper
 import com.amvarpvtltd.swiftNote.components.NoteScreenBackground
 import com.amvarpvtltd.swiftNote.security.GeminiApiKey
 import com.amvarpvtltd.swiftNote.security.GeminiKeyManager
@@ -50,6 +59,34 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Opens a provider's "get API key" page in an in-app Custom Tab (falls back to a plain browser intent). */
+private fun openKeyPage(context: Context, url: String) {
+    try {
+        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, Uri.parse(url))
+    } catch (_: Exception) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) { }
+    }
+}
+
+/** Best-effort provider guess from a pasted/typed key's prefix, for the Add API Key wizard. */
+private fun detectProviderFromKey(apiKey: String): LlmProvider? = when {
+    apiKey.startsWith("gsk_") -> LlmProvider.GROQ
+    apiKey.startsWith("AIza") || apiKey.startsWith("AQ.") -> LlmProvider.GEMINI
+    else -> null
+}
+
+
+/** Current primary clipboard text, trimmed, or null if empty/unavailable. */
+private fun readClipboardText(context: Context): String? {
+    val clipboard = context.getSystemService(ClipboardManager::class.java)
+    return clipboard?.primaryClip
+        ?.takeIf { it.itemCount > 0 }
+        ?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +101,111 @@ fun AISettingsScreen(navController: NavHostController) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editingKey by remember { mutableStateOf<GeminiApiKey?>(null) }
     var deletingKey by remember { mutableStateOf<GeminiApiKey?>(null) }
+
+    fun refreshState() {
+        keys = GeminiKeyManager.getAllKeys(context)
+        activeKeyId = GeminiKeyManager.getActiveKeyId(context)
+        isEnabled = GeminiKeyManager.isEnabled(context)
+    }
+
+    // ── Clipboard auto-capture ──────────────────────────────────────────────
+    // Every "get key" entry point (the standalone "How to get API key" card, and
+    // the "Get your key from…" link inside the Add API Key dialog) behaves the
+    // same way now: they open the provider's key page in a Custom Tab layered on
+    // top of this screen (see openKeyPage), and set pendingKeyFetch = true. The
+    // moment the user copies the key there and closes the tab, we check the
+    // clipboard, but ONLY if we actually just sent them off to fetch one
+    // (pendingKeyFetch) — never on a random resume, so stale/unrelated clipboard
+    // content is never mistaken for a key.
+    //
+    // This deliberately triggers off WINDOW FOCUS GAINED, not lifecycle ON_RESUME.
+    // onResume() fires a moment *before* the window actually regains focus after a
+    // Custom Tab closes, and ClipboardManager.getPrimaryClip() silently returns
+    // null/stale data for an app that doesn't have focus yet (an Android 10+
+    // restriction) — so the old ON_RESUME-based check was racing the focus
+    // handoff and routinely losing, which is why auto-save looked like it "did
+    // nothing" after copying. Window-focus-gained is the actual, deterministic
+    // point at which the clipboard is guaranteed readable.
+    //
+    // Outcome is the same regardless of which entry point was used — "tap, copy,
+    // done": if the key validates, it's saved automatically (with an Undo action
+    // on the confirmation banner); if it doesn't, the Add Key dialog opens
+    // pre-filled with the key and the error, so the user can see what went wrong
+    // and fix it manually. Manual entry (typing/pasting without visiting a "get
+    // key" link) is unaffected — that still goes through the normal confirm →
+    // validate → save flow.
+    // (We can't make the website itself redirect back into the app — that hook
+    // doesn't exist for arbitrary third-party pages — but this gets the same result.)
+    var pendingKeyFetch by remember { mutableStateOf(false) }
+    var clipboardPrefill by remember { mutableStateOf<Pair<String, LlmProvider>?>(null) }
+    var clipboardError by remember { mutableStateOf<String?>(null) }
+
+    fun handlePendingKeyFetch() {
+        // One-shot: consume the pending fetch regardless of outcome, so this only
+        // ever reacts once per "go fetch a key" trip.
+        if (!pendingKeyFetch) return
+        pendingKeyFetch = false
+        val text = readClipboardText(context)
+        val detected = text?.let { detectProviderFromKey(it) }
+        if (text != null && detected != null) {
+            val alreadySaved = keys.any { it.apiKey == text }
+            if (alreadySaved) {
+                NotificationHelper.showInfo(
+                    "Key already added",
+                    "That ${detected.displayName} key is already in your list."
+                )
+            } else {
+                scope.launch {
+                    when (val result = LlmService.getInstance(context).validateKey(text, detected)) {
+                        is KeyValidationResult.Success -> {
+                            val saved = GeminiKeyManager.addApiKey(context, "", text, detected.name)
+                            GeminiReminderParser.invalidate()
+                            LlmService.invalidate()
+                            refreshState()
+                            showAddDialog = false
+                            clipboardPrefill = null
+                            clipboardError = null
+                            NotificationHelper.showSuccessWithAction(
+                                title = "${detected.displayName} key added",
+                                message = "Detected from your clipboard and verified automatically.",
+                                actionLabel = "Undo",
+                                onAction = {
+                                    GeminiKeyManager.removeApiKey(context, saved.id)
+                                    GeminiReminderParser.invalidate()
+                                    LlmService.invalidate()
+                                    refreshState()
+                                }
+                            )
+                        }
+                        is KeyValidationResult.Failed -> {
+                            // Fall back to the manual dialog, pre-filled, so the
+                            // user sees exactly what failed and can fix it themselves.
+                            clipboardPrefill = text to detected
+                            clipboardError = result.errorMessage
+                            showAddDialog = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val listener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus) handlePendingKeyFetch()
+        }
+        view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+        onDispose { view.viewTreeObserver.removeOnWindowFocusChangeListener(listener) }
+    }
+
+    // AI Mode (Automatic / Gemini / Groq) + Automatic-mode preferences
+    var aiMode by remember { mutableStateOf(AiModePreferences.getMode(context)) }
+    var preferredProvider by remember { mutableStateOf(AiModePreferences.getPreferredProvider(context)) }
+    var fallbackEnabled by remember { mutableStateOf(AiModePreferences.isFallbackEnabled(context)) }
+    val configuredProviders by remember(keys) {
+        mutableStateOf(LlmProvider.entries.filter { p -> keys.any { it.llmProvider == p } })
+    }
 
     // Animation states
     var headerVisible by remember { mutableStateOf(false) }
@@ -97,12 +239,6 @@ fun AISettingsScreen(navController: NavHostController) {
         contentVisible = true
     }
 
-    fun refreshState() {
-        keys = GeminiKeyManager.getAllKeys(context)
-        activeKeyId = GeminiKeyManager.getActiveKeyId(context)
-        isEnabled = GeminiKeyManager.isEnabled(context)
-    }
-
     NoteScreenBackground {
         Scaffold(
             topBar = {
@@ -132,10 +268,14 @@ fun AISettingsScreen(navController: NavHostController) {
             },
             containerColor = Color.Transparent
         ) { paddingValues ->
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+            ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -188,15 +328,38 @@ fun AISettingsScreen(navController: NavHostController) {
                             onDelete = { deletingKey = it }
                         )
 
+                        // AI Mode Card — only meaningful once at least one key exists
+                        if (keys.isNotEmpty()) {
+                            AiModeCard(
+                                mode = aiMode,
+                                preferredProvider = preferredProvider,
+                                fallbackEnabled = fallbackEnabled,
+                                configuredProviders = configuredProviders,
+                                onModeChange = { newMode ->
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    AiModePreferences.setMode(context, newMode)
+                                    aiMode = newMode
+                                },
+                                onPreferredProviderChange = { provider ->
+                                    AiModePreferences.setPreferredProvider(context, provider)
+                                    preferredProvider = provider
+                                },
+                                onFallbackToggle = { enabled ->
+                                    AiModePreferences.setFallbackEnabled(context, enabled)
+                                    fallbackEnabled = enabled
+                                }
+                            )
+                        }
+
                         // How-to Card
                         HowToGetKeyCard(
                             onOpenGeminiLink = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))
-                                context.startActivity(intent)
+                                pendingKeyFetch = true
+                                openKeyPage(context, "https://aistudio.google.com/apikey")
                             },
                             onOpenGroqLink = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys"))
-                                context.startActivity(intent)
+                                pendingKeyFetch = true
+                                openKeyPage(context, "https://console.groq.com/keys")
                             }
                         )
 
@@ -207,13 +370,26 @@ fun AISettingsScreen(navController: NavHostController) {
                     }
                 }
             }
+
+            InAppNotificationBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            }
         }
     }
 
     // ──────────── Dialogs ────────────
     if (showAddDialog) {
         AddApiKeyDialog(
-            onDismiss = { showAddDialog = false },
+            prefill = clipboardPrefill,
+            prefillError = clipboardError,
+            onOpenGetKeyLink = { url ->
+                pendingKeyFetch = true
+                openKeyPage(context, url)
+            },
+            onDismiss = { showAddDialog = false; clipboardPrefill = null; clipboardError = null },
             onSave = { label, apiKey, provider ->
                 scope.launch {
                     GeminiKeyManager.addApiKey(context, label, apiKey, provider.name)
@@ -221,6 +397,8 @@ fun AISettingsScreen(navController: NavHostController) {
                     LlmService.invalidate()
                     refreshState()
                     showAddDialog = false
+                    clipboardPrefill = null
+                    clipboardError = null
                 }
             }
         )
@@ -759,6 +937,187 @@ private fun AnimatedApiKeyItem(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// AI MODE CARD — Automatic / Gemini / Groq, with preferred-provider +
+// cross-provider fallback controls when Automatic mode has 2+ keys.
+// ═══════════════════════════════════════════════════════════════════
+
+@Composable
+private fun AiModeCard(
+    mode: AiMode,
+    preferredProvider: LlmProvider?,
+    fallbackEnabled: Boolean,
+    configuredProviders: List<LlmProvider>,
+    onModeChange: (AiMode) -> Unit,
+    onPreferredProviderChange: (LlmProvider?) -> Unit,
+    onFallbackToggle: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
+        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Tune, null, tint = NoteTheme.Primary, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "AI Mode",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = NoteTheme.OnSurface
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            AiModeRadioRow(
+                title = "Automatic",
+                subtitle = "Uses your configured provider(s) and falls back on rate limits",
+                selected = mode == AiMode.AUTOMATIC,
+                enabled = true,
+                onClick = { onModeChange(AiMode.AUTOMATIC) }
+            )
+            AiModeRadioRow(
+                title = "Gemini",
+                subtitle = if (LlmProvider.GEMINI in configuredProviders) "Always use Gemini"
+                else "Add a Gemini key to use this mode",
+                selected = mode == AiMode.GEMINI,
+                enabled = LlmProvider.GEMINI in configuredProviders,
+                onClick = { onModeChange(AiMode.GEMINI) }
+            )
+            AiModeRadioRow(
+                title = "Groq",
+                subtitle = if (LlmProvider.GROQ in configuredProviders) "Always use Groq"
+                else "Add a Groq key to use this mode",
+                selected = mode == AiMode.GROQ,
+                enabled = LlmProvider.GROQ in configuredProviders,
+                onClick = { onModeChange(AiMode.GROQ) }
+            )
+
+            AnimatedVisibility(visible = mode == AiMode.AUTOMATIC && configuredProviders.size > 1) {
+                Column {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = NoteTheme.Outline.copy(alpha = 0.3f))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        "Preferred provider",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NoteTheme.OnSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PreferenceChip(
+                            label = "No preference",
+                            selected = preferredProvider == null,
+                            onClick = { onPreferredProviderChange(null) }
+                        )
+                        configuredProviders.forEach { provider ->
+                            PreferenceChip(
+                                label = provider.displayName,
+                                selected = preferredProvider == provider,
+                                onClick = { onPreferredProviderChange(provider) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Use the other provider as fallback",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = NoteTheme.OnSurface
+                            )
+                            Text(
+                                "Only on rate limits/timeouts — never on an invalid key",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NoteTheme.OnSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = fallbackEnabled,
+                            onCheckedChange = onFallbackToggle,
+                            colors = SwitchDefaults.colors(
+                                checkedTrackColor = NoteTheme.Primary,
+                                checkedThumbColor = NoteTheme.OnPrimary,
+                                uncheckedTrackColor = NoteTheme.Outline,
+                                uncheckedThumbColor = NoteTheme.OnSurfaceVariant
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiModeRadioRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = if (enabled) onClick else null,
+            enabled = enabled,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = NoteTheme.Primary,
+                unselectedColor = NoteTheme.OnSurfaceVariant
+            )
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) NoteTheme.OnSurface else NoteTheme.OnSurfaceVariant.copy(alpha = 0.6f)
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = NoteTheme.OnSurfaceVariant.copy(alpha = if (enabled) 1f else 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreferenceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) NoteTheme.Primary.copy(alpha = 0.15f) else NoteTheme.SurfaceVariant.copy(alpha = 0.5f),
+        border = if (selected) BorderStroke(1.dp, NoteTheme.Primary.copy(alpha = 0.4f)) else null
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (selected) NoteTheme.Primary else NoteTheme.OnSurfaceVariant
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // HOW-TO CARD
 // ═══════════════════════════════════════════════════════════════════
 
@@ -977,20 +1336,36 @@ private fun PrivacyInfoCard() {
 
 @Composable
 private fun AddApiKeyDialog(
+    prefill: Pair<String, LlmProvider>? = null,
+    prefillError: String? = null,
+    onOpenGetKeyLink: (url: String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (label: String, apiKey: String, provider: LlmProvider) -> Unit
 ) {
     var label by remember { mutableStateOf("") }
-    var apiKey by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf(prefill?.first ?: "") }
     var keyVisible by remember { mutableStateOf(false) }
-    var selectedProvider by remember { mutableStateOf(LlmProvider.GEMINI) }
+    var selectedProvider by remember { mutableStateOf(prefill?.second ?: LlmProvider.GEMINI) }
     var isValidating by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf(prefillError) }
     var showConfirmation by remember { mutableStateOf(false) }
     var providerDropdownExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Fires when clipboard auto-capture detects a key while this dialog is already
+    // open (e.g. the user tapped the "Get your key from…" link below, fetched one,
+    // and came back), or opens this dialog pre-filled after a background validation
+    // failure (see AISettingsScreen's clipboard-capture effect) — either way, the
+    // field/provider/error are filled in and the user still taps Validate & Save.
+    LaunchedEffect(prefill, prefillError) {
+        if (prefill != null) {
+            apiKey = prefill.first
+            selectedProvider = prefill.second
+        }
+        errorMessage = prefillError
+    }
 
     // Warning dialog
     if (showConfirmation) {
@@ -1156,9 +1531,15 @@ private fun AddApiKeyDialog(
                 // ── API Key ──
                 OutlinedTextField(
                     value = apiKey,
-                    onValueChange = {
-                        apiKey = it
+                    onValueChange = { newValue ->
+                        apiKey = newValue
                         errorMessage = null // Clear error on edit
+                        // Auto-detect provider from the key's prefix (typed or pasted) so the
+                        // user doesn't have to manually flip the dropdown — matches whichever
+                        // provider page they actually copied the key from.
+                        detectProviderFromKey(newValue.trim())?.let { detected ->
+                            selectedProvider = detected
+                        }
                     },
                     label = { Text("API Key", color = NoteTheme.OnSurfaceVariant) },
                     placeholder = { Text(selectedProvider.keyHint) },
@@ -1166,12 +1547,28 @@ private fun AddApiKeyDialog(
                     modifier = Modifier.fillMaxWidth(),
                     visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
-                        IconButton(onClick = { keyVisible = !keyVisible }) {
-                            Icon(
-                                if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = "Toggle visibility",
-                                tint = NoteTheme.OnSurfaceVariant
-                            )
+                        Row {
+                            IconButton(onClick = {
+                                val pasted = readClipboardText(context)
+                                if (!pasted.isNullOrBlank()) {
+                                    apiKey = pasted
+                                    errorMessage = null
+                                    detectProviderFromKey(pasted)?.let { selectedProvider = it }
+                                }
+                            }) {
+                                Icon(
+                                    Icons.Default.ContentPaste,
+                                    contentDescription = "Paste from clipboard",
+                                    tint = NoteTheme.OnSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { keyVisible = !keyVisible }) {
+                                Icon(
+                                    if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle visibility",
+                                    tint = NoteTheme.OnSurfaceVariant
+                                )
+                            }
                         }
                     },
                     isError = errorMessage != null,
@@ -1244,7 +1641,8 @@ private fun AddApiKeyDialog(
                     "Get your key from ${selectedProvider.keyGetUrl}",
                     style = MaterialTheme.typography.bodySmall,
                     color = NoteTheme.Primary,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    modifier = Modifier.clickable { onOpenGetKeyLink(selectedProvider.keyGetUrl) }
                 )
             }
         },

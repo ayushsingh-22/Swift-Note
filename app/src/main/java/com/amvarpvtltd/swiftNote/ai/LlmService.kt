@@ -20,7 +20,9 @@ import java.util.Locale
  * Unified LLM service that abstracts over Gemini and Groq.
  *
  * This is the single entry-point for AI calls across the app.
- * Routes requests to the correct provider based on the active key's provider setting.
+ * Routes requests per [AiModePreferences]: pinned to one provider, or Automatic mode
+ * which tries the preferred/default-ordered configured provider and falls back to the
+ * other configured provider only on retryable failures.
  *
  * Usage:
  *   val result = LlmService.getInstance(context).generateText(prompt, maxTokens = 30)
@@ -31,7 +33,6 @@ class LlmService private constructor(private val context: Context) {
         private const val TAG = "LlmService"
         private const val PREFS_NAME = "llm_service_prefs"
         private const val KEY_LAST_GOOD_MODEL = "last_working_model"
-        private const val KEY_LAST_GOOD_PROVIDER = "last_working_provider"
         private const val KEY_DAY = "daily_call_date"
         private const val KEY_DAY_COUNT = "daily_call_count"
         private const val KEY_GROQ_MODELS_CACHE = "groq_models_cache"
@@ -47,8 +48,6 @@ class LlmService private constructor(private val context: Context) {
         private const val GROQ_MAX_PER_DAY    = 250
 
         private const val TIMEOUT_MS = 12_000L
-
-        private val callTimestamps = mutableListOf<Long>()
 
         @SuppressLint("StaticFieldLeak") // Stores applicationContext only — safe
         @Volatile
@@ -75,6 +74,10 @@ class LlmService private constructor(private val context: Context) {
 
     private var currentApiKey: String? = null
     private val geminiModelCache = mutableMapOf<String, GenerativeModel>()
+    private val callTimestamps = mutableMapOf<LlmProvider, MutableList<Long>>()
+
+    /** Provider that actually fulfilled the most recent successful [generateText] call. */
+    private var lastUsedProvider: LlmProvider? = null
 
     // ────────────────────────── PUBLIC API ─────────────────────────────────────
 
@@ -84,21 +87,28 @@ class LlmService private constructor(private val context: Context) {
     fun isAvailable(): Boolean = GeminiKeyManager.isEnabled(context)
 
     /**
-     * Get the active provider (based on the currently active key's setting).
+     * Get the provider that handled the most recent successful call, falling back to
+     * the active key's provider if nothing has run yet this session.
      */
     fun getActiveProvider(): LlmProvider {
+        lastUsedProvider?.let { return it }
         val activeKey = GeminiKeyManager.getActiveKeyObject(context) ?: return LlmProvider.GEMINI
         return LlmProvider.fromName(activeKey.provider)
     }
 
     /**
-     * Generate text using the active LLM provider.
+     * Generate text using the user's configured AI mode (Automatic / Gemini / Groq — see
+     * [AiModePreferences]). In Automatic mode, tries the preferred (or default-ordered)
+     * configured provider first and falls back to the other configured provider only on
+     * retryable failures (rate limit / timeout / network). Invalid-key / auth failures never
+     * trigger a silent cross-provider fallback — the call simply fails so the caller's existing
+     * ML Kit/regex fallback takes over, and the bad key surfaces in AI Settings.
      *
      * @param prompt Full prompt (for Gemini) or user message (for Groq)
      * @param systemPrompt Optional system prompt (used by Groq; ignored by Gemini which uses prompt only)
      * @param temperature Creativity control (0.0–1.0)
      * @param maxTokens Max response tokens
-     * @return Generated text, or null if all models failed / rate limited
+     * @return Generated text, or null if all eligible providers failed / rate limited
      */
     suspend fun generateText(
         prompt: String,
@@ -107,25 +117,56 @@ class LlmService private constructor(private val context: Context) {
         maxTokens: Int = 256
     ): String? {
         if (!isAvailable()) return null
-        if (!canMakeCall()) {
-            Log.w(TAG, "⚠️ Rate/daily limited")
-            return null
-        }
 
-        val activeKey = GeminiKeyManager.getActiveKeyObject(context) ?: return null
-        val provider = LlmProvider.fromName(activeKey.provider)
-        val apiKey = activeKey.apiKey
+        val configured = LlmProvider.entries.filter { GeminiKeyManager.hasKeyForProvider(context, it) }
+        if (configured.isEmpty()) return null
 
-        val result = when (provider) {
-            LlmProvider.GEMINI -> tryGeminiModels(apiKey, prompt, temperature, maxTokens)
-            LlmProvider.GROQ -> tryGroqModels(apiKey, prompt, systemPrompt, temperature, maxTokens)
-        }
+        val mode = AiModePreferences.getMode(context)
+        val order: List<LlmProvider> = when (mode) {
+            AiMode.GEMINI -> listOf(LlmProvider.GEMINI)
+            AiMode.GROQ -> listOf(LlmProvider.GROQ)
+            AiMode.AUTOMATIC -> {
+                val preferred = AiModePreferences.getPreferredProvider(context)
+                val ordered = if (preferred != null) {
+                    listOf(preferred) + LlmProvider.entries.filterNot { it == preferred }
+                } else {
+                    LlmProvider.entries.toList()
+                }
+                if (AiModePreferences.isFallbackEnabled(context)) ordered else ordered.take(1)
+            }
+        }.filter { it in configured }
 
-        if (result != null) {
-            recordCall()
-            GeminiKeyManager.recordUsage(context)
+        for (provider in order) {
+            val key = GeminiKeyManager.getKeyForProvider(context, provider) ?: continue
+            if (!canMakeCall(provider)) {
+                Log.w(TAG, "⚠️ $provider rate/daily limited — trying next provider")
+                continue
+            }
+
+            val result = when (provider) {
+                LlmProvider.GEMINI -> tryGeminiModels(key.apiKey, prompt, temperature, maxTokens)
+                LlmProvider.GROQ -> tryGroqModels(key.apiKey, prompt, systemPrompt, temperature, maxTokens)
+            }
+
+            when (result) {
+                is ProviderCallResult.Success -> {
+                    recordCall(provider)
+                    GeminiKeyManager.recordUsage(context, key.id)
+                    lastUsedProvider = provider
+                    return result.text
+                }
+                is ProviderCallResult.AuthError -> {
+                    Log.e(TAG, "🔐 $provider auth error — aborting (no silent fallback): ${result.message}")
+                    return null
+                }
+                is ProviderCallResult.RetryableError -> {
+                    Log.w(TAG, "⏳ $provider retryable failure — trying next provider: ${result.message}")
+                    continue
+                }
+            }
         }
-        return result
+        Log.e(TAG, "🚫 All configured providers exhausted")
+        return null
     }
 
     /**
@@ -146,13 +187,13 @@ class LlmService private constructor(private val context: Context) {
         prompt: String,
         temperature: Float,
         maxTokens: Int
-    ): String? {
+    ): ProviderCallResult {
         if (apiKey != currentApiKey) {
             currentApiKey = apiKey
             geminiModelCache.clear()
         }
 
-        val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)
+        val lastGood = prefs.getString(lastGoodModelKey(LlmProvider.GEMINI), null)
             ?.takeIf { it in LlmModels.GEMINI_MODELS }
         val orderedModels = if (lastGood != null) {
             listOf(lastGood) + LlmModels.GEMINI_MODELS.filter { it != lastGood }
@@ -180,7 +221,7 @@ class LlmService private constructor(private val context: Context) {
                 val text = response.text?.trim()
                 if (!text.isNullOrBlank()) {
                     saveLastGoodModel(modelName, LlmProvider.GEMINI)
-                    return text
+                    return ProviderCallResult.Success(text)
                 }
             } catch (e: Exception) {
                 val msg = e.message?.lowercase() ?: ""
@@ -194,7 +235,7 @@ class LlmService private constructor(private val context: Context) {
                     msg.contains("invalid api key") || msg.contains("permission_denied") ||
                     msg.contains("unauthenticated") -> {
                         Log.e(TAG, "🔐 Gemini auth error — aborting")
-                        return null
+                        return ProviderCallResult.AuthError(e.message ?: "Invalid Gemini API key")
                     }
                     else -> {
                         Log.w(TAG, "❌ Gemini/$modelName: ${e.message?.take(80)} → next")
@@ -204,7 +245,7 @@ class LlmService private constructor(private val context: Context) {
             }
         }
         Log.e(TAG, "🚫 All Gemini models exhausted")
-        return null
+        return ProviderCallResult.RetryableError("All Gemini models exhausted or rate limited")
     }
 
     private suspend fun validateGeminiKey(apiKey: String): KeyValidationResult =
@@ -339,9 +380,9 @@ class LlmService private constructor(private val context: Context) {
         systemPrompt: String?,
         temperature: Float,
         maxTokens: Int
-    ): String? {
+    ): ProviderCallResult {
         val availableModels = getGroqModels(apiKey)
-        val lastGood = prefs.getString(KEY_LAST_GOOD_MODEL, null)
+        val lastGood = prefs.getString(lastGoodModelKey(LlmProvider.GROQ), null)
             ?.takeIf { it in availableModels }
         val orderedModels = if (lastGood != null) {
             listOf(lastGood) + availableModels.filter { it != lastGood }
@@ -360,7 +401,7 @@ class LlmService private constructor(private val context: Context) {
                 )
                 if (text.isNotBlank()) {
                     saveLastGoodModel(modelName, LlmProvider.GROQ)
-                    return text
+                    return ProviderCallResult.Success(text)
                 }
             } catch (e: GroqApiException) {
                 when {
@@ -370,7 +411,7 @@ class LlmService private constructor(private val context: Context) {
                     }
                     e.statusCode == 401 || e.statusCode == 403 -> {
                         Log.e(TAG, "🔐 Groq auth error — aborting")
-                        return null
+                        return ProviderCallResult.AuthError(e.message ?: "Invalid Groq API key")
                     }
                     e.statusCode == 404 -> {
                         Log.w(TAG, "⚠️ Groq/$modelName: not found → next")
@@ -388,7 +429,7 @@ class LlmService private constructor(private val context: Context) {
             }
         }
         Log.e(TAG, "🚫 All Groq models exhausted")
-        return null
+        return ProviderCallResult.RetryableError("All Groq models exhausted or rate limited")
     }
 
     private suspend fun validateGroqKey(apiKey: String): KeyValidationResult {
@@ -406,40 +447,52 @@ class LlmService private constructor(private val context: Context) {
 
     // ────────────────────────── HELPERS ────────────────────────────────────────
 
+    private fun lastGoodModelKey(provider: LlmProvider) = "${KEY_LAST_GOOD_MODEL}_${provider.name}"
+
     private fun saveLastGoodModel(model: String, provider: LlmProvider) {
-        prefs.edit {
-            putString(KEY_LAST_GOOD_MODEL, model)
-            putString(KEY_LAST_GOOD_PROVIDER, provider.name)
-        }
+        prefs.edit { putString(lastGoodModelKey(provider), model) }
     }
 
-    private fun canMakeCall(): Boolean {
-        val provider = getActiveProvider()
+    /** Rate limits are tracked independently per provider so one provider being
+     * throttled never blocks Automatic mode from trying the other. */
+    private fun canMakeCall(provider: LlmProvider): Boolean {
         val maxPerMinute = if (provider == LlmProvider.GROQ) GROQ_MAX_PER_MINUTE else GEMINI_MAX_PER_MINUTE
         val maxPerDay    = if (provider == LlmProvider.GROQ) GROQ_MAX_PER_DAY    else GEMINI_MAX_PER_DAY
 
         val now = System.currentTimeMillis()
-        callTimestamps.removeAll { now - it > 60_000 }
-        if (callTimestamps.size >= maxPerMinute) return false
+        val timestamps = callTimestamps.getOrPut(provider) { mutableListOf() }
+        timestamps.removeAll { now - it > 60_000 }
+        if (timestamps.size >= maxPerMinute) return false
 
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val savedDay = prefs.getString(KEY_DAY, "")
-        val dayCount = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0)
-        else {
-            prefs.edit { putString(KEY_DAY, today); putInt(KEY_DAY_COUNT, 0) }
-            0
-        }
+        val dayKey = "${KEY_DAY}_${provider.name}"
+        val countKey = "${KEY_DAY_COUNT}_${provider.name}"
+        val savedDay = prefs.getString(dayKey, "")
+        val dayCount = if (savedDay == today) prefs.getInt(countKey, 0) else 0
 
         return dayCount < maxPerDay
     }
 
-    private fun recordCall() {
-        callTimestamps.add(System.currentTimeMillis())
+    private fun recordCall(provider: LlmProvider) {
+        callTimestamps.getOrPut(provider) { mutableListOf() }.add(System.currentTimeMillis())
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val savedDay = prefs.getString(KEY_DAY, "")
-        val current = if (savedDay == today) prefs.getInt(KEY_DAY_COUNT, 0) else 0
-        prefs.edit { putString(KEY_DAY, today); putInt(KEY_DAY_COUNT, current + 1) }
+        val dayKey = "${KEY_DAY}_${provider.name}"
+        val countKey = "${KEY_DAY_COUNT}_${provider.name}"
+        val savedDay = prefs.getString(dayKey, "")
+        val current = if (savedDay == today) prefs.getInt(countKey, 0) else 0
+        prefs.edit { putString(dayKey, today); putInt(countKey, current + 1) }
     }
+}
+
+/**
+ * Outcome of a single provider's generation attempt — lets [LlmService.generateText]
+ * distinguish "try the next provider" (retryable) from "stop, don't fall back silently"
+ * (auth/invalid-key, per the fallback rules in AGENTS.md / AI settings UX).
+ */
+private sealed class ProviderCallResult {
+    data class Success(val text: String) : ProviderCallResult()
+    data class AuthError(val message: String) : ProviderCallResult()
+    data class RetryableError(val message: String) : ProviderCallResult()
 }
 
 /**
