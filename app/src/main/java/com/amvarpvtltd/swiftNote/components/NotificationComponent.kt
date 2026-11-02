@@ -60,7 +60,10 @@ data class NotificationData(
     val title: String,
     val message: String,
     val type: NotificationType = NotificationType.INFO,
-    val duration: Long = 3000 // Default duration in milliseconds
+    val duration: Long = 3000, // Default duration in milliseconds
+    /** Optional inline action (e.g. "Undo") rendered next to the dismiss button. */
+    val actionLabel: String? = null,
+    val onAction: (() -> Unit)? = null
 )
 
 object NotificationManager {
@@ -73,13 +76,17 @@ object NotificationManager {
         title: String,
         message: String,
         type: NotificationType = NotificationType.INFO,
-        duration: Long = 3000
+        duration: Long = 3000,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null
     ) {
         _currentNotification.value = NotificationData(
             title = title,
             message = message,
             type = type,
-            duration = duration
+            duration = duration,
+            actionLabel = actionLabel,
+            onAction = onAction
         )
     }
 
@@ -99,6 +106,24 @@ object NotificationHelper {
             message = message,
             type = NotificationType.SUCCESS,
             duration = duration
+        )
+    }
+
+    /** Success banner with an inline action (e.g. "Undo") next to the dismiss button. */
+    fun showSuccessWithAction(
+        title: String,
+        message: String,
+        actionLabel: String,
+        onAction: () -> Unit,
+        duration: Long = 5000
+    ) {
+        NotificationManager.showNotification(
+            title = title,
+            message = message,
+            type = NotificationType.SUCCESS,
+            duration = duration,
+            actionLabel = actionLabel,
+            onAction = onAction
         )
     }
 
@@ -241,6 +266,23 @@ fun InAppNotificationBanner(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = config.contentColor.copy(alpha = 0.8f),
                                 modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+                    }
+                    // Optional inline action (e.g. "Undo") — runs the action, then dismisses.
+                    if (data.actionLabel != null && data.onAction != null) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                data.onAction.invoke()
+                                visible = false
+                                NotificationManager.clearNotification()
+                            }
+                        ) {
+                            Text(
+                                text = data.actionLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = config.iconTint
                             )
                         }
                     }

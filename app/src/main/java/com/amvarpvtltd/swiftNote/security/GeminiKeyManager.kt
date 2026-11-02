@@ -141,12 +141,14 @@ object GeminiKeyManager {
     }
 
     /**
-     * Record usage of the active key (called after each LLM API call).
+     * Record usage of a key (called after each LLM API call).
+     * Pass [keyId] to credit a specific key (e.g. the one Automatic mode actually used);
+     * omit it to credit the globally active key (legacy single-provider behavior).
      */
-    fun recordUsage(context: Context) {
-        val activeId = getActiveKeyId(context) ?: return
+    fun recordUsage(context: Context, keyId: String? = null) {
+        val targetId = keyId ?: getActiveKeyId(context) ?: return
         val keys = getAllKeys(context).toMutableList()
-        val idx = keys.indexOfFirst { it.id == activeId }
+        val idx = keys.indexOfFirst { it.id == targetId }
         if (idx >= 0) {
             keys[idx] = keys[idx].copy(
                 lastUsed = System.currentTimeMillis(),
@@ -194,6 +196,24 @@ object GeminiKeyManager {
         val keys = getAllKeys(context)
         return keys.find { it.id == activeId } ?: keys.firstOrNull()
     }
+
+    /**
+     * Get the best key for a specific provider — the active key if it happens to
+     * belong to that provider, otherwise the first configured key for that provider.
+     * Used by Automatic mode's cross-provider fallback in [com.amvarpvtltd.swiftNote.ai.LlmService].
+     */
+    fun getKeyForProvider(context: Context, provider: LlmProvider): GeminiApiKey? {
+        val keys = getAllKeys(context)
+        val activeId = getActiveKeyId(context)
+        return keys.find { it.id == activeId && it.llmProvider == provider }
+            ?: keys.firstOrNull { it.llmProvider == provider }
+    }
+
+    /**
+     * Whether at least one key is configured for the given provider.
+     */
+    fun hasKeyForProvider(context: Context, provider: LlmProvider): Boolean =
+        getAllKeys(context).any { it.llmProvider == provider }
 
     // ──────────────────── Enable/Disable ────────────────────
 
