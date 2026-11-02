@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.viewModels
+import com.amvarpvtltd.swiftNote.viewmodel.NotificationNavigationViewModel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,10 +29,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var permissionManager: PermissionManager
 
 
-    // LiveData to hold the noteId from notification
+    private val notificationNavigation: NotificationNavigationViewModel by viewModels()
+
+    // Share/widget actions retain their existing handling.
     companion object {
         private const val TAG = "MainActivity"
-        val noteIdToOpen = MutableLiveData<String?>()
+        const val EXTRA_NOTE_ID = "noteId"
         // Phase 5: Share/widget action state
         val pendingAction = MutableLiveData<QuickAction?>()
     }
@@ -57,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
 
         // Check for noteId in intent
-        handleIntent(intent)
+        if (savedInstanceState == null) handleIntent(intent)
 
         setContent {
             SelfNoteTheme {
@@ -65,7 +69,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MyApp()
+                    MyApp(notificationNavigation = notificationNavigation)
                 }
             }
         }
@@ -73,15 +77,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent) {
         // Check if we have a noteId in the intent (from notification or widget)
-        val noteId = intent.getStringExtra("noteId")
-        if (!noteId.isNullOrEmpty()) {
+        val noteId = intent.getStringExtra(EXTRA_NOTE_ID)
+        if (!noteId.isNullOrBlank()) {
             Log.d(TAG, "📱 Received noteId from notification/widget: $noteId")
-            noteIdToOpen.value = noteId
+            notificationNavigation.openNote(noteId)
             return
         }
 

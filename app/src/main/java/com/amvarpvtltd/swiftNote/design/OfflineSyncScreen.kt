@@ -39,6 +39,7 @@ import com.amvarpvtltd.swiftNote.utils.Constants
 import com.amvarpvtltd.swiftNote.utils.NetworkManager
 import kotlinx.coroutines.launch
 import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,6 +133,7 @@ fun OfflineSyncScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(if (showBackButton) paddingValues else PaddingValues(top = 32.dp))
+                    .responsiveContentWidth(dims)
                     .padding(dims.paddingLarge)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -185,23 +187,23 @@ fun OfflineSyncScreen(
                             Icon(
                                 imageVector = if (isOnline) Icons.Outlined.Wifi else Icons.Outlined.WifiOff,
                                 contentDescription = null,
-                                tint = if (isOnline) NoteTheme.Success else NoteTheme.Error,
+                                tint = NoteTheme.Primary,
                                 modifier = Modifier.size(32.dp)
                             )
                         }
 
                         Text(
-                            text = if (isOnline) "Connected" else "Disconnected",
+                            text = if (isOnline) "Connected" else "Offline, still ready.",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
-                            color = if (isOnline) NoteTheme.Success else NoteTheme.Error
+                            color = NoteTheme.OnSurface
                         )
 
                         Text(
                             text = if (isOnline)
                                 "Your device is connected to the internet"
                             else
-                                "No internet connection available",
+                                "Your notes remain available on this device.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = NoteTheme.OnSurfaceVariant,
                             textAlign = TextAlign.Center

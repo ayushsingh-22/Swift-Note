@@ -105,7 +105,7 @@ fun SearchBar(
             .heightIn(min = 48.dp)
             .animateContentSize(),
         colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-        shape = RoundedCornerShape(NoteTheme.Radius.full.dp),
+        shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,

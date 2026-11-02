@@ -264,7 +264,7 @@ private fun ToolbarIconBtn(
     IconButton(
         onClick   = onClick,
         modifier  = Modifier
-            .size(36.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(bgColor)
     ) {

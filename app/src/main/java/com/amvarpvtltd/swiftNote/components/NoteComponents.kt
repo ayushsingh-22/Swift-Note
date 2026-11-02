@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -115,7 +116,8 @@ fun IconActionButton(
     val dims = rememberResponsiveDimensions()
     Box(
         modifier = modifier
-            .clip(CircleShape)
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(containerColor)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },

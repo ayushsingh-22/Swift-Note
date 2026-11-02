@@ -149,11 +149,15 @@ fun NotesDisplay(
     onReminder: (dataclass) -> Unit,
     onPin: (dataclass) -> Unit = {},
     onArchive: (dataclass) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showSections: Boolean = false
 ) {
+    val displayNotes = remember(notes, showSections) {
+        if (showSections) notes.sortedByDescending { it.isPinned } else notes
+    }
     when (viewMode) {
         ViewMode.CARD -> NotesCardView(
-            notes = notes,
+            notes = displayNotes,
             onView = onView,
             onEdit = onEdit,
             onDelete = onDelete,
@@ -161,10 +165,11 @@ fun NotesDisplay(
             onReminder = onReminder,
             onPin = onPin,
             onArchive = onArchive,
-            modifier = modifier
+            modifier = modifier,
+            showSections = showSections
         )
         ViewMode.LIST -> NotesListView(
-            notes = notes,
+            notes = displayNotes,
             onView = onView,
             onEdit = onEdit,
             onDelete = onDelete,
@@ -172,10 +177,11 @@ fun NotesDisplay(
             onReminder = onReminder,
             onPin = onPin,
             onArchive = onArchive,
-            modifier = modifier
+            modifier = modifier,
+            showSections = showSections
         )
         ViewMode.GRID -> NotesGridView(
-            notes = notes,
+            notes = displayNotes,
             onView = onView,
             onEdit = onEdit,
             onDelete = onDelete,
@@ -183,7 +189,8 @@ fun NotesDisplay(
             onReminder = onReminder,
             onPin = onPin,
             onArchive = onArchive,
-            modifier = modifier
+            modifier = modifier,
+            showSections = showSections
         )
     }
 }
@@ -200,7 +207,8 @@ private fun NotesCardView(
     onReminder: (dataclass) -> Unit,
     onPin: (dataclass) -> Unit,
     onArchive: (dataclass) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showSections: Boolean = false
 ) {
     val dims = rememberResponsiveDimensions()
     LazyColumn(
@@ -211,12 +219,16 @@ private fun NotesCardView(
             end = dims.paddingMedium,
             bottom = 100.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(dims.paddingMedium)
+        verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
     ) {
         itemsIndexed(
             items = notes,
-            key = { _, note -> note.id }
+            key = { _, note -> note.id },
+            contentType = { _, _ -> "note" }
         ) { index, note ->
+            if (showSections && (index == 0 || notes[index - 1].isPinned != note.isPinned)) {
+                SwiftNoteSectionHeader(if (note.isPinned) "Pinned" else "Recent notes")
+            }
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { dismissValue ->
                     when (dismissValue) {
@@ -290,7 +302,8 @@ private fun NotesListView(
     onReminder: (dataclass) -> Unit,
     onPin: (dataclass) -> Unit,
     onArchive: (dataclass) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showSections: Boolean = false
 ) {
     val dims = rememberResponsiveDimensions()
     LazyColumn(
@@ -305,8 +318,12 @@ private fun NotesListView(
     ) {
         itemsIndexed(
             items = notes,
-            key = { _, note -> note.id }
+            key = { _, note -> note.id },
+            contentType = { _, _ -> "note" }
         ) { index, note ->
+            if (showSections && (index == 0 || notes[index - 1].isPinned != note.isPinned)) {
+                SwiftNoteSectionHeader(if (note.isPinned) "Pinned" else "Recent notes")
+            }
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { dismissValue ->
                     when (dismissValue) {
@@ -359,6 +376,8 @@ private fun NotesListView(
                     onDelete = onDelete,
                     onShare = onShare,
                     onReminder = onReminder,
+                    onPin = onPin,
+                    onArchive = onArchive,
                 )
             }
         }
@@ -376,7 +395,8 @@ private fun NotesGridView(
     onReminder: (dataclass) -> Unit,
     onPin: (dataclass) -> Unit,
     onArchive: (dataclass) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showSections: Boolean = false
 ) {
     val dims = rememberResponsiveDimensions()
     // Adaptive columns: fits as many ~150dp-wide cards as possible.
@@ -397,9 +417,15 @@ private fun NotesGridView(
         verticalArrangement = Arrangement.spacedBy(dims.paddingSmall),
         horizontalArrangement = Arrangement.spacedBy(dims.paddingSmall)
     ) {
+        if (showSections) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                SwiftNoteSectionHeader(if (notes.any { it.isPinned }) "Pinned & recent" else "Recent notes")
+            }
+        }
         itemsIndexed(
             items = notes,
-            key = { _, note -> note.id }
+            key = { _, note -> note.id },
+            contentType = { _, _ -> "note" }
         ) { index, note ->
             NoteGridItem(
                 note = note,
@@ -409,7 +435,8 @@ private fun NotesGridView(
                 onDelete = onDelete,
                 onShare = onShare,
                 onReminder = onReminder,
-
+                onPin = onPin,
+                onArchive = onArchive,
             )
         }
     }
@@ -418,708 +445,40 @@ private fun NotesGridView(
 // Card Item Component (enhanced with pin/archive)
 @Composable
 private fun NoteCardItem(
-    note: dataclass,
-    index: Int,
-    onView: (dataclass) -> Unit,
-    onEdit: (dataclass) -> Unit,
-    onDelete: (dataclass) -> Unit,
-    onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit,
-    onPin: (dataclass) -> Unit,
-    onArchive: (dataclass) -> Unit,
-    modifier: Modifier = Modifier
+    note: dataclass, index: Int,
+    onView: (dataclass) -> Unit, onEdit: (dataclass) -> Unit,
+    onDelete: (dataclass) -> Unit, onShare: (dataclass) -> Unit,
+    onReminder: (dataclass) -> Unit, onPin: (dataclass) -> Unit,
+    onArchive: (dataclass) -> Unit, modifier: Modifier = Modifier
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var isPressed by remember { mutableStateOf(false) }
-    val hapticFeedback = LocalHapticFeedback.current
-    val context = LocalContext.current
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "card_scale"
-    )
-
-    val cardColors = noteCardColors()
-    val cardColorPair = cardColors[index % cardColors.size]
-    // Use category color if available, otherwise default accent
-    val accentColor = if (note.category.isNotBlank()) {
-        com.amvarpvtltd.swiftNote.categories.CategoryManager.getCategoryColor(context, note.category)
-            ?: cardColorPair.second
-    } else {
-        cardColorPair.second
-    }
-
-    AnimatedVisibility(
-        visible = true,
-        enter = slideInVertically(
-            initialOffsetY = { it / 3 },
-            animationSpec = tween(durationMillis = 350, delayMillis = (index * 50).coerceAtMost(200))
-        ) + scaleIn(
-            initialScale = 0.95f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-        ) + fadeIn(animationSpec = tween(durationMillis = 300, delayMillis = (index * 50).coerceAtMost(200)))
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .scale(scale)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    isPressed = true
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onView(note)
-                },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(1.dp, NoteTheme.Outline)
-        ) {
-            Row {
-                // Left accent stripe — category color always
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
-                        .fillMaxHeight()
-                        .background(accentColor)
-                )
-
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    // Pinned pill tag — shown above title
-                    if (note.isPinned) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(NoteTheme.Warning.copy(alpha = 0.12f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.PushPin,
-                                contentDescription = null,
-                                tint = NoteTheme.Warning,
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Text(
-                                text = "Pinned",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = NoteTheme.Warning,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    // Title row
-                    Text(
-                        text = RichTextBridge.stripHtmlToPlainText(note.title),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 18.sp,
-                            lineHeight = 24.sp,
-                            letterSpacing = 0.sp
-                        ),
-                        fontWeight = FontWeight.SemiBold,
-                        color = NoteTheme.OnSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (note.description.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Phase 1: Show checklist progress or text preview
-                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
-                            && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
-                            val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
-                            val allDone = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isAllDone(note.description)
-                            ChecklistProgressIndicator(checked = checked, total = total)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.getPreviewText(note.description),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    lineHeight = 22.sp,
-                                    textDecoration = if (allDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
-                                ),
-                                color = if (allDone) NoteTheme.OnSurfaceVariant.copy(alpha = 0.5f) else NoteTheme.OnSurfaceVariant,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        } else {
-                        Text(
-                            text = RichTextBridge.stripHtmlToPlainText(note.description),
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                            color = NoteTheme.OnSurfaceVariant,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Pin button — filled icon when pinned, outlined when not
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onPin(note)
-                            },
-                            icon = if (note.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = if (note.isPinned) "Unpin" else "Pin",
-                            containerColor = NoteTheme.Warning.copy(alpha = if (note.isPinned) 0.18f else 0.10f),
-                            contentColor = NoteTheme.Warning
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Archive / Unarchive button — icon adapts based on note state
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onArchive(note)
-                            },
-                            icon = if (note.isArchived) Icons.Outlined.Unarchive else Icons.Outlined.Archive,
-                            contentDescription = if (note.isArchived) "Unarchive" else "Archive",
-                            containerColor = NoteTheme.Success.copy(alpha = 0.10f),
-                            contentColor = NoteTheme.Success
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Share button — primary/indigo color
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onShare(note)
-                            },
-                            icon = Icons.Outlined.Share,
-                            contentDescription = "Share",
-                            containerColor = NoteTheme.Primary.copy(alpha = 0.10f),
-                            contentColor = NoteTheme.Primary
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Delete button — error/red color
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showDeleteDialog = true
-                            },
-                            icon = Icons.Outlined.Delete,
-                            contentDescription = "Delete",
-                            containerColor = NoteTheme.Error.copy(alpha = 0.10f),
-                            contentColor = NoteTheme.Error
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Edit button — accent color (per card palette)
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onEdit(note)
-                            },
-                            icon = Icons.Outlined.Edit,
-                            contentDescription = "Edit",
-                            containerColor = accentColor.copy(alpha = 0.10f),
-                            contentColor = accentColor
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Reminder button — secondary/slate color
-                        IconActionButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onReminder(note)
-                            },
-                            icon = Icons.Outlined.Alarm,
-                            contentDescription = "Set Reminder",
-                            containerColor = NoteTheme.Secondary.copy(alpha = 0.10f),
-                            contentColor = NoteTheme.Secondary
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    DeleteConfirmationDialog(
-        showDialog = showDeleteDialog,
-        onDismiss = { showDeleteDialog = false },
-        onConfirm = {
-            showDeleteDialog = false
-            onDelete(note)
-        },
-        title = note.title,
-        message = "Are you sure you want to delete:"
-    )
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            delay(100)
-            isPressed = false
-        }
-    }
+    SwiftNoteNoteCard(note, onView, onEdit, onDelete, onShare, onReminder,
+        modifier = Modifier, onPin = onPin, onArchive = onArchive)
 }
 
-// List Item Component (compact horizontal layout)
 @Composable
 private fun NoteListItem(
-    note: dataclass,
-    index: Int,
-    onView: (dataclass) -> Unit,
-    onEdit: (dataclass) -> Unit,
-    onDelete: (dataclass) -> Unit,
-    onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    note: dataclass, index: Int,
+    onView: (dataclass) -> Unit, onEdit: (dataclass) -> Unit,
+    onDelete: (dataclass) -> Unit, onShare: (dataclass) -> Unit,
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit, onArchive: (dataclass) -> Unit
 ) {
-    val dims = rememberResponsiveDimensions()
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var isPressed by remember { mutableStateOf(false) }
-    val hapticFeedback = LocalHapticFeedback.current
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "list_scale"
-    )
-
-    AnimatedVisibility(
-        visible = true,
-        enter = slideInVertically(
-            initialOffsetY = { it / 5 },
-            animationSpec = tween(durationMillis = 250, delayMillis = (index * 35).coerceAtMost(150))
-        ) + fadeIn(animationSpec = tween(durationMillis = 250, delayMillis = (index * 35).coerceAtMost(150)))
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .scale(scale)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    isPressed = true
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onView(note)
-                },
-            shape = RoundedCornerShape(NoteTheme.Radius.md.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(1.dp, NoteTheme.Outline)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(dims.paddingMedium),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Content section
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val listTitleAnnotated = remember(note.title) {
-                            if (note.title.contains('<')) {
-                                RichTextBridge.stripHtmlToPlainText(note.title)
-                            } else null
-                        }
-                        Text(
-                            text = listTitleAnnotated ?: note.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NoteTheme.OnSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        if (note.isPinned) {
-                            Icon(
-                                Icons.Outlined.PushPin,
-                                contentDescription = "Pinned",
-                                tint = NoteTheme.Warning,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-
-                    if (note.description.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
-                            && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
-                            val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
-                            val allDoneList = checked == total && total > 0
-                            Text(
-                                text = "☑ $checked/$total items done",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    textDecoration = if (allDoneList) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
-                                ),
-                                color = if (allDoneList) NoteTheme.Primary.copy(alpha = 0.6f) else NoteTheme.Primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        } else {
-                        val listDescAnnotated = remember(note.description) {
-                            if (note.description.contains('<')) {
-                                RichTextBridge.stripHtmlToPlainText(note.description)
-                            } else null
-                        }
-                        Text(
-                            text = listDescAnnotated ?: note.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NoteTheme.OnSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        }
-                    }
-                }
-
-                // Action buttons
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onShare(note)
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Share,
-                            contentDescription = "Share",
-                            tint = NoteTheme.Primary,
-                            modifier = Modifier.size(dims.iconMedium)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onEdit(note)
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Edit,
-                            contentDescription = "Edit",
-                            tint = NoteTheme.Secondary,
-                            modifier = Modifier.size(dims.iconMedium)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showDeleteDialog = true
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Delete,
-                            contentDescription = "Delete",
-                            tint = NoteTheme.Error,
-                            modifier = Modifier.size(dims.iconMedium)
-                        )
-                    }
-
-                    // Reminder button
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onReminder(note)
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.Alarm,
-                            contentDescription = "Set Reminder",
-                            tint = NoteTheme.Secondary,
-                            modifier = Modifier.size(dims.iconMedium)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    DeleteConfirmationDialog(
-        showDialog = showDeleteDialog,
-        onDismiss = { showDeleteDialog = false },
-        onConfirm = {
-            showDeleteDialog = false
-            onDelete(note)
-        },
-        title = note.title,
-        message = "Are you sure you want to delete:"
-    )
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            delay(100)
-            isPressed = false
-        }
-    }
+    SwiftNoteNoteCard(note, onView, onEdit, onDelete, onShare, onReminder,
+        compact = true, onPin = onPin, onArchive = onArchive)
 }
 
-// Grid Item Component (compact card layout)
 @Composable
 private fun NoteGridItem(
-    note: dataclass,
-    index: Int,
-    onView: (dataclass) -> Unit,
-    onEdit: (dataclass) -> Unit,
-    onDelete: (dataclass) -> Unit,
-    onShare: (dataclass) -> Unit,
-    onReminder: (dataclass) -> Unit, // Added reminder action
+    note: dataclass, index: Int,
+    onView: (dataclass) -> Unit, onEdit: (dataclass) -> Unit,
+    onDelete: (dataclass) -> Unit, onShare: (dataclass) -> Unit,
+    onReminder: (dataclass) -> Unit,
+    onPin: (dataclass) -> Unit, onArchive: (dataclass) -> Unit,
     onCopy: ((dataclass) -> Unit)? = null
 ) {
-    val dims = rememberResponsiveDimensions()
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var isPressed by remember { mutableStateOf(false) }
-    val hapticFeedback = LocalHapticFeedback.current
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "grid_scale"
-    )
-
-    val cardColors = noteCardColors()
-    val cardColorPair = cardColors[index % cardColors.size]
-    // backgroundColor removed - using NoteTheme.Surface for premium white cards
-    val accentColor = cardColorPair.second
-
-    AnimatedVisibility(
-        visible = true,
-        enter = scaleIn(
-            initialScale = 0.92f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-        ) + fadeIn(animationSpec = tween(durationMillis = 250, delayMillis = (index * 40).coerceAtMost(150)))
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(dims.cardMinHeight)
-                .scale(scale)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    isPressed = true
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onView(note)
-                },
-            shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (note.isPinned) NoteTheme.Warning.copy(alpha = 0.08f) else NoteTheme.Surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(1.dp, NoteTheme.Outline)
-        ) {
-            Box {
-                // Left accent stripe �� always category color
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .fillMaxHeight()
-                        .background(accentColor)
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(dims.paddingSmall),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // Content section
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Title with inline pin icon for pinned notes
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            val gridTitleAnnotated = remember(note.title) {
-                                if (note.title.contains('<')) {
-                                    RichTextBridge.stripHtmlToPlainText(note.title)
-                                } else null
-                            }
-                            Text(
-                                text = gridTitleAnnotated ?: note.title,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = NoteTheme.OnSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (note.isPinned) {
-                                Icon(
-                                    Icons.Outlined.PushPin,
-                                    contentDescription = "Pinned",
-                                    tint = NoteTheme.Warning,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                            }
-                        }
-
-                        if (note.description.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            if (com.amvarpvtltd.swiftNote.checklist.ChecklistParser.isChecklistContent(note.description)
-                                && com.amvarpvtltd.swiftNote.checklist.ChecklistParser.parseItems(note.description).isNotEmpty()) {
-                                val (checked, total) = com.amvarpvtltd.swiftNote.checklist.ChecklistParser.progress(note.description)
-                                val allDoneGrid = checked == total && total > 0
-                                Text(
-                                    text = "☑ $checked/$total items done",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        textDecoration = if (allDoneGrid) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
-                                    ),
-                                    color = if (allDoneGrid) NoteTheme.Primary.copy(alpha = 0.6f) else NoteTheme.Primary,
-                                    maxLines = 1
-                                )
-                            } else {
-                            val gridDescAnnotated = remember(note.description) {
-                                if (note.description.contains('<')) {
-                                    RichTextBridge.stripHtmlToPlainText(note.description)
-                                } else null
-                            }
-                            Text(
-                                text = gridDescAnnotated ?: note.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = NoteTheme.OnSurfaceVariant,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            }
-                        }
-                    }
-
-                    // Action buttons row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onShare(note)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Share,
-                                contentDescription = "Share",
-                                tint = accentColor,
-                                modifier = Modifier.size(dims.iconSmall)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onEdit(note)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Edit,
-                                contentDescription = "Edit",
-                                tint = accentColor,
-                                modifier = Modifier.size(dims.iconSmall)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showDeleteDialog = true
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = "Delete",
-                                tint = NoteTheme.Error,
-                                modifier = Modifier.size(dims.iconSmall)
-                            )
-                        }
-
-                        // Reminder button
-                        IconButton(
-                            onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onReminder(note)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Alarm,
-                                contentDescription = "Set Reminder",
-                                tint = accentColor,
-                                modifier = Modifier.size(dims.iconSmall)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    DeleteConfirmationDialog(
-        showDialog = showDeleteDialog,
-        onDismiss = { showDeleteDialog = false },
-        onConfirm = {
-            showDeleteDialog = false
-            onDelete(note)
-        },
-        title = note.title,
-        message = "Are you sure you want to delete:"
-    )
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            delay(100)
-            isPressed = false
-        }
-    }
+    SwiftNoteNoteCard(note, onView, onEdit, onDelete, onShare, onReminder,
+        compact = true, onPin = onPin, onArchive = onArchive, onCopy = onCopy)
 }
 
-// Premium note card accent palette — theme surface + colored left accent stripe.
-// Must be a @Composable so NoteTheme.Surface (mutableStateOf) is read reactively;
-// a top-level `val` would snapshot the light value at class-init and never update.
 @Composable
-fun noteCardColors(): List<Pair<Color, Color>> = listOf(
-    NoteTheme.Surface to Color(0xFF0D9488), // Surface + Teal
-    NoteTheme.Surface to Color(0xFFD97706), // Surface + Amber
-    NoteTheme.Surface to Color(0xFFE11D48), // Surface + Rose
-    NoteTheme.Surface to Color(0xFF4F46E5), // Surface + Indigo
-    NoteTheme.Surface to Color(0xFF059669), // Surface + Emerald
-    NoteTheme.Surface to Color(0xFF0284C7), // Surface + Sky
-)
-
-// Pinned note visual identity — uses NoteTheme.Warning (amber) which adapts to dark/light mode
-// Use NoteTheme.Warning for NoteTheme.Warning and NoteTheme.Warning.copy(alpha = 0.08f) for NoteTheme.Warning.copy(alpha = 0.08f)
+fun noteCardColors(): List<Pair<Color, Color>> = NoteTheme.NoteAccentColors.map { NoteTheme.Surface to it }

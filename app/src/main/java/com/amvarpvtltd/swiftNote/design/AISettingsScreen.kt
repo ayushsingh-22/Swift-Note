@@ -20,6 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -207,37 +211,8 @@ fun AISettingsScreen(navController: NavHostController) {
         mutableStateOf(LlmProvider.entries.filter { p -> keys.any { it.llmProvider == p } })
     }
 
-    // Animation states
-    var headerVisible by remember { mutableStateOf(false) }
-    var contentVisible by remember { mutableStateOf(false) }
-
-    // Pulsing animation for the AI icon
-    val infiniteTransition = rememberInfiniteTransition(label = "ai_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse"
-    )
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
-
-    LaunchedEffect(Unit) {
-        delay(100)
-        headerVisible = true
-        delay(200)
-        contentVisible = true
-    }
+    // Show controls immediately; navigation already supplies the screen transition.
+    var showKeyHelp by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     NoteScreenBackground {
         Scaffold(
@@ -276,30 +251,19 @@ fun AISettingsScreen(navController: NavHostController) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .responsiveContentWidth(rememberResponsiveDimensions())
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // ──────────── Animated Hero Section ────────────
-                AnimatedVisibility(
-                    visible = headerVisible,
-                    enter = slideInVertically(
-                        initialOffsetY = { -it / 3 },
-                        animationSpec = tween(500, easing = EaseOutCubic)
-                    ) + fadeIn(tween(500))
-                ) {
-                    AIHeroCard(pulseScale = pulseScale, glowAlpha = glowAlpha, isEnabled = isEnabled)
+                Box {
+                    AIHeroCard(isEnabled = isEnabled)
                 }
 
                 // ──────────── Content ────────────
-                AnimatedVisibility(
-                    visible = contentVisible,
-                    enter = slideInVertically(
-                        initialOffsetY = { it / 2 },
-                        animationSpec = tween(600, easing = EaseOutCubic)
-                    ) + fadeIn(tween(600))
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Enable/Disable Card
                         if (keys.isNotEmpty()) {
                             AIToggleCard(
@@ -351,8 +315,11 @@ fun AISettingsScreen(navController: NavHostController) {
                             )
                         }
 
-                        // How-to Card
-                        HowToGetKeyCard(
+                        TextButton(onClick = { showKeyHelp = !showKeyHelp }) {
+                            Text(if (showKeyHelp) "Hide API key guide" else "How to get a free API key")
+                            Icon(if (showKeyHelp) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
+                        }
+                        if (showKeyHelp) HowToGetKeyCard(
                             onOpenGeminiLink = {
                                 pendingKeyFetch = true
                                 openKeyPage(context, "https://aistudio.google.com/apikey")
@@ -452,137 +419,14 @@ fun AISettingsScreen(navController: NavHostController) {
 // ═══════════════════════════════════════════════════════════════════
 
 @Composable
-private fun AIHeroCard(pulseScale: Float, glowAlpha: Float, isEnabled: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(NoteTheme.Radius.xl.dp),
-        colors = CardDefaults.cardColors(containerColor = NoteTheme.SurfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = BorderStroke(1.dp, NoteTheme.Primary.copy(alpha = 0.22f))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min)
-                .background(
-                    brush = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0.00f to NoteTheme.Primary.copy(alpha = 0.18f),
-                            0.45f to NoteTheme.Primary.copy(alpha = 0.07f),
-                            1.00f to Color.Transparent
-                        )
-                    )
-                )
-        ) {
-            // Left accent stripe
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .align(Alignment.CenterStart)
-                    .clip(RoundedCornerShape(topStart = NoteTheme.Radius.xl.dp, bottomStart = NoteTheme.Radius.xl.dp))
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                NoteTheme.Primary,
-                                NoteTheme.Primary.copy(alpha = 0.5f)
-                            )
-                        )
-                    )
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)
-            ) {
-                // Pulsing AI orb
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    // Outer glow pulse
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .scale(pulseScale)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        NoteTheme.Primary.copy(alpha = glowAlpha * 0.35f),
-                                        Color.Transparent
-                                    )
-                                ),
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                    )
-                    // Icon container — rounded square
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(
-                                color = NoteTheme.Primary.copy(alpha = 0.14f),
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                    ) {
-                        Text("✨", fontSize = 22.sp)
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    // Title + status pill on same row
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            "Smart AI",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = NoteTheme.OnSurface
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isEnabled) NoteTheme.Success.copy(alpha = 0.15f)
-                            else NoteTheme.OnSurfaceVariant.copy(alpha = 0.12f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(5.dp)
-                                        .background(
-                                            if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant,
-                                            CircleShape
-                                        )
-                                )
-                                Text(
-                                    if (isEnabled) "Active" else "Inactive",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isEnabled) NoteTheme.Success else NoteTheme.OnSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Gemini & Groq — understands Hindi, Hinglish & complex reminders",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NoteTheme.OnSurfaceVariant,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-        }
-    }
+private fun AIHeroCard(isEnabled: Boolean) {
+    com.amvarpvtltd.swiftNote.components.SwiftNoteFeatureHeader(
+        icon = Icons.Outlined.AutoAwesome,
+        label = if (isEnabled) "OPTIONAL AI ASSISTANCE" else "AI ASSISTANCE IS PAUSED",
+        title = "AI assistance",
+        compact = true,
+        description = "Bring your own Gemini or Groq API key for title suggestions and reminder detection. You choose when to use cloud AI."
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -665,71 +509,48 @@ private fun APIKeysSection(
     onEdit: (GeminiApiKey) -> Unit,
     onDelete: (GeminiApiKey) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(NoteTheme.Radius.lg.dp),
-        colors = CardDefaults.cardColors(containerColor = NoteTheme.Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = NoteTheme.Elevation.Card)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.Key,
-                    null,
-                    tint = NoteTheme.Primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "API Keys",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = NoteTheme.OnSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                Surface(
-                    onClick = onAddKey,
-                    shape = RoundedCornerShape(20.dp),
-                    color = NoteTheme.Primary.copy(alpha = 0.1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Add, null,
-                            tint = NoteTheme.Primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "Add",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NoteTheme.Primary
-                        )
-                    }
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.amvarpvtltd.swiftNote.components.SwiftNoteSectionHeader(
+                title = "Your providers",
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onAddKey) {
+                Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Add key")
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (keys.isEmpty()) {
-                EmptyKeysState(onAddKey = onAddKey)
-            } else {
-                keys.forEachIndexed { index, key ->
-                    if (index > 0) Spacer(modifier = Modifier.height(10.dp))
-                    AnimatedApiKeyItem(
-                        key = key,
-                        isActive = key.id == activeKeyId,
-                        onSetActive = { onSetActive(key.id) },
-                        onEdit = { onEdit(key) },
-                        onDelete = { onDelete(key) }
-                    )
+        }
+        LlmProvider.entries.forEach { provider ->
+            val providerKeys = keys.filter { it.llmProvider == provider }
+            com.amvarpvtltd.swiftNote.components.SwiftNoteCard {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(
+                            if (provider == LlmProvider.GEMINI) Icons.Outlined.AutoAwesome else Icons.Outlined.Bolt,
+                            null, tint = NoteTheme.Primary
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(provider.displayName, style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold, color = NoteTheme.OnSurface)
+                            Text(if (providerKeys.any { it.id == activeKeyId }) "Active key configured"
+                                else if (providerKeys.isEmpty()) "No API key configured"
+                                else "${providerKeys.size} key(s) configured",
+                                style = MaterialTheme.typography.bodySmall, color = NoteTheme.OnSurfaceVariant)
+                        }
+                    }
+                    if (providerKeys.isNotEmpty()) {
+                        providerKeys.forEach { key ->
+                            HorizontalDivider(color = NoteTheme.Outline.copy(alpha = .6f))
+                            AnimatedApiKeyItem(
+                                key, key.id == activeKeyId,
+                                onSetActive = { onSetActive(key.id) },
+                                onEdit = { onEdit(key) },
+                                onDelete = { onDelete(key) }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -801,11 +622,6 @@ private fun AnimatedApiKeyItem(
         animationSpec = spring(dampingRatio = 0.7f),
         label = "card_press"
     )
-    val borderColor by animateColorAsState(
-        if (isActive) NoteTheme.Primary.copy(alpha = 0.4f) else NoteTheme.Outline.copy(alpha = 0.5f),
-        animationSpec = tween(300),
-        label = "border"
-    )
     val bgColor by animateColorAsState(
         if (isActive) NoteTheme.Primary.copy(alpha = 0.06f) else NoteTheme.SurfaceVariant.copy(alpha = 0.3f),
         animationSpec = tween(300),
@@ -815,18 +631,14 @@ private fun AnimatedApiKeyItem(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scale)
-            .animateContentSize(),
+            .graphicsLayer { scaleX = scale; scaleY = scale },
         shape = RoundedCornerShape(NoteTheme.Radius.md.dp),
         color = bgColor,
-        border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-            width = 1.dp,
-            brush = Brush.linearGradient(listOf(borderColor, borderColor))
-        ),
+        border = null,
         onClick = onSetActive,
         interactionSource = interactionSource
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (isActive) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
@@ -859,7 +671,7 @@ private fun AnimatedApiKeyItem(
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = NoteTheme.Primary,
-                                    fontSize = 9.sp
+                                    fontSize = 11.sp
                                 )
                             }
                         }
@@ -880,7 +692,7 @@ private fun AnimatedApiKeyItem(
                                 fontWeight = FontWeight.Medium,
                                 color = if (key.llmProvider == LlmProvider.GEMINI)
                                     NoteTheme.AccentBlue else NoteTheme.Accent,
-                                fontSize = 9.sp
+                                fontSize = 11.sp
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
@@ -893,14 +705,14 @@ private fun AnimatedApiKeyItem(
                     }
                 }
 
-                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.Default.Edit, "Edit",
                         modifier = Modifier.size(16.dp),
                         tint = NoteTheme.OnSurfaceVariant
                     )
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.Default.Delete, "Delete",
                         modifier = Modifier.size(16.dp),
@@ -1177,7 +989,7 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = NoteTheme.Primary,
-                            fontSize = 9.sp
+                            fontSize = 11.sp
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1214,7 +1026,7 @@ private fun HowToGetKeyCard(onOpenGeminiLink: () -> Unit, onOpenGroqLink: () -> 
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = NoteTheme.Accent,
-                            fontSize = 9.sp
+                            fontSize = 11.sp
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))

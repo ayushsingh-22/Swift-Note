@@ -84,6 +84,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -332,9 +333,7 @@ fun AddScreen(
     }
 
     // Theme management
-    val themeState =
-        com.amvarpvtltd.swiftNote.theme.rememberThemeState()
-    var currentTheme by themeState
+    val currentTheme by com.amvarpvtltd.swiftNote.theme.AppThemeState.themeMode.collectAsState()
 
     // Scroll state for reading progress indicator
     val scrollState = rememberScrollState()
@@ -1790,7 +1789,7 @@ fun AddScreen(
                                                     text = "Title",
                                                     style = MaterialTheme.typography.titleMedium,
                                                     color = NoteTheme.OnSurface,
-                                                    fontWeight = FontWeight.SemiBold
+                                                    fontWeight = FontWeight.Medium
                                                 )
                                             }
 
@@ -1856,7 +1855,7 @@ fun AddScreen(
                                                 ),
                                             placeholder = {
                                                 Text(
-                                                    "Enter a compelling title...",
+                                                    "Give this thought a title",
                                                     color = NoteTheme.OnSurfaceVariant.copy(
                                                         alpha = 0.5f
                                                     )
@@ -1867,10 +1866,8 @@ fun AddScreen(
                                                 imeAction = ImeAction.Next
                                             ),
                                             colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = titleCountColor,
-                                                unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
-                                                    alpha = 0.3f
-                                                ),
+                                                focusedBorderColor = NoteTheme.Primary,
+                                                unfocusedBorderColor = NoteTheme.Outline,
                                                 cursorColor = NoteTheme.Primary,
                                                 focusedLabelColor = titleCountColor,
                                                 focusedTextColor = NoteTheme.OnSurface,
@@ -2631,7 +2628,7 @@ fun AddScreen(
                                                     text = "Checklist",
                                                     style = MaterialTheme.typography.titleMedium,
                                                     color = NoteTheme.OnSurface,
-                                                    fontWeight = FontWeight.SemiBold
+                                                    fontWeight = FontWeight.Medium
                                                 )
                                             }
 
@@ -2873,10 +2870,10 @@ fun AddScreen(
                                                 )
 
                                                 Text(
-                                                    text = "Description",
+                                                    text = "Your note",
                                                     style = MaterialTheme.typography.titleMedium,
                                                     color = NoteTheme.OnSurface,
-                                                    fontWeight = FontWeight.SemiBold
+                                                    fontWeight = FontWeight.Medium
                                                 )
                                             }
 
@@ -2980,18 +2977,16 @@ fun AddScreen(
                                                 ),
                                                 placeholder = {
                                                     Text(
-                                                        "Write your thoughts here...\n\nExpress your ideas, capture important information, or jot down anything that comes to mind.",
+                                                        "Start writing. Make room for a new idea.",
                                                         color = NoteTheme.OnSurfaceVariant.copy(
                                                             alpha = 0.5f
                                                         )
                                                     )
                                                 },
                                                 colors = RichTextEditorDefaults.outlinedRichTextEditorColors(
-                                                    focusedBorderColor = descCountColor,
-                                                    unfocusedBorderColor = NoteTheme.OnSurfaceVariant.copy(
-                                                        alpha = 0.3f
-                                                    ),
-                                                    cursorColor = NoteTheme.Secondary
+                                                    focusedBorderColor = NoteTheme.Primary,
+                                                    unfocusedBorderColor = Color.Transparent,
+                                                    cursorColor = NoteTheme.Primary
                                                 ),
                                                 shape = RoundedCornerShape(
                                                     dims.cornerSmall

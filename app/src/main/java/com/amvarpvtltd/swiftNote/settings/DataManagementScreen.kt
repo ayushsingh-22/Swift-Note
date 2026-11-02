@@ -25,6 +25,8 @@ import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
 import com.amvarpvtltd.swiftNote.components.BackgroundProvider
 import com.amvarpvtltd.swiftNote.design.NoteTheme
 import kotlinx.coroutines.launch
+import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +40,7 @@ fun DataManagementScreen(navController: NavController) {
     var isLoading by remember { mutableStateOf(false) }
 
     // Performance: remember brush to avoid recreating gradient on every recomposition
-    val backgroundBrush = remember { BackgroundProvider.getBrush() }
+    val backgroundBrush = remember(NoteTheme.Background) { BackgroundProvider.getBrush() }
 
     Scaffold(
         topBar = {
@@ -65,7 +67,7 @@ fun DataManagementScreen(navController: NavController) {
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = NoteTheme.SurfaceVariant
+                    containerColor = NoteTheme.Background
                 )
             )
         },
@@ -80,14 +82,15 @@ fun DataManagementScreen(navController: NavController) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .responsiveContentWidth(rememberResponsiveDimensions())
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Reset App Data Card
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = NoteTheme.Surface,
                         contentColor = NoteTheme.OnSurface
@@ -151,7 +154,7 @@ fun DataManagementScreen(navController: NavController) {
                 // Clear All Data Card
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.elevatedCardColors(
                         containerColor = NoteTheme.Surface,
                         contentColor = NoteTheme.OnSurface
@@ -215,7 +218,7 @@ fun DataManagementScreen(navController: NavController) {
                 // Information Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = NoteTheme.SurfaceVariant.copy(alpha = 0.7f)
                     )

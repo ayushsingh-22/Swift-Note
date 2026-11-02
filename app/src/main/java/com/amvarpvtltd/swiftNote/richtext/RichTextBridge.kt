@@ -12,6 +12,10 @@ import org.jsoup.nodes.TextNode
  * Keeping library calls in one place makes future swaps a single-file change.
  */
 object RichTextBridge {
+    /** Lightweight styled preview for cards; the full editor/display remains unchanged. */
+    fun toPreviewAnnotatedString(content: String, maxChars: Int = 280): androidx.compose.ui.text.AnnotatedString =
+        buildRichTextPreview(content, maxChars)
+
 
     /**
      * Strip all HTML tags and return plain text.

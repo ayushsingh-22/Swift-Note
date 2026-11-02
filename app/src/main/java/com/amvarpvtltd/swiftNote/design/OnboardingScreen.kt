@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.amvarpvtltd.swiftNote.auth.DeviceManager
 import com.amvarpvtltd.swiftNote.utils.rememberResponsiveDimensions
+import com.amvarpvtltd.swiftNote.utils.responsiveContentWidth
 import com.amvarpvtltd.swiftNote.auth.PassphraseManager
 import com.amvarpvtltd.swiftNote.auth.SyncMode
 import com.amvarpvtltd.swiftNote.cleanup.DataCleanupManager
@@ -178,6 +179,18 @@ private suspend fun performOneTimeRestore(
 @Composable
 fun OnboardingScreen(navController: NavController) {
     val context = LocalContext.current
+    val tourViewModel: com.amvarpvtltd.swiftNote.onboarding.WelcomeTourViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel()
+    val tourState by tourViewModel.state.collectAsState()
+    if (!tourState.completed) {
+        WelcomeTourScreen(
+            onComplete = tourViewModel::complete,
+            isCompleting = tourState.saving,
+            saveFailed = tourState.saveFailed
+        )
+        return
+    }
+
     val scope = rememberCoroutineScope()
     var showQRScanner by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
@@ -229,8 +242,8 @@ fun OnboardingScreen(navController: NavController) {
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            NoteTheme.Primary,
-                            NoteTheme.PrimaryVariant,
+                            NoteTheme.PrimaryContainer,
+                            NoteTheme.Background,
                             NoteTheme.Background   // smooth fade into background
                         )
                     )
@@ -240,6 +253,7 @@ fun OnboardingScreen(navController: NavController) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .responsiveContentWidth(dims)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -263,7 +277,7 @@ fun OnboardingScreen(navController: NavController) {
                         modifier = Modifier
                             .size(heroLogoOuter)
                             .background(
-                                color = Color.White.copy(alpha = 0.15f),
+                                color = NoteTheme.PrimaryContainer,
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -272,7 +286,7 @@ fun OnboardingScreen(navController: NavController) {
                             modifier = Modifier
                                 .size(heroLogoInner)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.9f), CircleShape),
+                                .background(NoteTheme.Surface, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
@@ -292,7 +306,7 @@ fun OnboardingScreen(navController: NavController) {
                         text = "SwiftNote",
                         fontSize = dims.scaledSp(36),
                         fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
+                        color = NoteTheme.OnSurface,
                         letterSpacing = (-1).sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -305,7 +319,7 @@ fun OnboardingScreen(navController: NavController) {
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontSize = dims.scaledSp(15)
                         ),
-                        color = Color.White.copy(alpha = 0.82f),
+                        color = NoteTheme.OnSurfaceVariant,
                         textAlign = TextAlign.Center,
                         lineHeight = dims.scaledSp(22)
                     )
@@ -324,10 +338,10 @@ fun OnboardingScreen(navController: NavController) {
                         ),
                         verticalArrangement = Arrangement.spacedBy(dims.paddingSmall)
                     ) {
-                        listOf("✦ Offline-first", "✦ Encrypted", "✦ AI Reminders").forEach { label ->
+                        listOf("Offline-first", "Encrypted storage", "Optional AI").forEach { label ->
                             Surface(
                                 shape = RoundedCornerShape(100.dp),
-                                color = Color.White.copy(alpha = 0.15f)
+                                color = NoteTheme.PrimaryContainer
                             ) {
                                 Text(
                                     text = label,
@@ -338,7 +352,7 @@ fun OnboardingScreen(navController: NavController) {
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontSize = dims.scaledSp(11)
                                     ),
-                                    color = Color.White.copy(alpha = 0.9f),
+                                    color = NoteTheme.OnPrimaryContainer,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
                                     softWrap = false,
